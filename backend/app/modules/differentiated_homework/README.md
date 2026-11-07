@@ -13,9 +13,20 @@ Backend for giving students homework matched to their learning needs, with teach
 | Submit homework | **Mock:** accepts no answers and always records a score of 92 |
 | Recommend remediation | Partial: picks the lowest of LU, CU, AU and CT, then returns one of four fixed maths-specific texts |
 
+## Implemented in this module
+
+| Component | Files | What it does |
+|---|---|---|
+| **Gap Analyzer** (service only; no endpoint yet) | `gap_analyzer.py`, `schemas.py` | Ranks a student's LU, CU, AU and CT scores and reports the lowest. Ties are reported as ties, and all-equal scores mean no weakest. **No threshold is applied:** "weakest" means lowest relative to the student's own scores |
+| **Competency adapter** (temporary) | `competency_adapter.py` | The only reader of competency data. Reads `Student` live and baseline scores, read-only. Rejects out-of-range values. To be replaced when the assessment engine provides diagnosis |
+
+Tests: `backend/tests/test_homework_gap_analyzer.py`.
+
+**Limitation:** the scores it reads are unverified. Some code paths set them from request input, fixed increments or simulated grading. Results are relative comparisons, not diagnosis.
+
 ## Planned, not implemented
 
-- Learning gap analysis
+- Learning gap analysis beyond relative ranking (needs assessment data)
 - Pedagogical strategies
 - Question selection by subject, topic, competency, difficulty and cognitive level
 - AI-assisted question generation for gaps in the question bank
