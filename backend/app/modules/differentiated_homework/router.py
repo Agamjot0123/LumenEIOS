@@ -9,6 +9,16 @@ from backend.app.db.session import get_db
 from backend.app.models.entities import HomeworkRemediation, Student, User, AuditEvent, utc_now
 from backend.app.schemas.competencies import HomeworkOut
 from backend.app.services.competency_service import generate_differentiated_recommendation
+import logging
+
+from pydantic import ValidationError
+
+from backend.app.modules.differentiated_homework.access import can_view_student, role_may_view_students
+from backend.app.modules.differentiated_homework.competency_adapter import load_competency_profile
+from backend.app.modules.differentiated_homework.gap_analyzer import analyze_gaps
+from backend.app.modules.differentiated_homework.schemas import GapAnalysis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Homework & Remediation"])
 
@@ -102,4 +112,43 @@ async def get_student_remediation_recommendation(
     if not st:
         raise HTTPException(status_code=404, detail="Student not found.")
     return generate_differentiated_recommendation(st)
+
+
+@router.get("/students/{student_id}/homework/gap-analysis", response_model=GapAnalysis)
+async def get_student_gap_analysis(
+    student_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Read-only: rank the student's LU, CU, AU and CT scores and report the weakest.
+
+    Access rules are in access.py. Scores come from the temporary competency adapter and
+    are unverified, so the result is a relative comparison, not a diagnosis.
+    """
+    # Roles that can never view student analysis are refused before any lookup, so they
+    # can't use this endpoint to find out which student IDs exist.
+    if not role_may_view_students(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    result = await db.execute(select(Student).filter(Student.id == student_id))
+    student = result.scalars().first()
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+    if not await can_view_student(db, current_user, student):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    try:
+        profile = await load_competency_profile(db, student_id)
+    except ValidationError:
+        # Stored data is out of range or malformed. Don't return or log the values.
+        logger.warning("Invalid stored competency scores for a student; gap analysis refused.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="This student's competency data is invalid. Contact an administrator.",
+        )
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+    return analyze_gaps(profile)
 
