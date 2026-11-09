@@ -56,3 +56,72 @@ class GapAnalysis(BaseModel):
     spread: int  # highest minus lowest
     source: str
     notes: List[str]
+
+
+# --- Question Selection ---------------------------------------------------------
+
+
+class CandidateQuestion(BaseModel):
+    """A question bank item as seen by the selector. Answers and rubrics are never included."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1)
+    school_id: str
+    subject_id: str
+    text: str
+    type: str
+    marks: StrictInt  # range is checked by the selector, so bad values are reported, not rejected
+    competency: str  # raw stored value; free text in the database
+    bloom_level: str
+    is_ai_generated: bool
+
+
+class QuestionBankLoad(BaseModel):
+    """Questions read from the database, plus the IDs of rows that couldn't be read."""
+
+    model_config = ConfigDict(frozen=True)
+
+    candidates: List[CandidateQuestion]
+    malformed_question_ids: List[str]  # skipped because stored values have the wrong type
+
+
+class SelectionRequest(BaseModel):
+    """What the caller wants. Sizes come from the caller; there are no built-in defaults."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    school_id: str = Field(min_length=1)
+    subject_id: str = Field(min_length=1)
+    max_questions: StrictInt = Field(ge=1)
+    max_total_marks: Optional[StrictInt] = Field(default=None, ge=1)
+    # Required: AI-generated questions have no review status, so the caller must decide.
+    include_ai_generated: bool
+
+
+class SelectedQuestion(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    question_id: str
+    competency: Competency
+    competency_rank: int  # rank of this competency in the gap analysis (1 = weakest)
+    marks: int
+    type: str
+    bloom_level: str
+    is_ai_generated: bool
+    text: str
+
+
+class SelectionResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    selected: List[SelectedQuestion]  # in selection order
+    total_marks: int
+    requested_questions: int
+    max_total_marks: Optional[int]
+    shortfall: int  # requested_questions minus the number selected
+    priority: List[List[Competency]]  # competency groups, weakest first; tied competencies share a group
+    eligible_by_competency: Dict[Competency, int]  # passed all filters, before the marks limit
+    excluded: Dict[str, int]  # reason -> count
+    notes: List[str]
