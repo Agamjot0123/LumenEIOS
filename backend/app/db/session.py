@@ -34,6 +34,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db():
+    # Register all mapped tables explicitly, independent of route import order.
+    from backend.app.db import base  # noqa: F401
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

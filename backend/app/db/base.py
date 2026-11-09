@@ -54,3 +54,7 @@ __all__ = [
     "AuditEvent",
 ]
 
+
+# Explicit catalogue registration; existing model exports remain unchanged.
+from backend.app.models.ncert_catalogue import CATALOGUE_MODELS
+from backend.app.models.ncert_review import CatalogueMappingDecision
