@@ -18,6 +18,9 @@ export const PERMISSIONS = {
   ASSIGN_REMEDIATION: ['teacher'],
   SUBMIT_ASSIGNMENTS: ['student'],
   VIEW_CHILD_PROGRESS: ['parent'],
+  // Curriculum catalogue (UI gating only — the backend must enforce authorization).
+  VIEW_CURRICULUM_CATALOGUE: ['admin', 'principal', 'teacher'],
+  REVIEW_CURRICULUM_MAPPINGS: ['admin'], // contract v1: global catalogue review is admin-only
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {

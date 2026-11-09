@@ -17,6 +17,7 @@ import {
   Award,
   HeartHandshake,
   Settings,
+  Library,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -60,6 +61,12 @@ export const Sidebar: React.FC = () => {
             icon: <ScanLine className="w-4 h-4" />,
             badge: 'Batch',
           },
+          {
+            label: 'Curriculum Catalogue',
+            path: '/curriculum/catalogue',
+            icon: <Library className="w-4 h-4" />,
+            badge: 'VI–VIII',
+          },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
         ];
 
@@ -88,6 +95,12 @@ export const Sidebar: React.FC = () => {
             icon: <ScanLine className="w-4 h-4" />,
             badge: 'Batch',
           },
+          {
+            label: 'Curriculum Catalogue',
+            path: '/curriculum/catalogue',
+            icon: <Library className="w-4 h-4" />,
+            badge: 'VI–VIII',
+          },
           { label: 'Compliance Reports', path: '/principal/reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
         ];
 
@@ -101,6 +114,12 @@ export const Sidebar: React.FC = () => {
             icon: <Clock className="w-4 h-4" />,
             highlight: true,
             badge: 'Key',
+          },
+          {
+            label: 'Curriculum Catalogue',
+            path: '/curriculum/catalogue',
+            icon: <Library className="w-4 h-4" />,
+            badge: 'VI–VIII',
           },
           { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
           {
@@ -167,7 +186,9 @@ export const Sidebar: React.FC = () => {
       {/* Navigation List */}
       <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isActive =
+            location.pathname === item.path ||
+            (item.path === '/curriculum/catalogue' && location.pathname.startsWith('/curriculum/catalogue/'));
           return (
             <NavLink
               key={item.label}
