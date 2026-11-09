@@ -96,16 +96,23 @@ def _check_inputs(analysis: GapAnalysis, selection: SelectionResult, request: Se
     return ranks
 
 
-def _summary(targeted: List[str], analysis: GapAnalysis) -> str:
+def rationale_summary(
+    targeted: List[str], scores: Dict[str, int], weakest: List[str], lowest: int, highest: int
+) -> str:
+    """Factual one-line summary. Also used when a saved draft is edited."""
     if not targeted:
         return "No questions were selected."
-    scores = {gap.competency: gap.score for gap in analysis.ranked}
     parts = ", ".join(f"{c} ({scores[c]})" for c in targeted)
-    if analysis.weakest:
-        lowest = f"lowest score: {', '.join(analysis.weakest)} ({analysis.lowest_score})"
+    if weakest:
+        lowest_text = f"lowest score: {', '.join(weakest)} ({lowest})"
     else:
-        lowest = f"all four scores equal ({analysis.lowest_score})"
-    return f"Targets {parts}. Student's {lowest}; score range {analysis.lowest_score}-{analysis.highest_score}."
+        lowest_text = f"all four scores equal ({lowest})"
+    return f"Targets {parts}. Student's {lowest_text}; score range {lowest}-{highest}."
+
+
+def _summary(targeted: List[str], analysis: GapAnalysis) -> str:
+    scores = {gap.competency: gap.score for gap in analysis.ranked}
+    return rationale_summary(targeted, scores, list(analysis.weakest), analysis.lowest_score, analysis.highest_score)
 
 
 def assemble_homework_draft(

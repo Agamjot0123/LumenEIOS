@@ -27,7 +27,143 @@ Backend for giving students homework matched to their learning needs, with teach
 
 | **Homework preview endpoint** | `router.py`, `access.py` | `POST /students/{student_id}/homework/preview` runs the whole pipeline for one student and returns the `HomeworkDraft`. **Nothing is saved** |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`.
+| **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
+| **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
+
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`.
+
+### Saved homework drafts
+
+**Tables (new; `models.py`):**
+- `homework_drafts`: student, school, subject, `created_by`, `status` (enforced by the database as `draft`, `approved`, `rejected` or `assigned`), the request settings, totals, the rationale and notes as JSON, `reviewed_by`, `reviewed_at`, `review_note`, `created_at` and `updated_at`.
+- `homework_draft_items`: an ordered **snapshot** of each question: text, type, options, marks, competency, rank, Bloom level, the AI flag, and the answer key and rubric. Positions and questions are unique within a draft. `source_question_id` is deliberately not a foreign key, so a snapshot survives if the bank question is edited or deleted.
+
+**How the tables are created:** there's no migration tool. `init_db()` runs `create_all` on startup, which creates missing tables and never alters or drops existing ones. These tables are new, so adding them is non-destructive. A test confirms this on a disposable "old" database. Setting up Alembic is still a team decision.
+
+**Answer keys:** the answer key and rubric are stored for future grading, but **no response returns them**.
+
+**Endpoints** (all under `/api/v1`; parents and students always get 403, because drafts aren't assigned yet):
+
+| Method and path | Purpose |
+|---|---|
+| `POST /students/{student_id}/homework/drafts` | Save. The body is the preview body plus an optional `expected_question_ids` |
+| `GET /homework/drafts?status=&student_id=` | List the drafts you may see |
+| `GET /homework/drafts/{draft_id}` | View one draft with its questions |
+| `POST /homework/drafts/{draft_id}/approve` | Draft to approved. Optional `{"note"}` |
+| `POST /homework/drafts/{draft_id}/reject` | Draft to rejected. Optional `{"note"}` |
+| `POST /homework/drafts/{draft_id}/reopen` | Rejected to draft; clears the review fields |
+| `DELETE /homework/drafts/{draft_id}/items/{position}` | Remove a question (draft status only); renumbers, recounts and updates the rationale |
+
+**How saving works:** saving is never automatic. The server **re-runs the same pipeline as the preview**; it doesn't accept a draft posted by the client.
+- **409 when the questions differ:** if `expected_question_ids` is given and doesn't match the regenerated selection exactly.
+- **409 when a question changed:** if a question changed or disappeared between selection and saving.
+- **422 when there's nothing to save:** if no questions were selected.
+- **All or nothing:** the draft, its questions and an audit event are written in one transaction.
+
+**Status rules:** `draft` goes to `approved` or `rejected`, and `rejected` goes back to `draft` (reopen). `approved` to `assigned` is defined for the next milestone, with no endpoint yet. Anything else is refused with 409.
+
+**Access:**
+- **Admin:** any draft.
+- **Principal:** drafts in schools they have access to (own school or an active membership).
+- **Teacher:** only drafts they created, while they still have access to that school.
+
+The same rules cover viewing, review and editing. **Assumption:** a teacher may approve their own draft, since "teacher review" is the agreed step.
+
+**Audit:** every save, review and edit adds an `AuditEvent`, which keeps a history even though reopening clears the review fields.
+
+**Simultaneous changes:** `homework_drafts.version` is an integer version counter (SQLAlchemy `version_id_col`). It starts at 1 and goes up by 1 on every successful change. Every update also requires the version this request read. If another request changed the draft in between, nothing is written and the endpoint returns **409**: "This draft was changed by another request. Reload it and try again." The winning request's change is kept.
+
+An integer is used instead of `updated_at`, because on Windows most consecutive clock readings are identical, so a timestamp version could miss a conflict. A test freezes the clock to prove detection doesn't depend on it. `version` isn't returned by the API.
+
+**Timestamps** in responses are always UTC with an explicit offset, and look the same before and after a reload.
+
+**Renumbering** after a removal goes through temporary high positions, so the unique (draft, position) rule can't be broken, whatever order the database applies the updates in. A test reproduces the worst-case order every time, by choosing item keys. If two requests remove questions at once, the second gets 409, and positions stay unique and gap-free.
+
+**Deleting drafts and foreign keys:** SQLite doesn't check foreign keys unless `PRAGMA foreign_keys = ON` is set, and this app's shared engine (`db/session.py`) doesn't set it.
+- **ORM deletes** of a draft remove its items, through the relationship cascade.
+- **A raw SQL delete** would leave the items behind.
+- **The schema itself is correct:** the tables' `ON DELETE CASCADE` works when foreign keys are on. Both behaviours are tested on a disposable database.
+- **Turning foreign keys on is a shared-engine decision,** so it's left to the backend owner.
+
+**Failing closed:** roles must match exactly (`admin`, `principal` or `teacher`); `""`, `"Teacher"` and `"admin "` are refused. The role stored on the user counts, not the role claimed in the token.
+- **Educators with no school,** and **teachers who moved school**, lose access to drafts in schools they're no longer part of.
+- **Invalid, tampered or non-Bearer tokens** get 401.
+- **Tokens for unknown users** never return draft data.
+
+Note that existing shared code (`DEMO_MODE`, on by default) treats a request **with no token** as admin.
+
+**Not yet:** student visibility, submission, grading, and content edits other than removing a question.
+
+### Homework assignments
+
+An **assignment** issues an approved draft to its student. It's a separate table, `homework_assignments`:
+
+| Column | Notes |
+|---|---|
+| `id` | |
+| `draft_id` | **Unique**, so a draft can be assigned only once |
+| `student_id`, `school_id`, `subject_id` | Copied from the draft |
+| `assigned_by` | The logged-in user |
+| `assigned_at` | |
+| `due_at` | Optional, stored in UTC |
+| `status` | Only `assigned` for now |
+
+**No question copy:** the assignment shows the draft's snapshot items, which can't change once the draft is `assigned`. The question bank is never read.
+
+**Status validation:** `status` is checked by the application. There's deliberately no database `CHECK` rule, because SQLite can't change one without rebuilding the table, and submission statuses will be added later.
+
+**Assign:** `POST /api/v1/homework/drafts/{draft_id}/assign`
+
+```json
+{"due_at": "2026-11-20T17:00:00+05:30"}
+```
+
+The body is optional. `due_at` must include a time zone and be in the future. Unknown fields are refused, so a client can't send `student_id`, `school_id` or `assigned_by`.
+
+**Response 201:**
+
+```json
+{
+  "id": "…", "draft_id": "…", "student_id": "…", "school_id": "school-1", "subject_id": "sub-math",
+  "status": "assigned", "assigned_by": "user-teacher-1",
+  "assigned_at": "2026-11-09T10:00:00Z", "due_at": "2026-11-20T11:30:00Z",
+  "question_count": 2, "total_marks": 5,
+  "items": [{"position": 1, "source_question_id": "…", "text": "…", "type": "mcq", "options": ["A", "B"],
+             "marks": 3, "competency": "LU", "competency_rank": 1, "bloom_level": "Apply",
+             "is_ai_generated": false}]
+}
+```
+
+**On assign, in one transaction:** the assignment is created, the draft becomes `assigned`, and an audit event is written. If anything fails, all of it is rolled back. The draft's approval record (`reviewed_by`, `reviewed_at`, `review_note`) is kept.
+
+**Errors:**
+
+| Code | Reason |
+|---|---|
+| 403 | Role or access |
+| 404 | Draft not found |
+| 409 | Draft not approved, already assigned (including a simultaneous assignment caught by the unique `draft_id`), or changed by another request |
+| 500 | Any other database failure. Everything is rolled back, and it's never reported as "already assigned" |
+| 422 | Invalid body or due date |
+
+**List:** `GET /api/v1/homework/assignments?student_id=&subject_id=&status=` returns summaries: the same fields without `items`. Access filtering happens in the database query.
+
+**View:** `GET /api/v1/homework/assignments/{assignment_id}` returns the full assignment with questions.
+
+**Access:** the same rules as the source draft.
+- **Admin:** all assignments.
+- **Principal:** assignments in their schools.
+- **Teacher:** assignments for drafts they created, even if a principal did the assigning.
+
+**Parents and students get 403.** There's no approved link from a student login to a `Student` record, so **student access is blocked until that identity mapping is approved**.
+
+**After assignment:** the draft can't be approved, rejected, reopened or edited (409), and its questions stay exactly as assigned even if the question bank changes.
+
+**Deleting an assigned draft is refused** (`AssignedDraftDeletionError`, raised by an ORM `before_delete` hook). Deleting a draft would cascade to the question snapshots the assignment shows, and SQLite foreign keys are off, so the database wouldn't stop it. Unassigned drafts can still be deleted. A raw SQL delete bypasses this hook; see the foreign-key notes above.
+
+**Answer keys:** no response returns the answer key or rubric.
+
+**Not yet:** student access, submission, evaluation, due-date reminders, changing or cancelling an assignment, and class-wide assignment.
 
 ### Homework preview endpoint
 
@@ -209,6 +345,12 @@ All paths are under `/api/v1`.
 | `GET /students/{student_id}/remediation/recommendation` | Any logged-in user | Partial |
 | `GET /students/{student_id}/homework/gap-analysis` | admin; principal or teacher (school or active membership); linked parent | Works; read-only |
 | `POST /students/{student_id}/homework/preview` | admin; principal or teacher (school or active membership) | Works; saves nothing |
+| `POST /students/{student_id}/homework/drafts` | admin; principal or teacher (school or active membership) | Works; saves a draft |
+| `GET /homework/drafts`, `GET /homework/drafts/{draft_id}` | admin; principal (their schools); teacher (own drafts) | Works |
+| `POST /homework/drafts/{draft_id}/approve`, `/reject`, `/reopen` | Same as viewing a draft | Works; 409 on invalid or simultaneous changes |
+| `DELETE /homework/drafts/{draft_id}/items/{position}` | Same as viewing a draft | Works; draft status only |
+| `POST /homework/drafts/{draft_id}/assign` | Same as viewing a draft | Works; approved drafts only, once |
+| `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; no student access yet |
 
 ## Integration with other modules
 

@@ -1,7 +1,8 @@
 """Data shapes for the Differentiated Homework module."""
+from datetime import datetime
 from typing import Annotated, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 Competency = Literal["LU", "CU", "AU", "CT"]
 
@@ -193,3 +194,122 @@ class HomeworkPreviewRequest(BaseModel):
     max_questions: StrictInt = Field(ge=1)
     max_total_marks: Optional[StrictInt] = Field(default=None, ge=1)
     include_ai_generated: StrictBool  # required and must be a real true/false
+
+
+# --- Saved homework drafts ------------------------------------------------------------
+
+DraftStatus = Literal["draft", "approved", "rejected", "assigned"]
+
+
+class QuestionSnapshot(BaseModel):
+    """Full copy of a question bank item for saving. INTERNAL: includes the answer key and
+    rubric, so it must never be used as an API response model."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    text: str
+    type: str
+    options_json: List[object]
+    marks: StrictInt
+    competency: str
+    bloom_level: str
+    is_ai_generated: bool
+    correct_answer: Optional[str] = None
+    marking_rubric: Optional[str] = None
+
+
+class HomeworkDraftSaveRequest(HomeworkPreviewRequest):
+    """Same settings as the preview. The server regenerates the draft and saves that.
+
+    expected_question_ids: optional. If given, the save is refused (409) unless the regenerated
+    draft has exactly these questions in this order, so the teacher saves what they previewed.
+    """
+
+    expected_question_ids: Optional[List[str]] = None
+
+
+class DraftReviewRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SavedDraftItemOut(BaseModel):
+    """A saved question as shown to teachers. No answer key or rubric."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    source_question_id: str
+    text: str
+    type: str
+    options: List[object]
+    marks: int
+    competency: Competency
+    competency_rank: int
+    bloom_level: str
+    is_ai_generated: bool
+
+
+class SavedDraftSummaryOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    student_id: str
+    school_id: str
+    subject_id: str
+    status: DraftStatus
+    created_by: str
+    question_count: int
+    total_marks: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedDraftOut(SavedDraftSummaryOut):
+    requested_questions: int
+    max_total_marks: Optional[int]
+    include_ai_generated: bool
+    shortfall: int
+    is_complete: bool
+    rationale: DraftRationale
+    notes: List[str]
+    reviewed_by: Optional[str]
+    reviewed_at: Optional[datetime]
+    review_note: Optional[str]
+    items: List[SavedDraftItemOut]
+
+
+# --- Homework assignments ------------------------------------------------------------
+
+AssignmentStatus = Literal["assigned"]
+
+
+class AssignRequest(BaseModel):
+    """Body of POST /homework/drafts/{draft_id}/assign. Student, school and teacher come from
+    the draft and the logged-in user, never from the client."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    due_at: Optional[AwareDatetime] = None  # must include a time zone; checked to be in the future
+
+
+class AssignmentSummaryOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    draft_id: str
+    student_id: str
+    school_id: str
+    subject_id: str
+    status: AssignmentStatus
+    assigned_by: str
+    assigned_at: datetime
+    due_at: Optional[datetime]
+    question_count: int
+    total_marks: int
+
+
+class AssignmentOut(AssignmentSummaryOut):
+    items: List[SavedDraftItemOut]  # the draft's frozen snapshots; no answer key or rubric

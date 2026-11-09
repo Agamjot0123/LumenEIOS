@@ -9,6 +9,8 @@ Rules, based only on relationships that already exist in the database:
 - student: denied. No approved link exists between a student login (User) and a Student
   record, so a student can't be safely identified as "themselves" yet.
 - any other role: denied.
+
+Saved drafts have their own rules; see can_access_draft below.
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,22 +35,28 @@ def role_may_generate_homework(user: User) -> bool:
     return user.role in ROLES_THAT_MAY_GENERATE
 
 
-async def can_view_student(db: AsyncSession, user: User, student: Student) -> bool:
-    """Return True if the user may read this student's homework data."""
+async def has_school_access(db: AsyncSession, user: User, school_id: str) -> bool:
+    """Educator school rule: own school_id, or an active SchoolMembership. Admin: any school."""
     if user.role == "admin":
         return True
-
-    if user.role in EDUCATOR_ROLES:
-        if user.school_id and user.school_id == student.school_id:
-            return True
-        membership = await db.execute(
-            select(SchoolMembership.id).filter(
-                SchoolMembership.user_id == user.id,
-                SchoolMembership.school_id == student.school_id,
-                SchoolMembership.is_active == True,  # noqa: E712 (SQL comparison)
-            )
+    if user.role not in EDUCATOR_ROLES:
+        return False
+    if user.school_id and user.school_id == school_id:
+        return True
+    membership = await db.execute(
+        select(SchoolMembership.id).filter(
+            SchoolMembership.user_id == user.id,
+            SchoolMembership.school_id == school_id,
+            SchoolMembership.is_active == True,  # noqa: E712 (SQL comparison)
         )
-        return membership.first() is not None
+    )
+    return membership.first() is not None
+
+
+async def can_view_student(db: AsyncSession, user: User, student: Student) -> bool:
+    """Return True if the user may read this student's homework data."""
+    if user.role == "admin" or user.role in EDUCATOR_ROLES:
+        return await has_school_access(db, user, student.school_id)
 
     if user.role == "parent":
         link = await db.execute(
@@ -60,3 +68,32 @@ async def can_view_student(db: AsyncSession, user: User, student: Student) -> bo
         return link.first() is not None
 
     return False
+
+
+# --- Saved homework drafts ------------------------------------------------------------
+# Drafts aren't assigned yet, so parents and students can't see them at all.
+# - admin: any draft
+# - principal: drafts in a school they have access to
+# - teacher: only drafts they created, and only while they still have access to that school
+# The same rules apply to viewing and changing (review actions and edits). A teacher can
+# review their own draft, which is the "teacher review" step in the agreed flow.
+
+
+async def can_access_draft(db: AsyncSession, user: User, draft) -> bool:
+    if user.role == "admin":
+        return True
+    if user.role == "principal":
+        return await has_school_access(db, user, draft.school_id)
+    if user.role == "teacher":
+        return draft.created_by == user.id and await has_school_access(db, user, draft.school_id)
+    return False
+
+
+# --- Assignments ----------------------------------------------------------------------
+# Same rules as the source draft: a teacher sees assignments for drafts they created (even if a
+# principal did the assigning), principals their schools, admin all. There's no approved link
+# from a student login to a Student record, so students and parents get nothing here yet.
+
+
+async def can_access_assignment(db: AsyncSession, user: User, assignment) -> bool:
+    return await can_access_draft(db, user, assignment.draft)
