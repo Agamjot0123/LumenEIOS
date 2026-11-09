@@ -313,3 +313,65 @@ class AssignmentSummaryOut(BaseModel):
 
 class AssignmentOut(AssignmentSummaryOut):
     items: List[SavedDraftItemOut]  # the draft's frozen snapshots; no answer key or rubric
+
+
+# --- Student account links and student-facing homework ------------------------------
+
+
+class StudentAccountLinkCreate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    user_id: str = Field(min_length=1)
+    student_id: str = Field(min_length=1)
+
+
+class StudentAccountLinkOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    user_id: str
+    student_id: str
+    created_by: str
+    created_at: datetime
+
+
+class StudentAccountLinkListItemOut(StudentAccountLinkOut):
+    """A link as listed for admins. IDs and existence flags only: no names, emails or other
+    personal details. is_stale is true when the linked User or Student no longer exists; such a
+    link grants no access but blocks relinking until it is deleted by its ID."""
+
+    user_exists: bool
+    student_exists: bool
+    is_stale: bool
+
+
+class StudentAssignmentItemOut(BaseModel):
+    """A question as a student sees it: no answer key, rubric, competency, rank, Bloom level,
+    AI flag or source question ID."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    marks: int
+
+
+class StudentAssignmentSummaryOut(BaseModel):
+    """No teacher-only fields: no draft ID, school, assigning teacher or review data."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    subject_id: str
+    subject_name: Optional[str]
+    status: AssignmentStatus
+    assigned_at: datetime
+    due_at: Optional[datetime]
+    question_count: int
+    total_marks: int
+
+
+class StudentAssignmentOut(StudentAssignmentSummaryOut):
+    items: List[StudentAssignmentItemOut]

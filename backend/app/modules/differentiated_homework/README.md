@@ -29,8 +29,9 @@ Backend for giving students homework matched to their learning needs, with teach
 
 | **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
 | **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
+| **Student homework access** | `models.py`, `student_access.py`, `router.py` | Admin links a student login to a Student record (`student_account_links`); the linked student lists and views their own assignments |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`.
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`.
 
 ### Saved homework drafts
 
@@ -163,7 +164,58 @@ The body is optional. `due_at` must include a time zone and be in the future. Un
 
 **Answer keys:** no response returns the answer key or rubric.
 
-**Not yet:** student access, submission, evaluation, due-date reminders, changing or cancelling an assignment, and class-wide assignment.
+**Not yet:** submission, evaluation, due-date reminders, changing or cancelling an assignment, and class-wide assignment.
+
+### Student homework access
+
+**How a student is identified:** only through an explicit link in `student_account_links`. One student login is linked to one `Student` record:
+- **Never by matching IDs:** `User.id == Student.id` is a coincidence in the seed data, not a rule.
+- **Never by email:** `Student` has no email field.
+- **One to one:** both `user_id` and `student_id` are unique.
+- **Created only by an admin:** nothing is inferred.
+
+**Why a new table and not a `Student.user_id` column:** `create_all()` doesn't add columns to existing tables, and there's no migration tool. A new table is created without touching existing data, and it follows the existing `ParentStudentLink` pattern. A test confirms the `students` table is left unchanged.
+
+**Linking accounts (admin only):**
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/v1/student-account-links` with `{"user_id", "student_id"}` | Create a link. **201**. 404 if the user or student doesn't exist; 422 if the account's role isn't exactly `student` or it belongs to a different school; 409 if either side is already linked (also enforced by the database) |
+| `GET /api/v1/student-account-links?user_id=&student_id=` | List links, newest first; both filters optional and combinable. Each item: `id, user_id, student_id, created_by, created_at, user_exists, student_exists, is_stale`. IDs and flags only, with no names or emails. **200**; an empty filter value gives 422 |
+| `DELETE /api/v1/student-account-links/{link_id}` | Remove a link. **204**. The account loses homework access immediately |
+
+Creating and deleting write an audit event; listing writes nothing. Other roles get 403.
+
+**Stale links:** on SQLite (foreign keys off), deleting a User or Student directly in the database leaves its link behind. A stale link grants no access (the student endpoints fail closed), but it blocks relinking (409). To clean up, list links, pick those with `is_stale: true`, and delete them by `id`; replacements can then be created. On PostgreSQL the foreign keys cascade, so links are removed together with the User or Student.
+
+**Student endpoints:** the student always comes from the login and is never supplied by the client.
+
+| Method and path | Returns |
+|---|---|
+| `GET /api/v1/students/me/homework/assignments?status=assigned` | The student's own assignments, newest first: `id`, `subject_id`, `subject_name`, `status`, `assigned_at`, `due_at`, `question_count`, `total_marks` |
+| `GET /api/v1/students/me/homework/assignments/{assignment_id}` | The same fields, plus `items`: `position`, `text`, `type`, `options`, `marks` |
+
+**Not returned to students:**
+- the answer key and rubric
+- each question's competency, rank, Bloom level, AI flag and source question ID
+- the draft ID, school, assigning teacher, review data and rationale
+
+**Access rules (fail closed, all 403 unless noted):**
+- **Wrong role:** the role must be exactly `student`.
+- **No link:** "This account isn't linked to a student record."
+- **School mismatch:** the linked student's school must still match the account's school.
+- **Other roles:** teachers, principals, admins and parents are refused.
+- **Someone else's assignment:** returns **404**, the same as a missing one, so a student can't tell whether another assignment exists.
+- **No token, `DEMO_MODE` off:** 401.
+- **No token, `DEMO_MODE` on:** existing shared code treats this as admin, so it's refused (403).
+
+**Parents** keep their existing access (`GET /students/{student_id}/homework/gap-analysis`, through `ParentStudentLink`) and don't gain access through these student endpoints.
+
+**Not yet:**
+- answer submission and grading
+- a self-service or bulk way to create links
+- linking for existing student accounts: the seeded `user-student-1` has no link, so it gets 403 until an admin links it
+- updating the older routes that still compare `User.id` with `Student.id`, in teammate code and in this module's older homework list route
 
 ### Homework preview endpoint
 
@@ -350,7 +402,9 @@ All paths are under `/api/v1`.
 | `POST /homework/drafts/{draft_id}/approve`, `/reject`, `/reopen` | Same as viewing a draft | Works; 409 on invalid or simultaneous changes |
 | `DELETE /homework/drafts/{draft_id}/items/{position}` | Same as viewing a draft | Works; draft status only |
 | `POST /homework/drafts/{draft_id}/assign` | Same as viewing a draft | Works; approved drafts only, once |
-| `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; no student access yet |
+| `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; teacher-facing |
+| `POST /student-account-links`, `DELETE /student-account-links/{link_id}` | admin only | Works |
+| `GET /students/me/homework/assignments`, `GET /students/me/homework/assignments/{assignment_id}` | linked student only | Works; read-only |
 
 ## Integration with other modules
 

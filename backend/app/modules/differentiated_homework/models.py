@@ -138,6 +138,35 @@ class HomeworkAssignmentRecord(Base):
     draft = relationship("HomeworkDraftRecord", lazy="selectin")
 
 
+class StudentAccountLink(Base):
+    """Explicit one-to-one link between a student login (User) and a Student record.
+
+    Why this table exists: User and Student had no relationship. Student has no email, and
+    matching IDs (User.id == Student.id) is a coincidence of the seed data, not a rule.
+    Links are created only by an admin, after checks; nothing is inferred.
+
+    Why a new table instead of a Student.user_id column: create_all() doesn't add columns to
+    existing tables and no migration tool is set up, so a new column would need an unsafe
+    manual change. A new table is created by create_all without touching existing data. It
+    follows the existing ParentStudentLink pattern. Both columns are unique: one account per
+    student and one student per account.
+
+    Identity is platform-wide, so this may later move to shared code (team decision).
+    """
+
+    __tablename__ = "student_account_links"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_student_account_links_user"),
+        UniqueConstraint("student_id", name="uq_student_account_links_student"),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    user_id = Column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    created_by = Column(String(64), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
 class AssignedDraftDeletionError(Exception):
     """Raised when something tries to delete a draft that has been assigned."""
 

@@ -54,7 +54,22 @@ from backend.app.modules.differentiated_homework.draft_service import (
     to_assignment_out,
     to_assignment_summary,
 )
-from backend.app.modules.differentiated_homework.models import HomeworkAssignmentRecord
+from backend.app.modules.differentiated_homework.models import HomeworkAssignmentRecord, StudentAccountLink
+from fastapi import Response
+from backend.app.modules.differentiated_homework.draft_service import as_utc
+from backend.app.modules.differentiated_homework.schemas import (
+    StudentAccountLinkCreate,
+    StudentAccountLinkListItemOut,
+    StudentAccountLinkOut,
+    StudentAssignmentOut,
+    StudentAssignmentSummaryOut,
+)
+from backend.app.modules.differentiated_homework.student_access import (
+    resolve_linked_student,
+    subject_names,
+    to_student_detail,
+    to_student_summary,
+)
 from backend.app.modules.differentiated_homework.schemas import (
     AssignmentOut,
     AssignmentStatus,
@@ -597,4 +612,170 @@ async def get_homework_assignment(
     if not await can_access_assignment(db, current_user, assignment):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
     return to_assignment_out(assignment)
+
+
+# --- Student account links (admin only) ---------------------------------------------------
+
+
+def _require_admin(user: User) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+
+@router.post("/student-account-links", response_model=StudentAccountLinkOut, status_code=201)
+async def create_student_account_link(
+    body: StudentAccountLinkCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Link a student login to a Student record, one to one. Admin only; nothing is inferred."""
+    _require_admin(current_user)
+
+    account = (await db.execute(select(User).filter(User.id == body.user_id))).scalars().first()
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if account.role != "student":
+        raise HTTPException(status_code=422, detail="Only accounts with the 'student' role can be linked.")
+    student = (await db.execute(select(Student).filter(Student.id == body.student_id))).scalars().first()
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+    if not account.school_id or account.school_id != student.school_id:
+        raise HTTPException(status_code=422, detail="The account and the student belong to different schools.")
+
+    existing = (await db.execute(
+        select(StudentAccountLink.id).filter(
+            (StudentAccountLink.user_id == body.user_id) | (StudentAccountLink.student_id == body.student_id)
+        )
+    )).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="This account or this student is already linked.")
+
+    link = StudentAccountLink(user_id=account.id, student_id=student.id, created_by=current_user.id)
+    db.add(link)
+    db.add(_audit(current_user, "Student Account Linked", f"Linked account {account.id} to student {student.id}."))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        clash = (await db.execute(
+            select(StudentAccountLink.id).filter(
+                (StudentAccountLink.user_id == body.user_id) | (StudentAccountLink.student_id == body.student_id)
+            )
+        )).first()
+        if clash is not None:  # another request linked one of them first
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="This account or this student is already linked.")
+        raise
+    return StudentAccountLinkOut(id=link.id, user_id=link.user_id, student_id=link.student_id,
+                                 created_by=link.created_by, created_at=as_utc(link.created_at))
+
+
+@router.get("/student-account-links", response_model=List[StudentAccountLinkListItemOut])
+async def list_student_account_links(
+    user_id: Optional[str] = Query(default=None, min_length=1),
+    student_id: Optional[str] = Query(default=None, min_length=1),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List links, newest first, optionally filtered. Admin only. Each link says whether its
+    User and Student still exist, so stale links can be found and removed with DELETE."""
+    _require_admin(current_user)
+    query = (
+        select(StudentAccountLink, User.id.is_not(None), Student.id.is_not(None))
+        .outerjoin(User, User.id == StudentAccountLink.user_id)
+        .outerjoin(Student, Student.id == StudentAccountLink.student_id)
+    )
+    if user_id is not None:
+        query = query.filter(StudentAccountLink.user_id == user_id)
+    if student_id is not None:
+        query = query.filter(StudentAccountLink.student_id == student_id)
+    rows = (await db.execute(
+        query.order_by(StudentAccountLink.created_at.desc(), StudentAccountLink.id)
+    )).all()
+    return [
+        StudentAccountLinkListItemOut(
+            id=link.id, user_id=link.user_id, student_id=link.student_id, created_by=link.created_by,
+            created_at=as_utc(link.created_at), user_exists=bool(user_ok), student_exists=bool(student_ok),
+            is_stale=not (user_ok and student_ok),
+        )
+        for link, user_ok, student_ok in rows
+    ]
+
+
+@router.delete("/student-account-links/{link_id}", status_code=204)
+async def delete_student_account_link(
+    link_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a link, for example after a mistake. The student account loses homework access."""
+    _require_admin(current_user)
+    link = (await db.execute(select(StudentAccountLink).filter(StudentAccountLink.id == link_id))).scalars().first()
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Link not found.")
+    await db.delete(link)
+    db.add(_audit(current_user, "Student Account Unlinked",
+                  f"Unlinked account {link.user_id} from student {link.student_id}."))
+    await db.commit()
+    return Response(status_code=204)
+
+
+# --- Student-facing homework ----------------------------------------------------------------
+
+NOT_LINKED = "This account isn't linked to a student record."
+
+
+async def _current_student(db: AsyncSession, user: User) -> Student:
+    """The Student linked to this login. Fails closed: wrong role, no link, or a school
+    mismatch all give 403. The student is never taken from the request."""
+    if user.role != "student":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    student = await resolve_linked_student(db, user)
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=NOT_LINKED)
+    return student
+
+
+@router.get("/students/me/homework/assignments", response_model=List[StudentAssignmentSummaryOut])
+async def list_my_homework_assignments(
+    assignment_status: Optional[AssignmentStatus] = Query(default=None, alias="status"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The logged-in student's own assignments, newest first."""
+    student = await _current_student(db, current_user)
+    query = (
+        select(HomeworkAssignmentRecord)
+        .filter(HomeworkAssignmentRecord.student_id == student.id)
+        .options(selectinload(HomeworkAssignmentRecord.draft).raiseload(HomeworkDraftRecord.items))
+    )
+    if assignment_status:
+        query = query.filter(HomeworkAssignmentRecord.status == assignment_status)
+    rows = (await db.execute(
+        query.order_by(HomeworkAssignmentRecord.assigned_at.desc(), HomeworkAssignmentRecord.id)
+    )).scalars().all()
+    names = await subject_names(db, (a.subject_id for a in rows))
+    return [to_student_summary(a, names) for a in rows]
+
+
+@router.get("/students/me/homework/assignments/{assignment_id}", response_model=StudentAssignmentOut)
+async def get_my_homework_assignment(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """One of the student's own assignments, with questions. Anyone else's assignment returns
+    404, the same as a missing one, so a student can't tell whether another assignment exists."""
+    student = await _current_student(db, current_user)
+    assignment = (await db.execute(
+        select(HomeworkAssignmentRecord).filter(
+            HomeworkAssignmentRecord.id == assignment_id,
+            HomeworkAssignmentRecord.student_id == student.id,
+        )
+    )).scalars().first()
+    if assignment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found.")
+    names = await subject_names(db, [assignment.subject_id])
+    return to_student_detail(assignment, names)
 
