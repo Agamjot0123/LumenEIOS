@@ -24,6 +24,7 @@ import { ParentDashboard } from './pages/parent/ParentDashboard';
 import { NotFoundPage } from './pages/shared/NotFoundPage';
 import { UnauthorizedPage } from './pages/shared/UnauthorizedPage';
 import { getDefaultDashboardPath } from './lib/permissions';
+import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
@@ -76,6 +77,12 @@ export const App: React.FC = () => {
         <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
         <Route path="/teacher/scan-review" element={<ScanReview />} />
         <Route path="/teacher/remediation" element={<RemediationManager />} />
+
+        {/* Curriculum Catalogue (Classes VI–VIII Mathematics & Science prototype) */}
+        <Route element={<CurriculumModule />}>
+          <Route path="/curriculum/catalogue" element={<CatalogueDashboard />} />
+          <Route path="/curriculum/catalogue/:grade/:subject" element={<CatalogueCombinationPage />} />
+        </Route>
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />

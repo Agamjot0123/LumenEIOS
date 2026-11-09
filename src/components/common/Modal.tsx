@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -21,6 +21,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = 'lg',
 }) => {
+  const titleId = useId();
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) onClose();
@@ -56,14 +57,16 @@ export const Modal: React.FC<ModalProps> = ({
         )}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
       >
         <div className="px-6 py-4.5 border-b border-surface-border flex items-center justify-between bg-surface-bg/50">
           <div>
-            <h3 className="font-semibold text-content-primary text-lg">{title}</h3>
+            <h3 id={titleId} className="font-semibold text-content-primary text-lg">{title}</h3>
             {subtitle && <p className="text-xs text-content-secondary mt-0.5">{subtitle}</p>}
           </div>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="p-1.5 text-content-secondary hover:text-content-primary hover:bg-gray-200/60 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />

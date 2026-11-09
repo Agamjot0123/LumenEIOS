@@ -49,6 +49,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 }
 
+/** Shared typed request helper (auth header + school context) for feature service modules. */
+export const apiRequest = request;
+
 function mapQuestionOut(q: any) {
   return {
     id: q.id,
