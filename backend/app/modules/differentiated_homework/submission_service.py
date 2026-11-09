@@ -33,7 +33,7 @@ from backend.app.modules.differentiated_homework.schemas import (
     SubmissionAnswerOut,
     SubmissionAnswersUpdate,
     SubmissionFinalizeRequest,
-    SubmissionOut,
+    HomeworkSubmissionOut,
 )
 
 # Question types as stored on frozen items (QuestionBankItem.type).
@@ -47,6 +47,12 @@ class SubmissionError(Exception):
 
 class NotSubmittable(SubmissionError):
     """The assignment can't take answers (wrong status, or the submission belongs elsewhere)."""
+
+
+class SubmissionMismatch(NotSubmittable):
+    """Stored data is inconsistent: the submission or one of its answers doesn't belong to the
+    assignment it was loaded for. A server-side fault, not a client conflict. A subclass of
+    NotSubmittable so Phase 1 callers that catch NotSubmittable keep working."""
 
 
 class SubmissionLocked(SubmissionError):
@@ -155,7 +161,7 @@ def _check_can_change(
             raise VersionConflict("No submission exists yet; omit expected_version.")
         return
     if submission.assignment_id != assignment.id or submission.student_id != assignment.student_id:
-        raise NotSubmittable("This submission doesn't belong to this assignment.")
+        raise SubmissionMismatch("This submission doesn't belong to this assignment.")
     if submission.status == "submitted":
         raise SubmissionLocked("This homework has been submitted and can't be changed.")
     if expected_version is None:
@@ -237,20 +243,20 @@ def finalize_submission(
     return submission
 
 
-def to_submission_out(submission: HomeworkSubmissionRecord, assignment: HomeworkAssignmentRecord) -> SubmissionOut:
+def to_submission_out(submission: HomeworkSubmissionRecord, assignment: HomeworkAssignmentRecord) -> HomeworkSubmissionOut:
     """Student-facing view. Built field by field; never reads the answer key or rubric."""
     positions = {item.id: item.position for item in assignment.draft.items}
     answers = []
     for answer in submission.answers:
         if answer.draft_item_id not in positions:
-            raise NotSubmittable("A stored answer doesn't match this assignment's questions.")
+            raise SubmissionMismatch("A stored answer doesn't match this assignment's questions.")
         answers.append(SubmissionAnswerOut(
             position=positions[answer.draft_item_id],
             answer_text=answer.answer_text,
             selected_option_index=answer.selected_option_index,
         ))
     answers.sort(key=lambda a: a.position)
-    return SubmissionOut(
+    return HomeworkSubmissionOut(
         id=submission.id,
         assignment_id=submission.assignment_id,
         status=submission.status,
@@ -262,4 +268,23 @@ def to_submission_out(submission: HomeworkSubmissionRecord, assignment: Homework
         answered_count=len(answers),
         question_count=len(positions),
         answers=answers,
+    )
+
+
+def empty_submission_out(assignment: HomeworkAssignmentRecord) -> HomeworkSubmissionOut:
+    """The view before any save: nothing is stored, and nothing is created by building it.
+    question_count is the assignment's real number of questions, so all three states describe
+    the same homework; answered_count is 0."""
+    return HomeworkSubmissionOut(
+        id=None,
+        assignment_id=assignment.id,
+        status="not_started",
+        version=None,
+        is_late=False,
+        started_at=None,
+        updated_at=None,
+        submitted_at=None,
+        answered_count=0,
+        question_count=len(assignment.draft.items),
+        answers=[],
     )

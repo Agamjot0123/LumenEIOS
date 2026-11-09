@@ -30,9 +30,9 @@ Backend for giving students homework matched to their learning needs, with teach
 | **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
 | **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
 | **Student homework access** | `models.py`, `student_access.py`, `router.py` | Admin links a student login to a Student record (`student_account_links`); the linked student lists and views their own assignments |
-| **Answer submission, Phase 1** (storage and rules only; **no endpoint yet**) | `models.py`, `schemas.py`, `submission_service.py` | Tables `homework_submissions` and `homework_submission_answers`, request shapes, and the save and final-submit logic. No grading |
+| **Answer submission** | `models.py`, `schemas.py`, `submission_service.py`, `router.py` | Tables `homework_submissions` and `homework_submission_answers`, the save and final-submit rules, and the three student endpoints (Phase 2). No grading |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`.
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`, `test_homework_submission_api.py`.
 
 ### Saved homework drafts
 
@@ -218,9 +218,9 @@ Creating and deleting write an audit event; listing writes nothing. Other roles 
 - linking for existing student accounts: the seeded `user-student-1` has no link, so it gets 403 until an admin links it
 - updating the older routes that still compare `User.id` with `Student.id`, in teammate code and in this module's older homework list route
 
-### Answer submission (Phase 1: storage and rules; no endpoint yet)
+### Answer submission
 
-Students will save answers to an assignment, change them, and then submit once. Phase 1 adds the tables, request shapes and service logic. The endpoints come in Phase 2. **No grading:** nothing stores or calculates marks, scores, grades or feedback, and nothing reads the answer key or rubric.
+Students save answers to an assignment, change them, and then submit once. Phase 1 added the tables, request shapes and service logic; Phase 2 added the student endpoints (below). **No grading:** nothing stores or calculates marks, scores, grades or feedback, and nothing reads the answer key or rubric.
 
 **Tables** (new, created by `create_all`; existing tables are unchanged):
 
@@ -267,15 +267,78 @@ Foreign keys: a submission belongs to an assignment and a student; an answer bel
 | `finalize_submission(assignment, submission, request, now)` | Submits and sets `is_late` |
 | `to_submission_out(submission, assignment)` | Student-facing view: `id, assignment_id, status, version, is_late, started_at, updated_at, submitted_at, answered_count, question_count, answers[{position, answer_text, selected_option_index}]` |
 
-Errors, for Phase 2 to map to HTTP statuses:
-- `NotSubmittable`: the assignment isn't open, or the submission belongs elsewhere;
+Service errors (the endpoints map them to HTTP statuses below):
+- `NotSubmittable`: the assignment isn't open;
+- `SubmissionMismatch` (a subclass of `NotSubmittable`): stored data is inconsistent, a server-side fault;
 - `SubmissionLocked`: already submitted;
 - `VersionConflict`: missing or outdated `expected_version`;
 - `InvalidAnswers`: lists each problem.
 
 **Concurrency:** every save also updates the submission row, so its version always rises, even when two saves share a timestamp. Two simultaneous saves from the same version: one commits, the other gets `StaleDataError`, and nothing of the losing request is written. Two simultaneous first saves: the UNIQUE rule lets only one submission exist.
 
-**Not in Phase 1:** endpoints, teacher views, audit events, and reopening a submitted submission.
+#### Student endpoints (Phase 2)
+
+All three go through the same checks first:
+1. The caller must be a linked student. This uses the existing `StudentAccountLink` path: exact `student` role, a link, an existing Student record, and the same school. Otherwise **403**.
+2. The assignment is loaded by its ID **and** the student's ID. Another student's assignment, in the same school or another, gets **404**, the same as a missing one.
+
+The student is never taken from the request, and the request never names a submission; it's always found through the student's own assignment.
+
+| Method and path (under `/api/v1/students/me/homework/assignments/{assignment_id}`) | Body | Success |
+|---|---|---|
+| `GET /submission` | none | **200**. Before any save, the `not_started` state; nothing is created |
+| `PUT /submission` | `SubmissionAnswersUpdate` | **201** when this creates the submission, **200** when it updates one. Saving after the due time is allowed |
+| `POST /submission/submit` | `SubmissionFinalizeRequest` | **200**. Locks the answers; sets `submitted_at` and `is_late` |
+
+All three return `HomeworkSubmissionOut`, one shape for every state:
+
+```json
+{"id": null, "assignment_id": "a1", "status": "not_started", "version": null, "is_late": false,
+ "started_at": null, "updated_at": null, "submitted_at": null,
+ "answered_count": 0, "question_count": 4, "answers": []}
+```
+
+```json
+{"id": "s1", "assignment_id": "a1", "status": "in_progress", "version": 2, "is_late": false,
+ "started_at": "2026-11-19T12:00:00Z", "updated_at": "2026-11-19T12:05:00Z", "submitted_at": null,
+ "answered_count": 2, "question_count": 4,
+ "answers": [{"position": 1, "answer_text": null, "selected_option_index": 2},
+             {"position": 3, "answer_text": "Because both sides double.", "selected_option_index": null}]}
+```
+
+- **`version`:** send it back as `expected_version` on the next PUT or submit. `null` (not started) means omit it.
+- **`question_count`:** the assignment's real number of questions in every state.
+- **Questions:** not repeated here; they come from `GET /students/me/homework/assignments/{assignment_id}`.
+- **Never returned:** answer keys, rubrics, marks, grades, feedback, competency or Bloom data, source question IDs, review data, or internal student and school IDs.
+
+The class is named `HomeworkSubmissionOut`, not `SubmissionOut`, because the assessment module already publishes a `SubmissionOut`. Two classes with the same name make FastAPI rename both in OpenAPI, which would change the existing schema's public name.
+
+**Errors:**
+
+| Cause | Status | `detail` |
+|---|---|---|
+| Not logged in (`DEMO_MODE` off) or an invalid token | 401 | shared login code |
+| Role isn't exactly `student`. No token with `DEMO_MODE` on counts as admin, so it's refused too | 403 | "Access denied." |
+| No link, a deleted Student record, or a school mismatch | 403 | "This account isn't linked to a student record." |
+| Assignment missing or someone else's | 404 | "Assignment not found." |
+| Malformed body (null, two actions, `clear: false`, blank or too-long text, unknown field, repeated position) | 422 | FastAPI's standard list of `{loc, msg, type}` |
+| Answers don't fit the questions (`InvalidAnswers`) | 422 | `[{"position": 1, "reason": "..."}]`, one entry per invalid answer |
+| Already submitted (`SubmissionLocked`) | 409 | "This homework has been submitted and can't be changed." |
+| `expected_version` missing, outdated, or sent on a first save (`VersionConflict`) | 409 | the reason |
+| Changed by another request between reading and saving | 409 | "This submission was changed by another request. Reload it and try again." |
+| Another first save created the submission first | 409 | "A submission was started by another request. Reload it and try again." |
+| Assignment not open (`NotSubmittable`) | 409 | the reason |
+| Inconsistent stored data (`SubmissionMismatch`) | 500 | a fixed message. Details are logged, not returned. Checked before PUT or submit changes anything, so nothing is written |
+
+**Transactions and concurrency:** each request makes one commit. The service validates everything before it changes anything; on any failure the transaction is rolled back, so no partial answers and no audit event remain. Simultaneous requests are handled with the existing unique rules and SQLAlchemy versioning, not row locks:
+- **Two first saves (or two blank first submits):** the unique `assignment_id` lets one through; the other is rolled back, finds the winner, and gets 409. Only that unique rule is treated this way: any other database error is rolled back and re-raised (500), never reported as a conflict.
+- **Save vs save, save vs submit, submit vs submit:** both read the same version, so the second commit fails its version check and gets 409.
+
+The response is built after the commit.
+
+**Audit:** exactly one "Homework Submitted" event (category `curriculum`) per successful final submit, saved in the same transaction as the lock, with "(late)" noted when late. Saves and failed requests aren't audited.
+
+**Not done yet:** teacher views of submissions, evaluation, and reopening a submitted submission.
 
 ### Homework preview endpoint
 
@@ -392,7 +455,7 @@ There are no answers, rubrics or options.
 - AI-assisted question generation for gaps in the question bank
 - Homework for students or groups
 - Teacher review and approval
-- Submission endpoints (Phase 2), then evaluation and feedback
+- Teacher views of submissions, then evaluation and feedback
 
 ## Responsibilities and boundaries
 
@@ -464,6 +527,7 @@ All paths are under `/api/v1`.
 | `POST /homework/drafts/{draft_id}/assign` | Same as viewing a draft | Works; approved drafts only, once |
 | `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; teacher-facing |
 | `POST /student-account-links`, `DELETE /student-account-links/{link_id}` | admin only | Works |
+| `GET`/`PUT /students/me/homework/assignments/{assignment_id}/submission`, `POST .../submission/submit` | linked student only, own assignments | Works; no grading |
 | `GET /students/me/homework/assignments`, `GET /students/me/homework/assignments/{assignment_id}` | linked student only | Works; read-only |
 
 ## Integration with other modules

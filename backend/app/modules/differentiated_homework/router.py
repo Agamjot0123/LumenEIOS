@@ -70,6 +70,24 @@ from backend.app.modules.differentiated_homework.student_access import (
     to_student_detail,
     to_student_summary,
 )
+from backend.app.modules.differentiated_homework.models import HomeworkSubmissionRecord
+from backend.app.modules.differentiated_homework.schemas import (
+    AnswerProblemOut,
+    SubmissionAnswersUpdate,
+    SubmissionFinalizeRequest,
+    HomeworkSubmissionOut,
+)
+from backend.app.modules.differentiated_homework.submission_service import (
+    InvalidAnswers,
+    NotSubmittable,
+    SubmissionLocked,
+    SubmissionMismatch,
+    VersionConflict,
+    empty_submission_out,
+    finalize_submission,
+    save_answers,
+    to_submission_out,
+)
 from backend.app.modules.differentiated_homework.schemas import (
     AssignmentOut,
     AssignmentStatus,
@@ -778,4 +796,165 @@ async def get_my_homework_assignment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found.")
     names = await subject_names(db, [assignment.subject_id])
     return to_student_detail(assignment, names)
+
+
+# --- Student answer submissions -----------------------------------------------------------------
+
+SUBMISSION_PATH = "/students/me/homework/assignments/{assignment_id}/submission"
+SUBMISSION_CHANGED = "This submission was changed by another request. Reload it and try again."
+SUBMISSION_STARTED = "A submission was started by another request. Reload it and try again."
+SUBMISSION_FAULT = "This submission can't be processed because of a server-side data problem."
+
+
+async def _my_assignment(db: AsyncSession, user: User, assignment_id: str) -> HomeworkAssignmentRecord:
+    """The logged-in student's own assignment. Loaded by its ID and the linked student's ID,
+    so another student's assignment gives 404, the same as a missing one."""
+    student = await _current_student(db, user)
+    assignment = (await db.execute(
+        select(HomeworkAssignmentRecord).filter(
+            HomeworkAssignmentRecord.id == assignment_id,
+            HomeworkAssignmentRecord.student_id == student.id,
+        )
+    )).scalars().first()
+    if assignment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found.")
+    return assignment
+
+
+async def _load_submission(db: AsyncSession, assignment_id: str) -> Optional[HomeworkSubmissionRecord]:
+    """The assignment's submission, if any. Only ever called with an assignment already
+    checked to belong to the student."""
+    return (await db.execute(
+        select(HomeworkSubmissionRecord).filter(HomeworkSubmissionRecord.assignment_id == assignment_id)
+    )).scalars().first()
+
+
+def _submission_error(exc: Exception) -> HTTPException:
+    """Map a submission-service error to HTTP. Order matters: SubmissionMismatch is a
+    NotSubmittable, but it's a server-side fault (500), not a client conflict."""
+    if isinstance(exc, SubmissionMismatch):
+        logger.error("Inconsistent homework submission data: %s", exc)
+        return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=SUBMISSION_FAULT)
+    if isinstance(exc, InvalidAnswers):
+        return HTTPException(status_code=422, detail=[
+            AnswerProblemOut(position=p.position, reason=p.reason).model_dump() for p in exc.problems
+        ])
+    if isinstance(exc, (SubmissionLocked, VersionConflict, NotSubmittable)):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    raise exc
+
+
+# How the "one submission per assignment" violation appears in the driver's message: the
+# constraint name on PostgreSQL, the column on SQLite (which doesn't report constraint names).
+DUPLICATE_SUBMISSION_MARKERS = ("uq_homework_submissions_assignment", "homework_submissions.assignment_id")
+
+
+def _is_duplicate_submission(exc: IntegrityError) -> bool:
+    message = str(getattr(exc, "orig", exc))
+    return any(marker in message for marker in DUPLICATE_SUBMISSION_MARKERS)
+
+
+async def _commit_submission(db: AsyncSession, assignment_id: str, created: bool) -> None:
+    """One commit for the whole request (answers, lock and audit together). On failure the
+    transaction is rolled back, so nothing is half-written.
+    - StaleDataError: another request changed the submission since it was read -> 409.
+    - IntegrityError: 409 only when this request created the submission, the error is the
+      unique assignment_id rule, and another request's submission now exists. Any other
+      integrity error is a real fault and is re-raised (500)."""
+    try:
+        await db.commit()
+    except StaleDataError:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=SUBMISSION_CHANGED)
+    except IntegrityError as exc:
+        await db.rollback()
+        if created and _is_duplicate_submission(exc):
+            winner = (await db.execute(
+                select(HomeworkSubmissionRecord.id).filter(HomeworkSubmissionRecord.assignment_id == assignment_id)
+            )).first()
+            if winner is not None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=SUBMISSION_STARTED)
+        raise
+
+
+def _render(submission: HomeworkSubmissionRecord, assignment: HomeworkAssignmentRecord) -> HomeworkSubmissionOut:
+    try:
+        return to_submission_out(submission, assignment)
+    except SubmissionMismatch as exc:
+        raise _submission_error(exc)
+
+
+def _check_stored_submission(submission: Optional[HomeworkSubmissionRecord],
+                             assignment: HomeworkAssignmentRecord) -> None:
+    """Before changing anything: refuse (500) if the stored submission is inconsistent, so a
+    request on corrupted data writes nothing instead of committing and then failing."""
+    if submission is not None:
+        _render(submission, assignment)
+
+
+@router.get(SUBMISSION_PATH, response_model=HomeworkSubmissionOut)
+async def get_my_submission(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The student's answers to their own assignment. Before the first save this returns the
+    not_started state and creates nothing."""
+    assignment = await _my_assignment(db, current_user, assignment_id)
+    submission = await _load_submission(db, assignment.id)
+    if submission is None:
+        return empty_submission_out(assignment)
+    return _render(submission, assignment)
+
+
+@router.put(SUBMISSION_PATH, response_model=HomeworkSubmissionOut,
+            responses={201: {"model": HomeworkSubmissionOut, "description": "First save: submission created"}})
+async def save_my_answers(
+    assignment_id: str,
+    body: SubmissionAnswersUpdate,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Save some answers (a partial update). 201 when this creates the submission, 200 after.
+    Allowed after the due time; lateness is decided only at final submit."""
+    assignment = await _my_assignment(db, current_user, assignment_id)
+    existing = await _load_submission(db, assignment.id)
+    _check_stored_submission(existing, assignment)
+    try:
+        submission = save_answers(assignment, existing, body, utc_now())
+    except Exception as exc:
+        raise _submission_error(exc)
+    created = existing is None
+    if created:
+        db.add(submission)
+    await _commit_submission(db, assignment.id, created)
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return _render(submission, assignment)
+
+
+@router.post(f"{SUBMISSION_PATH}/submit", response_model=HomeworkSubmissionOut)
+async def submit_my_answers(
+    assignment_id: str,
+    body: SubmissionFinalizeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Final submit: locks the answers for good. Blank and partial submissions are allowed.
+    Late only when strictly after the due time. The audit event is saved in the same
+    transaction as the lock."""
+    assignment = await _my_assignment(db, current_user, assignment_id)
+    existing = await _load_submission(db, assignment.id)
+    _check_stored_submission(existing, assignment)
+    try:
+        submission = finalize_submission(assignment, existing, body, utc_now())
+    except Exception as exc:
+        raise _submission_error(exc)
+    created = existing is None
+    if created:
+        db.add(submission)
+    db.add(_audit(current_user, "Homework Submitted",
+                  f"Submitted assignment {assignment.id}{' (late)' if submission.is_late else ''}."))
+    await _commit_submission(db, assignment.id, created)
+    return _render(submission, assignment)
 

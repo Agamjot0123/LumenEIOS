@@ -449,6 +449,15 @@ class SubmissionFinalizeRequest(BaseModel):
     expected_version: Optional[StrictInt] = Field(default=None, ge=1)
 
 
+class AnswerProblemOut(BaseModel):
+    """One entry of a 422 answer-validation error: which question and why."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    reason: str
+
+
 class SubmissionAnswerOut(BaseModel):
     """A stored answer as the student sees it. No answer key, rubric or marks."""
 
@@ -459,18 +468,27 @@ class SubmissionAnswerOut(BaseModel):
     selected_option_index: Optional[int]
 
 
-class SubmissionOut(BaseModel):
-    """A student's submission. No marks, score, grade, feedback or teacher-only data."""
+# What a student sees. "not_started" is a view state only: nothing is stored until the first
+# save, and the stored statuses stay SubmissionStatus.
+SubmissionViewStatus = Literal["not_started", "in_progress", "submitted"]
+
+
+class HomeworkSubmissionOut(BaseModel):
+    """A student's submission, in one shape for all three states. No marks, score, grade,
+    feedback or teacher-only data.
+
+    not_started: id, version and the timestamps are null, and answers is empty. A null version
+    means "omit expected_version on the first save"."""
 
     model_config = ConfigDict(frozen=True)
 
-    id: str
+    id: Optional[str]
     assignment_id: str
-    status: SubmissionStatus
-    version: int  # send back as expected_version on the next change
+    status: SubmissionViewStatus
+    version: Optional[int]  # send back as expected_version on the next change
     is_late: bool
-    started_at: datetime
-    updated_at: datetime
+    started_at: Optional[datetime]
+    updated_at: Optional[datetime]
     submitted_at: Optional[datetime]
     answered_count: int
     question_count: int

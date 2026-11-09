@@ -32,7 +32,7 @@ from backend.app.modules.differentiated_homework.schemas import (
     SubmissionAnswerOut,
     SubmissionAnswersUpdate,
     SubmissionFinalizeRequest,
-    SubmissionOut,
+    HomeworkSubmissionOut,
 )
 from backend.app.modules.differentiated_homework.submission_service import (
     InvalidAnswers,
@@ -159,7 +159,7 @@ def test_save_request_rules():
 def test_student_facing_shapes_have_no_hidden_fields():
     hidden = {"correct_answer", "marking_rubric", "marks", "marks_obtained", "score", "grade", "feedback",
               "competency", "student_id", "school_id", "draft_item_id", "source_question_id"}
-    assert not hidden & set(SubmissionOut.model_fields)
+    assert not hidden & set(HomeworkSubmissionOut.model_fields)
     assert not hidden & set(SubmissionAnswerOut.model_fields)
     assert set(SubmissionAnswerOut.model_fields) == {"position", "answer_text", "selected_option_index"}
 
