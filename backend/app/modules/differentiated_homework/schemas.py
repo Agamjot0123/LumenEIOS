@@ -125,3 +125,56 @@ class SelectionResult(BaseModel):
     eligible_by_competency: Dict[Competency, int]  # passed all filters, before the marks limit
     excluded: Dict[str, int]  # reason -> count
     notes: List[str]
+
+
+# --- Homework Assembly ----------------------------------------------------------
+
+
+class DraftItem(BaseModel):
+    """One question in a homework draft. Answers, rubrics and options are never included."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int  # 1-based, in selection order
+    question_id: str
+    competency: Competency
+    competency_rank: int
+    marks: int
+    type: str
+    bloom_level: str
+    is_ai_generated: bool
+    text: str
+
+
+class DraftRationale(BaseModel):
+    """Why this homework was assembled, taken directly from the gap analysis. No interpretation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    targeted_competencies: List[Competency]  # in order of first appearance in the selection
+    weakest: List[Competency]
+    competency_scores: Dict[Competency, int]
+    lowest_score: int
+    highest_score: int
+    score_source: str
+    summary: str
+
+
+class HomeworkDraft(BaseModel):
+    """An unsaved homework draft for teacher review. Not an assignment; nothing is stored."""
+
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    school_id: str
+    subject_id: str
+    items: List[DraftItem]
+    question_count: int
+    total_marks: int
+    requested_questions: int
+    max_total_marks: Optional[int]
+    shortfall: int
+    is_complete: bool  # True when every requested question was found
+    contains_ai_generated: bool
+    rationale: DraftRationale
+    notes: List[str]  # gap-analysis notes, then selection notes, then assembly notes

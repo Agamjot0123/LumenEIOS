@@ -23,7 +23,66 @@ Backend for giving students homework matched to their learning needs, with teach
 | **Question Selector** (service only; no endpoint) | `question_selector.py`, `schemas.py` | `select_questions(analysis, candidates, request)` picks question bank items for the weaker competencies. Pure logic, deterministic |
 | **Question bank adapter** | `question_bank_adapter.py` | `load_candidate_questions(db, school_id, subject_id)` returns `QuestionBankLoad`: candidates plus IDs of malformed rows, which are skipped, not allowed to crash the load. Read-only; filters by school and subject in SQL; never loads answers, rubrics or options |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`.
+| **Homework Assembler** (service only; no endpoint, nothing saved) | `homework_assembler.py`, `schemas.py` | `assemble_homework_draft(analysis, selection, request)` builds an unsaved `HomeworkDraft` for teacher review. Pure logic; raises `AssemblyError` on inconsistent input |
+
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`.
+
+### How homework assembly works
+
+Flow: gap analysis, then question selection, then **assembly**, then teacher review (not built yet).
+
+1. **Check consistency.** All three inputs must agree:
+   - **Same student:** the selection and the analysis refer to the same student.
+   - **Same request:** the request's question count and marks limit match the selection's.
+   - **Valid gap analysis:** it ranks LU, CU, AU and CT exactly once each, and its lowest, highest, spread, weakest and every rank agree with its own scores. The rationale copies these fields, so a contradiction is rejected.
+   - **AI rule respected:** no AI-generated question appears unless the request allows them.
+   - **Ranks agree:** each question's competency rank matches the analysis.
+   - **Valid questions:** no question appears twice, and every question has marks of at least 1.
+   - **Totals add up:** total marks, shortfall and question count are consistent, and the marks limit isn't exceeded.
+
+   Any problem raises `AssemblyError`; nothing is silently corrected.
+2. **Copy questions** in selection order into numbered `DraftItem`s (position 1, 2, ...). Text, marks, competency, rank, type, Bloom level and the AI flag are kept as they are.
+3. **Recalculate** the question count and total marks from the items.
+4. **Rationale** comes from the gap analysis only: targeted competencies, weakest, all four scores, lowest and highest, score source, and a factual summary such as `Targets LU (40), CT (50). Student's lowest score: LU (40); score range 40-70.` No teaching advice is added.
+5. **Notes:** gap-analysis notes, then selection notes, then assembly notes (empty draft, incomplete draft, AI questions included).
+
+**Output `HomeworkDraft`:**
+- `student_id`, `school_id`, `subject_id`
+- `items`, `question_count`, `total_marks`
+- `requested_questions`, `max_total_marks`, `shortfall`, `is_complete`
+- `contains_ai_generated`, `rationale`, `notes`
+
+There are no answers, rubrics or options.
+
+**Deliberately not included:** title, due date, assigning teacher, review status, or any saved record.
+
+**Trusted upstream assumptions** (current schemas can't verify them):
+- **School and subject:** `SelectionResult` and `SelectedQuestion` don't carry them, so the draft copies them from the request. They're correct when the request passed to the assembler is the same one given to the selector, which filters by it.
+  - **Smallest change if independent checking becomes necessary** (proposal, not implemented): the selector copies `school_id`, `subject_id` and `include_ai_generated` from the request into `SelectionResult`, and the assembler checks they match. Checking each question would also need `school_id` and `subject_id` on `SelectedQuestion`.
+- **Competency label within a tie:** if a question is relabelled to another competency with the same rank, that can't be detected, because `SelectedQuestion` is the only source of the label.
+
+### Saving drafts (not supported; needs team approval)
+
+`HomeworkRemediation` **can't safely store a draft**:
+- **No question links:** there's nowhere to store the questions except as text in `description`.
+- **Required fields with no agreed values:** `title`, `due_date` and `description` must be filled in.
+- **One competency only:** `competency_target` holds a single value, but a draft can target several.
+- **Drafts would leak to students:** `status` is free text, and both list routes (`GET /classes/{class_id}/homework`, `GET /students/{student_id}/homework`) return every row with no status filter. A draft would appear to students straight away, and "draft" would be an invented status anyway.
+
+**Smallest suitable model (proposal only, not implemented):**
+
+| Table | Fields |
+|---|---|
+| `homework_drafts` | `id`, `student_id` (FK), `school_id`, `subject_id`, `created_by` (user), `status`, `requested_questions`, `max_total_marks`, `rationale` (JSON), `score_source`, `created_at`, `reviewed_by`, `reviewed_at`, and a nullable `homework_remediation_id` set on approval |
+| `homework_draft_items` | `draft_id` (FK), `position`, `question_id`, a snapshot of `text`, `marks`, `competency`, `bloom_level` and `type` at assembly time (because bank questions can be edited later), plus unique (`draft_id`, `position`) and unique (`draft_id`, `question_id`) |
+
+**Needs team approval:**
+- review statuses and who may change them
+- teacher ownership
+- whether items keep a snapshot of the question or just reference it
+- how drafts become assignments, and how the existing list routes exclude drafts
+- retention
+- how migrations are run (Alembic is in `requirements.txt` but not set up)
 
 ### How question selection works
 
