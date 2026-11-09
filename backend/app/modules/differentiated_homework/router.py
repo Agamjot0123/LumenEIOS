@@ -88,6 +88,16 @@ from backend.app.modules.differentiated_homework.submission_service import (
     save_answers,
     to_submission_out,
 )
+from backend.app.api.dependencies import oauth2_scheme
+from backend.app.modules.differentiated_homework.schemas import (
+    TeacherAssignmentSubmissionsOut,
+    TeacherSubmissionDetailOut,
+)
+from backend.app.modules.differentiated_homework.teacher_submissions import (
+    assignment_overview,
+    student_row,
+    submission_detail,
+)
 from backend.app.modules.differentiated_homework.schemas import (
     AssignmentOut,
     AssignmentStatus,
@@ -957,4 +967,79 @@ async def submit_my_answers(
                   f"Submitted assignment {assignment.id}{' (late)' if submission.is_late else ''}."))
     await _commit_submission(db, assignment.id, created)
     return _render(submission, assignment)
+
+
+# --- Teacher-facing, read-only submission views ---------------------------------------------------
+# Same access rules as GET /homework/assignments/{assignment_id}: admin all; principal their
+# schools; teacher only assignments of drafts they created, in a school they can access.
+# Students and parents are refused. Read-only: nothing is created, changed or audited.
+
+
+async def _require_bearer_token(token: Optional[str] = Depends(oauth2_scheme)) -> None:
+    """These views show students' answers, so a real login is required. In DEMO_MODE the shared
+    login code treats a request with no token as an admin; here that gives 401 instead."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication token required.",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+
+async def _teacher_assignment(db: AsyncSession, user: User, assignment_id: str) -> HomeworkAssignmentRecord:
+    """Role check first (no lookup for other roles: 403). Then a missing assignment and one the
+    caller can't access give the same 404, so these views don't reveal whether another teacher's
+    or school's assignment exists. (The older assignment endpoints keep their 404/403.)"""
+    if not role_may_generate_homework(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    assignment = (await db.execute(
+        select(HomeworkAssignmentRecord).filter(HomeworkAssignmentRecord.id == assignment_id)
+    )).scalars().first()
+    if assignment is None or not await can_access_assignment(db, user, assignment):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignment not found.")
+    return assignment
+
+
+async def _roster_entry(db: AsyncSession, assignment: HomeworkAssignmentRecord):
+    """The assignment's one student (from the assignment, the authoritative roster) and their
+    submission, if any. Two fixed queries; the answers load with the submission."""
+    student = await db.get(Student, assignment.student_id)
+    submission = await _load_submission(db, assignment.id)
+    return student, submission
+
+
+@router.get("/homework/assignments/{assignment_id}/submissions", response_model=TeacherAssignmentSubmissionsOut,
+            dependencies=[Depends(_require_bearer_token)])
+async def get_assignment_submissions(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Progress on one assignment: counts by state, and each assigned student's status. A
+    student with no submission appears as not_started."""
+    assignment = await _teacher_assignment(db, current_user, assignment_id)
+    student, submission = await _roster_entry(db, assignment)
+    try:
+        rows = [student_row(assignment, student, submission)]
+    except SubmissionMismatch as exc:
+        raise _submission_error(exc)
+    names = await subject_names(db, [assignment.subject_id])
+    return assignment_overview(assignment, names.get(assignment.subject_id), rows)
+
+
+@router.get("/homework/assignments/{assignment_id}/submissions/{student_id}",
+            response_model=TeacherSubmissionDetailOut, dependencies=[Depends(_require_bearer_token)])
+async def get_student_submission(
+    assignment_id: str,
+    student_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """One assigned student's answers next to the frozen questions. not_started if they haven't
+    saved anything. A student who isn't on this assignment gives 404."""
+    assignment = await _teacher_assignment(db, current_user, assignment_id)
+    if student_id != assignment.student_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found on this assignment.")
+    student, submission = await _roster_entry(db, assignment)
+    try:
+        return submission_detail(assignment, student, submission)
+    except SubmissionMismatch as exc:
+        raise _submission_error(exc)
 

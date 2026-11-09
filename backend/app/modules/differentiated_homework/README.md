@@ -30,9 +30,9 @@ Backend for giving students homework matched to their learning needs, with teach
 | **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
 | **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
 | **Student homework access** | `models.py`, `student_access.py`, `router.py` | Admin links a student login to a Student record (`student_account_links`); the linked student lists and views their own assignments |
-| **Answer submission** | `models.py`, `schemas.py`, `submission_service.py`, `router.py` | Tables `homework_submissions` and `homework_submission_answers`, the save and final-submit rules, and the three student endpoints (Phase 2). No grading |
+| **Answer submission** | `models.py`, `schemas.py`, `submission_service.py`, `router.py` | Tables `homework_submissions` and `homework_submission_answers`, the save and final-submit rules, the three student endpoints (Phase 2), and read-only teacher views (Phase 3, `teacher_submissions.py`). No grading |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`, `test_homework_submission_api.py`.
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`, `test_homework_submission_api.py`, `test_homework_teacher_submissions.py`.
 
 ### Saved homework drafts
 
@@ -338,7 +338,41 @@ The response is built after the commit.
 
 **Audit:** exactly one "Homework Submitted" event (category `curriculum`) per successful final submit, saved in the same transaction as the lock, with "(late)" noted when late. Saves and failed requests aren't audited.
 
-**Not done yet:** teacher views of submissions, evaluation, and reopening a submitted submission.
+#### Teacher views (Phase 3, read-only)
+
+| Method and path (under `/api/v1/homework/assignments/{assignment_id}`) | Returns |
+|---|---|
+| `GET /submissions` | `TeacherAssignmentSubmissionsOut`: assignment details (`assignment_id`, `subject_id`, `subject_name`, `assignment_status`, `assigned_at`, `due_at`, `question_count`), `counts` (`total_students`, `not_started`, `in_progress`, `submitted`, `submitted_late`), and `students` (one row each: `student_id`, `student_name`, `status`, `started_at`, `updated_at`, `submitted_at`, `is_late`, `answered_count`, `question_count`) |
+| `GET /submissions/{student_id}` | `TeacherSubmissionDetailOut`: the same student row plus `assignment_id` and `questions`. Every question by position, with `text`, `type`, `options`, `answered`, `answer_text` and `selected_option_index` |
+
+**Access** (the same rules as `GET /homework/assignments/{assignment_id}`, using `can_access_assignment`):
+
+| Role | Can view |
+|---|---|
+| admin | Any assignment |
+| principal | Assignments in a school they can access (own school or an active membership) |
+| teacher | Only assignments of drafts they created, in a school they can access. Not other teachers' assignments in the same school |
+| student, parent | Nothing (403) |
+
+- **Order of checks:** the role is checked first, with no lookup for other roles (403). Then a missing assignment and one the user can't access (another teacher's, another school's) give the **same** 404 "Assignment not found.", so these views don't reveal whether an assignment exists. The older assignment endpoints keep their separate 404 and 403.
+- **A real login is required:** these views show student answers, so a request without a bearer token gets **401**, even with `DEMO_MODE` on. (Elsewhere, shared code treats a no-token request in `DEMO_MODE` as an admin.)
+- **Student IDs:** a `student_id` that isn't the assignment's student gives 404 "Student not found on this assignment."
+- **No student login involved:** these views never use `StudentAccountLink`, so a stale or removed link changes nothing here.
+
+**Roster:** each assignment names exactly one student (`homework_assignments.student_id`); that row is the authoritative roster, never derived from submissions. A student with no submission appears as `not_started`, so `total_students` is always 1. Homework for a whole class is several assignments, and there's no class-level view yet.
+
+**States:**
+- `not_started`: no submission; all times are null.
+- `in_progress`: saved, not submitted.
+- `submitted`: locked.
+
+`is_late` is null unless submitted, so an in-progress submission past its due time is never labelled late. A deleted Student record shows as `student_name: null`; inconsistent stored data gives 500 with no details.
+
+**Read-only:** GET only (other methods get 405). Viewing never creates a submission, and never changes answers, versions, assignment status or due dates. Nothing is audited. Each request runs a fixed number of queries (assignment with questions, access check, student, submission with answers, subject name), regardless of the number of answers. There's no pagination, because each assignment has exactly one student.
+
+**Never returned:** answer keys, rubrics, marks, scores, grades, feedback, competency or Bloom data, source question IDs, review data, the submission's version, and school IDs.
+
+**Not done yet:** a class-level progress view across assignments, evaluation, and reopening a submitted submission.
 
 ### Homework preview endpoint
 
@@ -455,7 +489,7 @@ There are no answers, rubrics or options.
 - AI-assisted question generation for gaps in the question bank
 - Homework for students or groups
 - Teacher review and approval
-- Teacher views of submissions, then evaluation and feedback
+- A class-level progress view, then evaluation and feedback
 
 ## Responsibilities and boundaries
 
@@ -528,6 +562,7 @@ All paths are under `/api/v1`.
 | `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; teacher-facing |
 | `POST /student-account-links`, `DELETE /student-account-links/{link_id}` | admin only | Works |
 | `GET`/`PUT /students/me/homework/assignments/{assignment_id}/submission`, `POST .../submission/submit` | linked student only, own assignments | Works; no grading |
+| `GET /homework/assignments/{assignment_id}/submissions`, `GET .../submissions/{student_id}` | Same as viewing the assignment; a bearer token is required (no `DEMO_MODE` stand-in) | Works; read-only |
 | `GET /students/me/homework/assignments`, `GET /students/me/homework/assignments/{assignment_id}` | linked student only | Works; read-only |
 
 ## Integration with other modules

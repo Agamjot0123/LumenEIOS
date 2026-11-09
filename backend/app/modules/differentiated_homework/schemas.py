@@ -493,3 +493,68 @@ class HomeworkSubmissionOut(BaseModel):
     answered_count: int
     question_count: int
     answers: List[SubmissionAnswerOut]  # answered questions only, by position
+
+
+# --- Teacher-facing, read-only submission views ---------------------------------------------
+# Separate from the student schemas. Never included: answer keys, rubrics, marks, scores,
+# grades, feedback, competency or Bloom data, source question IDs, and the submission's
+# internal version.
+
+
+class TeacherSubmissionCountsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    total_students: int
+    not_started: int
+    in_progress: int
+    submitted: int
+    submitted_late: int
+
+
+class TeacherStudentSubmissionOut(BaseModel):
+    """One student's progress on the assignment. is_late is null until submitted."""
+
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    student_name: Optional[str]  # null only if the Student record no longer exists
+    status: SubmissionViewStatus
+    started_at: Optional[datetime]
+    updated_at: Optional[datetime]
+    submitted_at: Optional[datetime]
+    is_late: Optional[bool]
+    answered_count: int
+    question_count: int
+
+
+class TeacherAssignmentSubmissionsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    assignment_id: str
+    subject_id: str
+    subject_name: Optional[str]
+    assignment_status: AssignmentStatus
+    assigned_at: datetime
+    due_at: Optional[datetime]
+    question_count: int
+    counts: TeacherSubmissionCountsOut
+    students: List[TeacherStudentSubmissionOut]
+
+
+class TeacherQuestionAnswerOut(BaseModel):
+    """A frozen question (text, type and options only) with the student's answer, if any."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    answered: bool
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+
+
+class TeacherSubmissionDetailOut(TeacherStudentSubmissionOut):
+    assignment_id: str
+    questions: List[TeacherQuestionAnswerOut]  # every question, by position
