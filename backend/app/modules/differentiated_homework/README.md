@@ -30,8 +30,9 @@ Backend for giving students homework matched to their learning needs, with teach
 | **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
 | **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
 | **Student homework access** | `models.py`, `student_access.py`, `router.py` | Admin links a student login to a Student record (`student_account_links`); the linked student lists and views their own assignments |
+| **Answer submission, Phase 1** (storage and rules only; **no endpoint yet**) | `models.py`, `schemas.py`, `submission_service.py` | Tables `homework_submissions` and `homework_submission_answers`, request shapes, and the save and final-submit logic. No grading |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`.
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`.
 
 ### Saved homework drafts
 
@@ -217,6 +218,65 @@ Creating and deleting write an audit event; listing writes nothing. Other roles 
 - linking for existing student accounts: the seeded `user-student-1` has no link, so it gets 403 until an admin links it
 - updating the older routes that still compare `User.id` with `Student.id`, in teammate code and in this module's older homework list route
 
+### Answer submission (Phase 1: storage and rules; no endpoint yet)
+
+Students will save answers to an assignment, change them, and then submit once. Phase 1 adds the tables, request shapes and service logic. The endpoints come in Phase 2. **No grading:** nothing stores or calculates marks, scores, grades or feedback, and nothing reads the answer key or rubric.
+
+**Tables** (new, created by `create_all`; existing tables are unchanged):
+
+| Table | Key rules |
+|---|---|
+| `homework_submissions` | One per assignment (UNIQUE `assignment_id`). `student_id` and `school_id` are copied from the assignment. `status` is `in_progress` or `submitted` (CHECK). `submitted_at` is set exactly when submitted (CHECK). `is_late` can only be true when submitted (CHECK). `version` provides optimistic locking |
+| `homework_submission_answers` | One per question per submission (UNIQUE `submission_id, draft_item_id`). Exactly one of `answer_text` and `selected_option_index` (CHECK). The index can't be negative (CHECK). Deleted with its submission (`ON DELETE CASCADE`). A row exists only while the question is answered |
+
+Foreign keys: a submission belongs to an assignment and a student; an answer belongs to a submission and a frozen question (`homework_draft_items`). With foreign keys enforced (PostgreSQL), a question that has an answer can't be deleted. The app's SQLite engine has foreign keys off, so there the application rules apply. The CHECK rules use syntax that works on both databases, and a test compiles the tables for PostgreSQL.
+
+**The save request** (`SubmissionAnswersUpdate`):
+
+```json
+{
+  "expected_version": 3,
+  "answers": [
+    {"position": 1, "selected_option_index": 2},
+    {"position": 2, "answer_text": "Because both sides double."},
+    {"position": 4, "clear": true}
+  ]
+}
+```
+
+- **Partial:** only the listed questions change; others keep their answers. An empty `answers` list is allowed.
+- **Exactly one action per entry:**
+  - `answer_text` for `short`, `descriptive` and `practical` questions: plain text, not blank, at most `MAX_ANSWER_TEXT_LENGTH` (10,000) characters;
+  - `selected_option_index` for `mcq`: a 0-based index into the question's frozen options, as listed in `options` on the student assignment view;
+  - `clear: true` removes an answer; clearing an unanswered question does nothing.
+- **No null:** an explicit `null` is rejected. In this module's other requests `null` means "not provided", so clearing has its own explicit form. `clear: false` is rejected too.
+- **Positions:** 1-based, as in the assignment view. Each may appear once per request, and it must exist.
+- **Size:** at most `MAX_ANSWER_UPDATES` (500) entries.
+- **Unknown fields:** rejected.
+- **Versioning:** `expected_version` is omitted for the first save (which creates the submission) and must equal the current `version` afterwards.
+- **All or nothing:** the whole request is validated before anything changes; every problem is reported together (`InvalidAnswers`).
+
+**Final submit** (`SubmissionFinalizeRequest`, just `expected_version`): locks the submission for good. Blank and partial submissions are allowed; submitting with nothing saved creates a blank submitted record. `is_late` is true only when the assignment has a due time and the submission is after it (exactly at the due time is on time). There is no penalty.
+
+**Service** (`submission_service.py`, no database I/O; the caller commits once):
+
+| Function | Does |
+|---|---|
+| `validate_answer_updates(updates, items)` | Checks each update against the frozen question: position exists, answer form matches the type, the option index is in range, text isn't blank or too long. Repeats the shape checks for direct callers |
+| `save_answers(assignment, submission, request, now)` | Creates the submission if needed, then applies the changes |
+| `finalize_submission(assignment, submission, request, now)` | Submits and sets `is_late` |
+| `to_submission_out(submission, assignment)` | Student-facing view: `id, assignment_id, status, version, is_late, started_at, updated_at, submitted_at, answered_count, question_count, answers[{position, answer_text, selected_option_index}]` |
+
+Errors, for Phase 2 to map to HTTP statuses:
+- `NotSubmittable`: the assignment isn't open, or the submission belongs elsewhere;
+- `SubmissionLocked`: already submitted;
+- `VersionConflict`: missing or outdated `expected_version`;
+- `InvalidAnswers`: lists each problem.
+
+**Concurrency:** every save also updates the submission row, so its version always rises, even when two saves share a timestamp. Two simultaneous saves from the same version: one commits, the other gets `StaleDataError`, and nothing of the losing request is written. Two simultaneous first saves: the UNIQUE rule lets only one submission exist.
+
+**Not in Phase 1:** endpoints, teacher views, audit events, and reopening a submitted submission.
+
 ### Homework preview endpoint
 
 `POST /api/v1/students/{student_id}/homework/preview`
@@ -332,7 +392,7 @@ There are no answers, rubrics or options.
 - AI-assisted question generation for gaps in the question bank
 - Homework for students or groups
 - Teacher review and approval
-- Real submissions, evaluation and feedback
+- Submission endpoints (Phase 2), then evaluation and feedback
 
 ## Responsibilities and boundaries
 

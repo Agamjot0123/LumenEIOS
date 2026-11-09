@@ -184,3 +184,97 @@ def _refuse_deleting_assigned_drafts(mapper, connection, target):
     ).first()
     if assigned is not None or target.status == "assigned":
         raise AssignedDraftDeletionError(f"Draft {target.id} has been assigned and can't be deleted.")
+
+
+# --- Student answer submissions -------------------------------------------------------------
+
+SUBMISSION_STATUSES = ("in_progress", "submitted")
+
+
+class HomeworkSubmissionRecord(Base):
+    """A student's answers to one assignment. One per assignment (unique assignment_id).
+
+    in_progress: answers can be saved and changed. submitted: locked for good.
+    No marks, scores, grades or feedback are stored here; grading is a later milestone.
+
+    Database rules, written to work on both SQLite and PostgreSQL:
+    - status is one of SUBMISSION_STATUSES;
+    - submitted_at is set exactly when status is "submitted";
+    - is_late can only be true on a submitted submission.
+
+    version: optimistic locking, as on drafts. Every change to the answers also updates this
+    row (updated_at), so the version goes up and a concurrent change is detected.
+    """
+
+    __tablename__ = "homework_submissions"
+    __table_args__ = (
+        UniqueConstraint("assignment_id", name="uq_homework_submissions_assignment"),
+        CheckConstraint(
+            "status IN ('" + "', '".join(SUBMISSION_STATUSES) + "')",
+            name="ck_homework_submissions_status",
+        ),
+        CheckConstraint(
+            "(status = 'submitted') = (submitted_at IS NOT NULL)",
+            name="ck_homework_submissions_submitted_at",
+        ),
+        CheckConstraint("NOT is_late OR status = 'submitted'", name="ck_homework_submissions_late"),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    assignment_id = Column(String(64), ForeignKey("homework_assignments.id"), nullable=False)
+    # Copied from the assignment, never from the client.
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    school_id = Column(String(64), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="in_progress", index=True)
+    is_late = Column(Boolean, nullable=False, default=False)
+    started_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
+    submitted_at = Column(DateTime, nullable=True)
+    version = Column(Integer, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
+
+    answers = relationship(
+        "HomeworkSubmissionAnswerRecord",
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class HomeworkSubmissionAnswerRecord(Base):
+    """One answer to one frozen question. A row exists only while the question is answered;
+    clearing an answer deletes the row.
+
+    Exactly one of answer_text (short, descriptive, practical) and selected_option_index
+    (mcq, 0-based into the frozen options) is set. That rule is a database CHECK, written as
+    "(a IS NULL) <> (b IS NULL)" because it works on both SQLite and PostgreSQL.
+
+    The item must belong to the same assignment's draft. The database can't express that
+    across tables; submission_service checks it.
+    """
+
+    __tablename__ = "homework_submission_answers"
+    __table_args__ = (
+        UniqueConstraint("submission_id", "draft_item_id", name="uq_homework_submission_answers_item"),
+        CheckConstraint(
+            "(answer_text IS NULL) <> (selected_option_index IS NULL)",
+            name="ck_homework_submission_answers_one_form",
+        ),
+        CheckConstraint(
+            "selected_option_index IS NULL OR selected_option_index >= 0",
+            name="ck_homework_submission_answers_index",
+        ),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    submission_id = Column(
+        String(64), ForeignKey("homework_submissions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    draft_item_id = Column(String(64), ForeignKey("homework_draft_items.id"), nullable=False)
+    answer_text = Column(Text, nullable=True)
+    selected_option_index = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
+
+    submission = relationship("HomeworkSubmissionRecord", back_populates="answers")

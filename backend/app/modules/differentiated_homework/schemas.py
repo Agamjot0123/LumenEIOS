@@ -375,3 +375,103 @@ class StudentAssignmentSummaryOut(BaseModel):
 
 class StudentAssignmentOut(StudentAssignmentSummaryOut):
     items: List[StudentAssignmentItemOut]
+
+
+# --- Student answer submissions ---------------------------------------------------------
+
+SubmissionStatus = Literal["in_progress", "submitted"]
+
+# Payload limits, not teaching rules. Named here so they're documented and testable.
+MAX_ANSWER_TEXT_LENGTH = 10_000  # characters per text answer
+MAX_ANSWER_UPDATES = 500  # entries per request; real requests are bounded by the question count
+
+ANSWER_ACTIONS = ("answer_text", "selected_option_index", "clear")
+
+
+class AnswerUpdate(BaseModel):
+    """One change to one question, by its 1-based position. Exactly one of:
+    - {"position": 2, "answer_text": "..."}       set a text answer (short, descriptive, practical)
+    - {"position": 1, "selected_option_index": 0} set an MCQ answer (0-based index into options)
+    - {"position": 3, "clear": true}              remove the existing answer
+
+    An explicit null is rejected rather than read as "clear": in this module's other request
+    schemas, null means "not provided", so clearing has its own explicit form.
+    Questions not listed in a request keep their current answers.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    position: StrictInt = Field(ge=1)
+    answer_text: Optional[str] = Field(default=None, max_length=MAX_ANSWER_TEXT_LENGTH)
+    selected_option_index: Optional[StrictInt] = Field(default=None, ge=0)
+    clear: Optional[Literal[True]] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_action(self) -> "AnswerUpdate":
+        given = [name for name in ANSWER_ACTIONS if name in self.model_fields_set]
+        if len(given) != 1:
+            raise ValueError("give exactly one of answer_text, selected_option_index or clear")
+        if getattr(self, given[0]) is None:
+            raise ValueError(f"{given[0]} can't be null; use clear: true to remove an answer")
+        if self.answer_text is not None and not self.answer_text.strip():
+            raise ValueError("answer_text can't be blank; use clear: true to remove an answer")
+        return self
+
+    @property
+    def action(self) -> str:
+        return next(name for name in ANSWER_ACTIONS if name in self.model_fields_set)
+
+
+class SubmissionAnswersUpdate(BaseModel):
+    """A partial save. expected_version must be omitted when no submission exists yet, and must
+    equal the current version otherwise. Each position may appear at most once."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: Optional[StrictInt] = Field(default=None, ge=1)
+    answers: List[AnswerUpdate] = Field(default_factory=list, max_length=MAX_ANSWER_UPDATES)
+
+    @model_validator(mode="after")
+    def _unique_positions(self) -> "SubmissionAnswersUpdate":
+        positions = [a.position for a in self.answers]
+        repeated = sorted({p for p in positions if positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class SubmissionFinalizeRequest(BaseModel):
+    """Final submit. expected_version is omitted only when nothing has been saved yet, which
+    submits a blank submission."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: Optional[StrictInt] = Field(default=None, ge=1)
+
+
+class SubmissionAnswerOut(BaseModel):
+    """A stored answer as the student sees it. No answer key, rubric or marks."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+
+
+class SubmissionOut(BaseModel):
+    """A student's submission. No marks, score, grade, feedback or teacher-only data."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    assignment_id: str
+    status: SubmissionStatus
+    version: int  # send back as expected_version on the next change
+    is_late: bool
+    started_at: datetime
+    updated_at: datetime
+    submitted_at: Optional[datetime]
+    answered_count: int
+    question_count: int
+    answers: List[SubmissionAnswerOut]  # answered questions only, by position
