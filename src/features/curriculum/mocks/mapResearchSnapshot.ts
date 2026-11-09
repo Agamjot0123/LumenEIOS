@@ -293,7 +293,7 @@ export function buildLanguageMatrix(resources: CatalogueResource[], editions: Te
 export function reviewerStatusFrom(reviews: ReviewRecord[]): DisplayStatus {
   const last = reviews[reviews.length - 1];
   if (!last) return 'AWAITING_REVIEW';
-  return last.decision === 'APPROVE' ? 'APPROVED' : last.decision === 'REJECT' ? 'REJECTED' : 'REVISION_REQUESTED';
+  return last.decision;
 }
 
 function topicEvidence(row: CrosswalkRow): EvidenceRecord {
@@ -362,6 +362,7 @@ export function mapCandidate(row: CrosswalkRow, reviews: ReviewRecord[]): Candid
     verification: toDisplayStatus(row.topicOutcomeVerification),
     reviewerStatus: reviewerStatusFrom(reviews),
     reviews,
+    revision: reviews.length,
     // Recovery eligibility is a backend decision; a frontend review never sets it.
     recoveryEligible: row.recoveryEligible === 'true',
   };

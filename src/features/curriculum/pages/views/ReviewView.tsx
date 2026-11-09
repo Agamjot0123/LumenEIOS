@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { ArrowRight, Bot, Check, Eye, RotateCcw, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { Button } from '../../../../components/common/Button';
 import { Modal } from '../../../../components/common/Modal';
-import { ApiError } from '../../../../lib/apiClient';
 import { cn } from '../../../../lib/utils';
 import type { Role } from '../../../../types';
 import { useCatalogueService } from '../../api/CatalogueServiceContext';
-import { ContractPendingError, MIN_RATIONALE_LENGTH, validateReviewInput } from '../../api/catalogueService';
+import { MIN_RATIONALE_LENGTH, validateReviewInput } from '../../api/catalogueService';
+import { allowedDecisions } from '../../api/contract';
+import { describeApiError } from '../../api/ncertApi';
 import { useAsync } from '../../hooks/useAsync';
 import { EvidenceButton } from '../../components/EvidenceButton';
 import { EmptyState, ErrorState, LoadingState } from '../../components/StateViews';
@@ -16,11 +17,11 @@ import type { CandidateMapping, GradeNumber, ReviewDecision, SubjectKey } from '
 import type { OpenEvidence } from '../CatalogueCombinationPage';
 
 const DECISIONS: { key: ReviewDecision; label: string; Icon: React.ElementType; variant: 'teal' | 'danger' | 'outline' }[] = [
-  { key: 'APPROVE', label: 'Approve', Icon: Check, variant: 'teal' },
-  { key: 'REQUEST_REVISION', label: 'Request revision', Icon: RotateCcw, variant: 'outline' },
-  { key: 'REJECT', label: 'Reject', Icon: X, variant: 'danger' },
+  { key: 'APPROVED', label: 'Approve', Icon: Check, variant: 'teal' },
+  { key: 'REVISION_REQUESTED', label: 'Request revision', Icon: RotateCcw, variant: 'outline' },
+  { key: 'REJECTED', label: 'Reject', Icon: X, variant: 'danger' },
 ];
-const DECISION_LABEL: Record<ReviewDecision, string> = { APPROVE: 'Approve', REJECT: 'Reject', REQUEST_REVISION: 'Request revision' };
+export const DECISION_LABEL: Record<ReviewDecision, string> = { APPROVED: 'Approve', REJECTED: 'Reject', REVISION_REQUESTED: 'Request revision' };
 
 const Detail: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div>
@@ -36,7 +37,6 @@ const CandidateCard: React.FC<{
   onDecide: (m: CandidateMapping, d: ReviewDecision) => void;
 }> = ({ m, canReview, openEvidence, onDecide }) => {
   const decided = m.reviewerStatus !== 'AWAITING_REVIEW';
-  const last = m.reviews[m.reviews.length - 1];
   return (
     <article
       data-testid={`mapping-${m.id}`}
@@ -132,15 +132,15 @@ const CandidateCard: React.FC<{
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           {canReview ? (
             <div className="flex flex-wrap gap-2" role="group" aria-label={`Review ${m.topicSection} ${m.topicLabel}`}>
-              {DECISIONS.map(({ key, label, Icon, variant }) => (
+              {DECISIONS.filter(({ key }) => allowedDecisions(m.reviewerStatus).includes(key)).map(({ key, label, Icon, variant }) => (
                 <Button key={key} size="sm" variant={variant} icon={<Icon className="w-3.5 h-3.5" />} onClick={() => onDecide(m, key)}>
-                  {decided && last?.decision === key ? `${label} again` : label}
+                  {label}
                 </Button>
               ))}
             </div>
           ) : (
             <p className="text-[11px] text-content-secondary flex items-center gap-1.5">
-              <Eye className="w-3.5 h-3.5" aria-hidden="true" /> View only. A principal or administrator must record review decisions.
+              <Eye className="w-3.5 h-3.5" aria-hidden="true" /> View only. Only an administrator can record global catalogue review decisions.
             </p>
           )}
         </div>
@@ -173,7 +173,8 @@ export const ReviewView: React.FC<{
 
   const submit = async () => {
     if (!pending) return;
-    const problem = validateReviewInput({ decision: pending.decision, rationale });
+    const input = { decision: pending.decision, rationale, expectedRevision: pending.mapping.revision };
+    const problem = validateReviewInput(input);
     if (problem) {
       setFormError(problem);
       return;
@@ -181,18 +182,13 @@ export const ReviewView: React.FC<{
     setSubmitting(true);
     setFormError(null);
     try {
-      const updated = await service.submitReview(pending.mapping.id, { decision: pending.decision, rationale });
+      const updated = await service.submitReview(pending.mapping.id, input);
       state.setData((list) => list.map((m) => (m.id === updated.id ? updated : m)));
       setAnnouncement(`${DECISION_LABEL[pending.decision]} recorded for ${updated.topicSection} ${updated.topicLabel}.`);
       setPending(null);
     } catch (err) {
-      setFormError(
-        err instanceof ContractPendingError
-          ? err.message
-          : err instanceof ApiError
-          ? `${err.status === 403 ? 'Not permitted: ' : ''}${err.message}`
-          : 'The decision could not be saved.'
-      );
+      const e = describeApiError(err);
+      setFormError(`${e.status === 403 ? 'Not permitted: ' : ''}${e.message}`);
     } finally {
       setSubmitting(false);
     }
@@ -249,7 +245,7 @@ export const ReviewView: React.FC<{
             </Button>
             <Button
               size="sm"
-              variant={pending?.decision === 'REJECT' ? 'danger' : 'teal'}
+              variant={pending?.decision === 'REJECTED' ? 'danger' : 'teal'}
               loading={submitting}
               onClick={submit}
             >
@@ -274,7 +270,7 @@ export const ReviewView: React.FC<{
           />
           <p id="review-rationale-help" className="text-content-muted">
             At least {MIN_RATIONALE_LENGTH} characters. The decision is recorded with your name and the time.
-            {pending?.decision === 'APPROVE' && ' Approving records your review only. It does not publish the mapping or make it eligible for recovery.'}
+            {pending?.decision === 'APPROVED' && ' Approving records your review only. It does not publish the mapping or make it eligible for recovery.'}
           </p>
           {formError && (
             <p id="review-rationale-error" role="alert" className="text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">

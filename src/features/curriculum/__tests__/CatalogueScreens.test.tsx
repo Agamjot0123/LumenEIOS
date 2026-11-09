@@ -9,7 +9,6 @@ import { ApiError } from '../../../lib/apiClient';
 import type { Role } from '../../../types';
 import { CatalogueServiceProvider } from '../api/CatalogueServiceContext';
 import type { CurriculumCatalogueService } from '../api/catalogueService';
-import { createHttpCatalogueService } from '../api/httpCatalogueService';
 import { createMockCatalogueService } from '../mocks/mockCatalogueService';
 import { CatalogueCombinationPage } from '../pages/CatalogueCombinationPage';
 import { CatalogueDashboard } from '../pages/CatalogueDashboard';
@@ -42,8 +41,8 @@ function renderCatalogue(path: string, service: CurriculumCatalogueService) {
 
 describe('Screen 1: catalogue dashboard', () => {
   it('renders purpose, prototype scope, data-source disclosure and permission status', async () => {
-    signInAs('principal');
-    renderCatalogue('/curriculum/catalogue', mockService('principal'));
+    signInAs('admin');
+    renderCatalogue('/curriculum/catalogue', mockService('admin'));
     expect(screen.getByRole('heading', { name: 'Curriculum Catalogue' })).toBeInTheDocument();
     expect(screen.getByText(/Prototype scope: Classes VI–VIII · Mathematics and Science/)).toBeInTheDocument();
     expect(await screen.findByTestId('data-source-banner')).toHaveTextContent(/research snapshot \(mock\)/i);
@@ -177,9 +176,17 @@ describe('Screen 5: mapping review', () => {
     expect(card).toHaveTextContent(/research label only/i);
   });
 
-  it('records a decision through the service, requiring a rationale', async () => {
+  it('principals can view but not review (contract: global review is admin-only)', async () => {
     signInAs('principal');
-    const service = mockService('principal');
+    renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', mockService('principal'));
+    const card = await screen.findByTestId('mapping-XW-fegp104-S4.3');
+    expect(within(card).queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(card).toHaveTextContent(/Only an administrator/);
+  });
+
+  it('records a decision through the service, requiring a rationale', async () => {
+    signInAs('admin');
+    const service = mockService('admin');
     const spy = vi.spyOn(service, 'submitReview');
     const user = userEvent.setup();
     renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', service);
@@ -196,8 +203,9 @@ describe('Screen 5: mapping review', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /candidate mapping/ })).not.toBeInTheDocument());
     expect(spy).toHaveBeenCalledWith('XW-fegp104-S4.3', {
-      decision: 'REQUEST_REVISION',
+      decision: 'REVISION_REQUESTED',
       rationale: 'Scope of outcome is broader than bar graphs.',
+      expectedRevision: 0,
     });
     const updated = screen.getByTestId('mapping-XW-fegp104-S4.3');
     expect(within(updated).getByText('Revision requested')).toBeInTheDocument();
@@ -206,8 +214,8 @@ describe('Screen 5: mapping review', () => {
   });
 
   it('surfaces a backend authorization failure inside the decision dialog', async () => {
-    signInAs('principal');
-    const service = mockService('principal');
+    signInAs('admin');
+    const service = mockService('admin');
     vi.spyOn(service, 'submitReview').mockRejectedValue(new ApiError(403, 'Reviewer membership required.'));
     const user = userEvent.setup();
     renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', service);
@@ -221,7 +229,7 @@ describe('Screen 5: mapping review', () => {
   });
 });
 
-describe('API loading, failure and contract-pending states', () => {
+describe('Loading and failure states (mock mode)', () => {
   it('shows a loading state then an error with retry', async () => {
     signInAs('admin');
     let fail = true;
@@ -237,19 +245,6 @@ describe('API loading, failure and contract-pending states', () => {
     fail = false;
     await user.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByTestId('combo-6-mathematics')).toBeInTheDocument();
-  });
-
-  it('API mode shows no-release empty state and contract-pending views instead of fabricated data', async () => {
-    signInAs('admin');
-    const request = vi.fn().mockResolvedValue({ release_id: null, items: [], completeness: 'UNAVAILABLE', reason: 'NO_PUBLISHED_RELEASE' });
-    const service = createHttpCatalogueService(request as any);
-    const { unmount } = renderCatalogue('/curriculum/catalogue', service);
-    expect(await screen.findByTestId('state-empty')).toHaveTextContent(/no published release/i);
-    expect(screen.getByTestId('data-source-banner')).toHaveTextContent(/backend API/);
-    unmount();
-
-    renderCatalogue('/curriculum/catalogue/6/science', service);
-    expect(await screen.findByTestId('state-contract-pending')).toBeInTheDocument();
   });
 
   it('maps a backend 403 to the unauthorized state', async () => {

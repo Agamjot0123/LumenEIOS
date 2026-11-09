@@ -1,3 +1,4 @@
+import { REVIEW_RATIONALE_MAX, REVIEW_RATIONALE_MIN } from './contract';
 import type {
   CandidateMapping,
   CatalogueDashboardData,
@@ -19,11 +20,13 @@ export interface CatalogueActor {
 export interface ReviewInput {
   decision: ReviewDecision;
   rationale: string;
+  /** Must equal the mapping's current revision (optimistic concurrency, as in the backend contract). */
+  expectedRevision: number;
 }
 
 /**
- * Single seam between curriculum UI and data. UI components never import fixtures
- * or call fetch directly — they go through this interface.
+ * MOCK-mode seam between the research-snapshot screens and their data. API mode uses
+ * NcertApi (api/ncertApi.ts) against the real backend contract instead.
  */
 export interface CurriculumCatalogueService {
   readonly kind: DataSourceKind;
@@ -34,25 +37,18 @@ export interface CurriculumCatalogueService {
   submitReview(mappingId: string, input: ReviewInput): Promise<CandidateMapping>;
 }
 
-/**
- * Raised when the UI needs data that the backend API contract does not (yet) define.
- * Rendered as an explicit "contract pending" state rather than guessing an endpoint.
- */
-export class ContractPendingError extends Error {
-  constructor(public readonly capability: string, message: string) {
-    super(message);
-    this.name = 'ContractPendingError';
-  }
-}
-
-export const MIN_RATIONALE_LENGTH = 10;
+export { REVIEW_RATIONALE_MIN as MIN_RATIONALE_LENGTH } from './contract';
 
 export function validateReviewInput(input: ReviewInput): string | null {
-  if (!['APPROVE', 'REJECT', 'REQUEST_REVISION'].includes(input.decision)) {
+  if (!['APPROVED', 'REJECTED', 'REVISION_REQUESTED'].includes(input.decision)) {
     return 'Choose a review decision.';
   }
-  if (input.rationale.trim().length < MIN_RATIONALE_LENGTH) {
-    return `A decision rationale of at least ${MIN_RATIONALE_LENGTH} characters is required.`;
+  const n = input.rationale.trim().length;
+  if (n < REVIEW_RATIONALE_MIN) {
+    return `A decision rationale of at least ${REVIEW_RATIONALE_MIN} characters is required.`;
+  }
+  if (n > REVIEW_RATIONALE_MAX) {
+    return `The rationale must be at most ${REVIEW_RATIONALE_MAX} characters.`;
   }
   return null;
 }

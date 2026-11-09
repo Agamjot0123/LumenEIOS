@@ -76,9 +76,20 @@ export const EvidenceDrawer: React.FC<{
             <StatusBadge status={evidence.status} size="md" prefix="Verification" />
           </div>
           <dl>
-            <Field label="Source title">{evidence.sourceTitle ?? <MissingValue>Title not verified</MissingValue>}</Field>
+            {evidence.redacted && (
+              <p data-testid="evidence-redacted" className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-2 mb-1">
+                Title, URL, edition and locator are withheld by the backend until a scoped metadata rights decision is recorded.
+              </p>
+            )}
+            <Field label="Source title">
+              {evidence.sourceTitle ?? <MissingValue>{evidence.redacted ? 'Redacted pending rights clearance' : 'Title not verified'}</MissingValue>}
+            </Field>
             <Field label="Official source URL">
-              {evidence.officialUrl ? <Link href={evidence.officialUrl}>{evidence.officialUrl}</Link> : <MissingValue>No official source identified</MissingValue>}
+              {evidence.officialUrl ? (
+                <Link href={evidence.officialUrl}>{evidence.officialUrl}</Link>
+              ) : (
+                <MissingValue>{evidence.redacted ? 'Redacted pending rights clearance' : 'No official source identified'}</MissingValue>
+              )}
             </Field>
             {evidence.secondaryUrl && (
               <Field label={evidence.secondaryUrl.label}>

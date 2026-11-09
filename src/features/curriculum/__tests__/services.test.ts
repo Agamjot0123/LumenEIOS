@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../../lib/apiClient';
-import { ContractPendingError, validateReviewInput } from '../api/catalogueService';
-import { createHttpCatalogueService } from '../api/httpCatalogueService';
+import { validateReviewInput } from '../api/catalogueService';
 import { createMockCatalogueService, type ReviewStore } from '../mocks/mockCatalogueService';
 import snapshot from '../mocks/researchSnapshot.json';
 import { knownOrNull, toDisplayStatus } from '../status';
 import type { CatalogueActor } from '../api/catalogueService';
 
+const admin: CatalogueActor = { name: 'Rajesh Kumar', role: 'admin' };
 const principal: CatalogueActor = { name: 'Dr. Sunita Deshmukh', role: 'principal' };
 const teacher: CatalogueActor = { name: 'Vikram Sengupta', role: 'teacher' };
 
@@ -78,28 +78,43 @@ describe('mock catalogue service', () => {
     expect(list.every((m) => !m.recoveryEligible)).toBe(true);
   });
 
-  it('rejects review decisions from roles without permission (simulated 403)', async () => {
-    const [m] = await mock(teacher).listCandidateMappings(6, 'mathematics');
-    await expect(mock(teacher).submitReview(m.id, { decision: 'APPROVE', rationale: 'Looks right to me.' })).rejects.toMatchObject({ status: 403 });
+  it('rejects review decisions from non-admin roles (simulated 403, contract: review is admin-only)', async () => {
+    for (const actor of [teacher, principal]) {
+      const [m] = await mock(actor).listCandidateMappings(6, 'mathematics');
+      await expect(
+        mock(actor).submitReview(m.id, { decision: 'APPROVED', rationale: 'Looks right to me.', expectedRevision: 0 })
+      ).rejects.toMatchObject({ status: 403 });
+    }
   });
 
-  it('requires a rationale (simulated 422) and records valid decisions append-only', async () => {
+  it('requires a rationale (simulated 422) and records valid decisions append-only with revisions', async () => {
     const store: ReviewStore = new Map();
-    const svc = mock(principal, store);
+    const svc = mock(admin, store);
     const [m] = await svc.listCandidateMappings(6, 'mathematics');
-    await expect(svc.submitReview(m.id, { decision: 'REJECT', rationale: 'short' })).rejects.toBeInstanceOf(ApiError);
+    expect(m.revision).toBe(0);
+    await expect(svc.submitReview(m.id, { decision: 'REJECTED', rationale: 'short', expectedRevision: 0 })).rejects.toBeInstanceOf(ApiError);
 
-    const revised = await svc.submitReview(m.id, { decision: 'REQUEST_REVISION', rationale: 'Outcome scope needs narrowing first.' });
+    const revised = await svc.submitReview(m.id, { decision: 'REVISION_REQUESTED', rationale: 'Outcome scope needs narrowing first.', expectedRevision: 0 });
     expect(revised.reviewerStatus).toBe('REVISION_REQUESTED');
-    const approved = await svc.submitReview(m.id, { decision: 'APPROVE', rationale: 'Narrowed scope confirmed against both sources.' });
+    expect(revised.revision).toBe(1);
+    const approved = await svc.submitReview(m.id, { decision: 'APPROVED', rationale: 'Narrowed scope confirmed against both sources.', expectedRevision: 1 });
     expect(approved.reviewerStatus).toBe('APPROVED');
-    expect(approved.reviews.map((r) => r.decision)).toEqual(['REQUEST_REVISION', 'APPROVE']);
-    expect(approved.reviews[1].reviewer).toBe(principal.name);
+    expect(approved.reviews.map((r) => r.decision)).toEqual(['REVISION_REQUESTED', 'APPROVED']);
+    expect(approved.reviews[1].reviewer).toBe(admin.name);
     expect(approved.recoveryEligible).toBe(false);
 
     const dashboard = await svc.getDashboard();
     const combo = dashboard.combinations.find((c) => c.grade === 6 && c.subject === 'mathematics')!;
     expect(combo.pendingReview).toBe(0);
+  });
+
+  it('mirrors backend 409s for stale revisions and repeated decisions', async () => {
+    const svc = mock(admin);
+    const [m] = await svc.listCandidateMappings(7, 'science');
+    const body = { decision: 'REJECTED' as const, rationale: 'Evidence does not support this.' };
+    await expect(svc.submitReview(m.id, { ...body, expectedRevision: 3 })).rejects.toMatchObject({ status: 409 });
+    await svc.submitReview(m.id, { ...body, expectedRevision: 0 });
+    await expect(svc.submitReview(m.id, { ...body, expectedRevision: 1 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('denies access to roles outside the catalogue audience', async () => {
@@ -108,32 +123,8 @@ describe('mock catalogue service', () => {
   });
 
   it('validateReviewInput enforces rationale length', () => {
-    expect(validateReviewInput({ decision: 'APPROVE', rationale: '   ' })).toMatch(/rationale/);
-    expect(validateReviewInput({ decision: 'APPROVE', rationale: 'Evidence on both ends agrees.' })).toBeNull();
-  });
-});
-
-describe('http catalogue service', () => {
-  it('calls only the documented releases endpoint and reports no published release', async () => {
-    const request = vi.fn().mockResolvedValue({ release_id: null, items: [], completeness: 'UNAVAILABLE', reason: 'NO_PUBLISHED_RELEASE' });
-    const svc = createHttpCatalogueService(request as any);
-    const data = await svc.getDashboard();
-    expect(request).toHaveBeenCalledWith('/ncert/releases');
-    expect(data.meta).toMatchObject({ dataSource: 'api', releaseId: null, releaseStatus: 'NO_PUBLISHED_RELEASE' });
-    expect(data.combinations).toEqual([]);
-  });
-
-  it('raises ContractPendingError for capabilities the contract does not define', async () => {
-    const request = vi.fn();
-    const svc = createHttpCatalogueService(request as any);
-    await expect(svc.getCombination(6, 'science')).rejects.toBeInstanceOf(ContractPendingError);
-    await expect(svc.listCandidateMappings(6, 'science')).rejects.toBeInstanceOf(ContractPendingError);
-    await expect(svc.submitReview('x', { decision: 'APPROVE', rationale: 'long enough text' })).rejects.toBeInstanceOf(ContractPendingError);
-    expect(request).not.toHaveBeenCalled();
-  });
-
-  it('propagates backend failures', async () => {
-    const svc = createHttpCatalogueService(vi.fn().mockRejectedValue(new ApiError(0, 'Network down')) as any);
-    await expect(svc.getDashboard()).rejects.toMatchObject({ status: 0 });
+    expect(validateReviewInput({ decision: 'APPROVED', rationale: '   ', expectedRevision: 0 })).toMatch(/rationale/);
+    expect(validateReviewInput({ decision: 'APPROVED', rationale: 'x'.repeat(4001), expectedRevision: 0 })).toMatch(/at most 4000/);
+    expect(validateReviewInput({ decision: 'APPROVED', rationale: 'Evidence on both ends agrees.', expectedRevision: 0 })).toBeNull();
   });
 });

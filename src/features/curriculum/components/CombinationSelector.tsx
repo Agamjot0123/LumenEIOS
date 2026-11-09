@@ -2,7 +2,7 @@ import React from 'react';
 import { cn } from '../../../lib/utils';
 import { GRADES, ROMAN, SUBJECTS, SUBJECT_LABEL, type GradeNumber, type SubjectKey } from '../types';
 
-function Segmented<T extends string | number>({
+export function Segmented<T extends string | number>({
   label,
   options,
   value,

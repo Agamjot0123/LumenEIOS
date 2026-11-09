@@ -1,73 +1,83 @@
-# Curriculum Catalogue: Frontend Prototype Notes
+# Curriculum Catalogue: Frontend Notes
 
-Owner: Claude (frontend). The backend API contract is owned by Codex and will live at
-`apps/lumeneios/docs/CURRICULUM_API_INTEGRATION_CONTRACT.md`. **That file did not exist when this was written.**
-This document records the frontend's expectations. It is not a competing API definition.
+Owner: Claude (frontend only). Codex owns the backend, schemas, migrations and the API contract:
+`apps/lumeneios/docs/CURRICULUM_API_INTEGRATION_CONTRACT.md` (contract v1, 2026-11-10). That contract
+supersedes the routes proposed earlier in `NCERT_DATABASE_INTEGRATION.md`, and the frontend now follows it.
 
-## Integration status: MOCK-BACKED
-
-The UI is **not** connected to a live curriculum API. By default it reads a metadata-only research snapshot
-(`src/features/curriculum/mocks/researchSnapshot.json`). That snapshot was generated from Codex's NCERT Phase 0 research CSVs:
-
-| Fixture section | Source CSV (Codex-owned, `apps/lumeneios/docs/`) |
-|---|---|
-| `coverage` (130 rows) | `NCERT_VI_VIII_COVERAGE_MATRIX.csv` |
-| `editions` (24 rows) | `NCERT_VI_VIII_TEXTBOOK_EDITIONS.csv` |
-| `crosswalk` (10 rows) | `NCERT_VI_VIII_CHAPTER_TOPIC_OUTCOME_CROSSWALK.csv` |
-
-The fixture records the SHA-256 of each CSV. To regenerate it:
-`npm run build:curriculum-fixtures -- <path-to-apps/lumeneios/docs>`.
-The script refuses to build if any crosswalk row claims stored outcome wording.
-
-The snapshot contains no textbook paragraphs, exercises or learning-outcome wording. It holds only titles, editions, official URLs, locators and verification codes.
-
-## Data source switch
+## Two data sources
 
 | `VITE_CURRICULUM_DATA_SOURCE` | Behaviour |
 |---|---|
-| unset / `mock` (default) | Research snapshot. Simulated latency, 403 and 422 responses. Review decisions are kept in memory for the browser session. |
-| `api` | Calls `GET {VITE_API_URL}/ncert/releases`. Every other view shows a "Backend API not available yet" state. |
+| unset / `mock` (default) | **Demo mode.** Metadata-only research snapshot (`src/features/curriculum/mocks/researchSnapshot.json`). The screens and demo script below are unchanged. Review decisions are kept in memory only, but follow the same rules as the backend: admin only, `expected_revision`, repeated decision rejected with 409. |
+| `api` | **Live backend.** Calls `{VITE_API_URL}/ncert/*` through the existing authenticated client (`apiRequest`, Bearer token from the existing login). There is no fallback to mock data. |
 
-The mock data is loaded with a dynamic `import()`, so it ships as a separate chunk and is never fetched in API mode.
+The mock data is loaded with a dynamic `import()`, so it is never fetched in API mode.
 
-## Endpoints used in API mode
+## API mode: routes used (exactly the contract's eight)
 
-Only the paths named in `NCERT_DATABASE_INTEGRATION.md` (contract v1) appear in `src/features/curriculum/api/endpoints.ts`:
-`/ncert/releases`, `/ncert/releases/{id}/hierarchy`, `/ncert/nodes/{id}/outcomes|relationships|citations`.
-None of them are implemented in the backend yet.
+Adapter: `src/features/curriculum/api/ncertApi.ts`. Wire types: `api/contract.ts`, with field names copied from `backend/app/schemas/ncert.py`.
 
-## Capabilities the UI needs that the contract does not define (blockers)
+| # | Method and route | Parameters sent | Used by |
+|---|---|---|---|
+| 1 | `GET /ncert/releases` | `limit`, `offset` (follows `next_offset`) | Dashboard: the user must pick a release; none is selected automatically |
+| 2 | `GET /ncert/availability` | `grade`, `release_id`, `subject_identity_id`, `language` | Overview tab |
+| 3 | `GET /ncert/subjects` | `release_id`, `grade`, `language`, `limit`, `offset` | Dashboard subject list |
+| 4 | `GET /ncert/nodes/{node_id}` | `language` | Subject header and the Chapters & topics tab (one level per request) |
+| 5 | `GET /ncert/mappings` | `release_id`, `subject_node_id`, `language`, `limit`, `offset` | Mapping review list, with "Load more" |
+| 6 | `GET /ncert/mappings/{mapping_id}` | `language` | Refetch after a write, or after a 409 STALE_REVISION |
+| 7 | `GET /ncert/mappings/{mapping_id}/reviews` | `limit`, `offset` | Review history |
+| 8 | `POST /ncert/mappings/{mapping_id}/reviews` | body `{decision, rationale (trimmed, 10–4000 characters), expected_revision}` and nothing else | Approve / Reject / Request revision |
 
-1. **Resource availability per class, subject and language.** The UI needs framework, syllabus (current and 2006), learning-outcome documents (current and 2017) and textbook language editions or parts, each with a verification status, locator, rights status and unresolved notes. The v1 contract only exposes the node hierarchy.
-2. **Class/subject to subject-node lookup.** The hierarchy endpoint needs `subject_identity_id`, and the frontend has no way to resolve it.
-3. **Listing candidate (AI-suggested) mappings.** The contract mentions "suggestion access explicit and authorized" for `verified_only=false`, but that requires per-node calls with no list endpoint for a class or subject.
-4. **Recording a review decision.** No endpoint exists. `CatalogueReview` stores `decision` from the *verification* enum (`SOURCE_VERIFIED|EXPERT_VERIFIED|AI_SUGGESTED|AWAITING_REVIEW|REJECTED`). The UI offers Approve, Reject and Request revision. Codex needs to confirm how these map: Approve to `EXPERT_VERIFIED`? Request revision to `AWAITING_REVIEW`?
-5. **Dashboard counts and pending-review totals.** These are computed client-side in mock mode only. In API mode they should come from the backend, so the frontend does not duplicate backend calculations.
+API-mode URLs:
+- Dashboard: `/curriculum/catalogue?release=<uuid>&grade=6..8&lang=en|hi|ur`
+- Subject: `/curriculum/catalogue/<grade>/<subject node id>?release=<uuid>&lang=..&view=overview|explorer|review`
 
-## Ownership conflict to resolve
+The subject is identified by the node ID returned from `/subjects`. It is never matched by title.
 
-`NCERT_DATABASE_INTEGRATION.md` says "New **Claude-owned** /api/v1/ncert …" and "Claude owns … HTTP APIs/frontend".
-The current task brief instead assigns the backend API to Codex. No backend code was written from the frontend
-worktree. Codex and the team lead need to agree on who implements the `/ncert` HTTP layer.
+## Error and empty-state handling
 
-## Frontend status vocabulary
+| Response | UI |
+|---|---|
+| 401 `AUTHENTICATION_REQUIRED` / `INVALID_TOKEN` | "Sign in required" state |
+| 403 `FORBIDDEN` | "No access" state, or "Not permitted" inside the decision dialog |
+| 404 `NOT_FOUND` | "Record not found" state, or a message in the dialog |
+| 409 `STALE_REVISION` | Mapping is refetched and the dialog stays open showing the new revision |
+| 409 `INVALID_TRANSITION`, `READ_ONLY_RELEASE`, `EVIDENCE_INCOMPLETE`, `RIGHTS_BLOCKED`, `RELEASE_UNAVAILABLE`, `INVALID_MAPPING` | Specific message; nothing changes in the UI |
+| 422 (FastAPI validation) | Field-level message |
+| 503 `DATABASE_UNAVAILABLE`, network failure | Error state with "Try again" |
+| Empty release, subject, mapping or child lists | Explicit empty states. Never shown as verified or complete |
+| `title: null` | "… title not available in <language> (absent or not rights-cleared)" |
+| Citation with `metadata_visible: false` | "Redacted pending rights clearance" |
+| Mapping rationale or coverage fields `null` | "Not shown: free text stays hidden until evidence is metadata-cleared" |
 
-Raw codes map to display statuses through an explicit table in `src/features/curriculum/status.ts`. Unknown codes become
-**UNVERIFIED**, never VERIFIED. Every badge shows an icon and a text label, so status never depends on colour alone.
+Availability `AVAILABLE` / `PARTIAL` is described as *registered evidence*, never as official completeness. Missing types are shown as placeholders, stating that missing does not mean officially unavailable. Applicability is always shown as UNVERIFIED.
 
-## Permissions (UI gating only)
+## Permissions (UI gating only; the backend enforces them using the database role)
 
-`VIEW_CURRICULUM_CATALOGUE`: admin, principal, teacher. `REVIEW_CURRICULUM_MAPPINGS`: admin, principal.
-These checks only show or hide UI. The backend must enforce authorization. The UI already renders backend 401 and 403 responses as an
-unauthorized state, and shows a 403 on a review submission inside the decision dialog.
+- `VIEW_CURRICULUM_CATALOGUE`: admin, principal, teacher.
+- `REVIEW_CURRICULUM_MAPPINGS`: **admin only** (contract: global editorial authority). Principals were previously allowed in the prototype and are now view only in both modes.
+- Review buttons appear only for admins, and only when `publication_status === 'DRAFT'`. Only allowed transitions are offered.
 
-## Demonstration script
+## Contract and implementation notes for Codex
 
-1. `cd apps/lumeneios && npm install && npm run dev`, then open http://localhost:3000/curriculum/catalogue
-   (sidebar: **Curriculum Catalogue**, visible to Admin, Principal and Teacher).
-2. Dashboard: point out the scope pill, the violet "mock" data-source banner, and the six combination cards with verified, partial, unverified and placeholder counts.
-3. Pick **Class VII · Mathematics**, then **Open**. The Overview shows the language matrix, syllabus placeholders ("No syllabus found in checked NCERT channels"), the 2017 outcomes document, and the textbook editions including the **Urdu Part II gap**.
-4. Click any **Evidence** button to open the source panel with the official URL, edition, locator, raw status code and open issues.
-5. **Chapters & topics** (Class VI Maths): only Chapter 4, section 4.3 is listed. The notice explains that no chapters are inferred. Pick the Hindi edition to show the empty state.
-6. **Mapping review** as Admin or Principal: the dashed amber card reads "AI-suggested candidate. Not approved." Click **Request revision**, try submitting with no rationale (it is blocked), add a rationale and submit. The status changes to "Revision requested" with a history entry.
-7. Switch persona to **Teacher**: review buttons are replaced with "View only". Switch to **Student**: the catalogue is unauthorized.
+1. **Transition ambiguity.** The contract says "REVISION_REQUESTED → any decision" and also "Same decision twice ⇒ 409". `decide()` rejects every repeat, including REVISION_REQUESTED → REVISION_REQUESTED. The UI follows the implementation and does not offer that repeat.
+2. **Mapping list has no review-state filter.** A "pending review" count covers loaded pages only. The UI labels it "loaded", not total.
+3. **Persona vs. token.** The backend authorises using the database user behind the Bearer token. The demo persona switcher logs in asynchronously, so a switch that fails to obtain a token produces 401s. These are shown as such and are never replaced with mock data.
+
+## Integration status
+
+- The adapter and screens are tested against mocked HTTP responses that use the contract's shapes (`__tests__/ncertApi.test.ts`, `__tests__/ApiScreens.test.tsx`). The fixtures in `ncertTestHttp.ts` are synthetic and test-only.
+- **Not yet verified against a running backend.** The backend currently has no catalogue rows, so a live run would show the empty-release state. A populated demo needs authorised catalogue data (see `CURRICULUM_BACKEND_IMPLEMENTATION_STATUS.md`).
+
+## Mock-mode demonstration script (unchanged screens)
+
+1. `cd apps/lumeneios && npm install && npm run dev`, then open http://localhost:3000/curriculum/catalogue.
+2. Dashboard: scope pill, violet "mock" banner, six combination cards with counts.
+3. **Class VII · Mathematics** → Overview: language matrix, syllabus placeholders, Urdu Part II gap.
+4. Any **Evidence** button opens the source panel.
+5. **Chapters & topics** (Class VI Maths): only the source-checked sections are listed.
+6. **Mapping review** as **Admin**: Request revision → a rationale is required → the status changes and the revision increments.
+7. Switch persona to **Principal** or **Teacher**: view only. **Student**: unauthorized.
+
+API-mode run: start Codex's backend (`python -m uvicorn backend.app.main:app --port 8000` from `apps/lumeneios`), then
+`VITE_CURRICULUM_DATA_SOURCE=api npm run dev`. Log in through the existing persona switcher so a token is issued.

@@ -36,6 +36,10 @@ const RAW_STATUS_TABLE: Record<string, DisplayStatus> = {
   PARTIAL: 'PARTIALLY_VERIFIED',
   UNAVAILABLE: 'PLACEHOLDER',
   AWAITING_RIGHTS_REVIEW: 'BLOCKED',
+  // Contract v1 source_verification (research access status, never legal clearance)
+  FULL_REVIEW: 'VERIFIED',
+  DISCOVERY_ONLY: 'UNVERIFIED',
+  INACCESSIBLE: 'PLACEHOLDER',
 };
 
 export function toDisplayStatus(raw: string | null | undefined): DisplayStatus {

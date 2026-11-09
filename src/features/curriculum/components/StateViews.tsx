@@ -1,8 +1,7 @@
 import React from 'react';
-import { AlertTriangle, FileQuestion, Loader2, PlugZap, ShieldAlert } from 'lucide-react';
-import { ApiError } from '../../../lib/apiClient';
+import { AlertTriangle, FileQuestion, Loader2, SearchX, ShieldAlert } from 'lucide-react';
 import { Button } from '../../../components/common/Button';
-import { ContractPendingError } from '../api/catalogueService';
+import { describeApiError } from '../api/ncertApi';
 import { cn } from '../../../lib/utils';
 
 export const LoadingState: React.FC<{ label?: string }> = ({ label = 'Loading curriculum catalogue…' }) => (
@@ -40,31 +39,31 @@ const Panel: React.FC<{
   </div>
 );
 
-export const UnauthorizedState: React.FC<{ message?: string }> = ({ message }) => (
+export const UnauthorizedState: React.FC<{ message?: string; signInRequired?: boolean }> = ({ message, signInRequired }) => (
   <Panel
     tone="danger"
     role="alert"
     testId="state-unauthorized"
     icon={<ShieldAlert className="w-5 h-5 text-rose-600" aria-hidden="true" />}
-    title="You do not have access to this area"
+    title={signInRequired ? 'Sign in required' : 'You do not have access to this area'}
   >
     <p>{message ?? 'The curriculum catalogue is available to teachers, principals and administrators.'}</p>
-    <p>Switch persona using the banner at the top of the page to continue the demonstration.</p>
+    <p>
+      {signInRequired
+        ? 'Sign in again (or switch persona) so the backend issues a valid login token.'
+        : 'Switch persona using the banner at the top of the page to continue the demonstration.'}
+    </p>
   </Panel>
 );
 
-export const ContractPendingState: React.FC<{ error: ContractPendingError }> = ({ error }) => (
+export const NotFoundState: React.FC<{ message: string }> = ({ message }) => (
   <Panel
     tone="warning"
-    testId="state-contract-pending"
-    icon={<PlugZap className="w-5 h-5 text-amber-600" aria-hidden="true" />}
-    title="Backend API not available yet for this view"
+    testId="state-not-found"
+    icon={<SearchX className="w-5 h-5 text-amber-600" aria-hidden="true" />}
+    title="Record not found"
   >
-    <p>{error.message}</p>
-    <p>
-      The frontend is running in <strong>API mode</strong>. This capability is waiting on the backend curriculum API
-      contract. No data is shown, so nothing here is invented.
-    </p>
+    <p>{message}</p>
   </Panel>
 );
 
@@ -75,16 +74,9 @@ export const EmptyState: React.FC<{ title: string; children: React.ReactNode }> 
 );
 
 export const ErrorState: React.FC<{ error: unknown; onRetry?: () => void }> = ({ error, onRetry }) => {
-  if (error instanceof ContractPendingError) return <ContractPendingState error={error} />;
-  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-    return <UnauthorizedState message={error.message} />;
-  }
-  const message =
-    error instanceof ApiError && error.status === 0
-      ? 'Could not reach the LumenEIOS backend. Check that the API server is running.'
-      : error instanceof Error
-      ? error.message
-      : 'Unexpected error.';
+  const { status, message } = describeApiError(error);
+  if (status === 401 || status === 403) return <UnauthorizedState message={message} signInRequired={status === 401} />;
+  if (status === 404) return <NotFoundState message={message} />;
   return (
     <Panel
       tone="danger"

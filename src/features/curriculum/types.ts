@@ -1,11 +1,7 @@
 /**
- * Frontend view-model types for the Curriculum Catalogue prototype.
- *
- * STATUS: PROPOSED. Codex owns the backend contract
- * (apps/lumeneios/docs/CURRICULUM_API_INTEGRATION_CONTRACT.md — not yet published).
- * Vocabulary follows apps/lumeneios/docs/NCERT_DATABASE_INTEGRATION.md (contract v1).
- * When the canonical contract lands, reconcile these types against it; do not
- * treat these shapes as a competing API definition.
+ * View-model types for the MOCK (research snapshot) mode of the Curriculum Catalogue.
+ * API mode renders the backend contract types directly (see api/contract.ts); these shapes
+ * are not an API definition.
  */
 
 export type GradeNumber = 6 | 7 | 8;
@@ -56,6 +52,8 @@ export interface EvidenceRecord {
   rightsStatus: string | null;
   accessedOn: string | null;
   notes: string[];
+  /** true when the backend redacted bibliographic values pending scoped rights clearance. */
+  redacted?: boolean;
 }
 
 export interface CatalogueResource {
@@ -112,7 +110,8 @@ export interface ChapterRecord {
   topics: TopicRecord[];
 }
 
-export type ReviewDecision = 'APPROVE' | 'REJECT' | 'REQUEST_REVISION';
+/** Same vocabulary as the backend ReviewRequest.decision (contract v1). */
+export type ReviewDecision = 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED';
 
 export interface ReviewRecord {
   decision: ReviewDecision;
@@ -147,6 +146,8 @@ export interface CandidateMapping {
   verification: DisplayStatus;
   reviewerStatus: DisplayStatus;
   reviews: ReviewRecord[];
+  /** Latest review revision (0 = never reviewed); sent back as expected_revision. */
+  revision: number;
   recoveryEligible: boolean;
 }
 

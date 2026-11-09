@@ -11,6 +11,7 @@ import {
   type CurriculumCatalogueService,
   type ReviewInput,
 } from '../api/catalogueService';
+import { allowedDecisions } from '../api/contract';
 import {
   GRADES,
   SUBJECTS,
@@ -133,14 +134,23 @@ export function createMockCatalogueService(options: MockServiceOptions): Curricu
       delay(() => {
         const actor = requireViewer();
         if (!hasPermission(actor.role, 'REVIEW_CURRICULUM_MAPPINGS')) {
-          throw new ApiError(403, 'Only principals and administrators may record mapping review decisions.');
+          throw new ApiError(403, 'Only administrators may record global catalogue review decisions.');
         }
         const problem = validateReviewInput(input);
         if (problem) throw new ApiError(422, problem);
         const row = snapshot.crosswalk.find((m) => m.mappingId === mappingId);
         if (!row) throw new ApiError(404, `Unknown candidate mapping ${mappingId}.`);
+        // Same optimistic-concurrency and transition rules as the backend contract.
+        const prior = store.get(mappingId) ?? [];
+        if (input.expectedRevision !== prior.length) {
+          throw new ApiError(409, 'Someone else changed this mapping since you loaded it. Reload and try again.');
+        }
+        const state = prior.length ? prior[prior.length - 1].decision : 'AWAITING_REVIEW';
+        if (!allowedDecisions(state).includes(input.decision)) {
+          throw new ApiError(409, 'That decision is not a valid change from the current review state.');
+        }
         const history = [
-          ...(store.get(mappingId) ?? []),
+          ...prior,
           {
             decision: input.decision,
             rationale: input.rationale.trim(),

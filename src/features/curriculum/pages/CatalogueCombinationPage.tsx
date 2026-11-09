@@ -11,6 +11,8 @@ import { ROMAN, SUBJECT_LABEL, parseGrade, parseSubject, type EvidenceRecord } f
 import { OverviewView } from './views/OverviewView';
 import { ExplorerView } from './views/ExplorerView';
 import { ReviewView } from './views/ReviewView';
+import { useCatalogueMode } from '../api/CatalogueServiceContext';
+import { ApiSubjectPage } from './api/ApiSubjectPage';
 
 export type OpenEvidence = (evidence: EvidenceRecord, heading?: string) => void;
 
@@ -21,7 +23,11 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
-export const CatalogueCombinationPage: React.FC = () => {
+/** Mock mode: :subject is mathematics|science. API mode: :subject is a SUBJECT node id from GET /ncert/subjects. */
+export const CatalogueCombinationPage: React.FC = () =>
+  useCatalogueMode() === 'api' ? <ApiSubjectPage /> : <MockCombinationPage />;
+
+const MockCombinationPage: React.FC = () => {
   const params = useParams();
   const grade = parseGrade(params.grade);
   const subject = parseSubject(params.subject);

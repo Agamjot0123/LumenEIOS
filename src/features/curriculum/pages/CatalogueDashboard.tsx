@@ -5,7 +5,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { hasPermission } from '../../../lib/permissions';
 import { Button } from '../../../components/common/Button';
 import { Card, CardBody, CardHeader } from '../../../components/common/Card';
-import { useCatalogueService } from '../api/CatalogueServiceContext';
+import { useCatalogueMode, useCatalogueService } from '../api/CatalogueServiceContext';
+import { ApiCatalogueDashboard } from './api/ApiCatalogueDashboard';
 import { useAsync } from '../hooks/useAsync';
 import { CombinationSelector } from '../components/CombinationSelector';
 import { DataSourceBanner } from '../components/DataSourceBanner';
@@ -80,7 +81,11 @@ const CombinationCard: React.FC<{ c: CombinationSummary; selected: boolean }> = 
   </Link>
 );
 
-export const CatalogueDashboard: React.FC = () => {
+/** Screen 1. Mock mode renders the research snapshot; API mode renders the backend contract flow. */
+export const CatalogueDashboard: React.FC = () =>
+  useCatalogueMode() === 'api' ? <ApiCatalogueDashboard /> : <MockCatalogueDashboard />;
+
+const MockCatalogueDashboard: React.FC = () => {
   const { currentUser } = useAuth();
   const service = useCatalogueService();
   const navigate = useNavigate();
