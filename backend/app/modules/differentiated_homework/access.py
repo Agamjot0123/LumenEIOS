@@ -24,6 +24,15 @@ def role_may_view_students(user: User) -> bool:
     return user.role in ROLES_THAT_MAY_VIEW
 
 
+# Generating homework is an educator action, matching require_roles("admin", "principal",
+# "teacher") on homework creation. Parents may view their child's analysis, but not generate.
+ROLES_THAT_MAY_GENERATE = {"admin"} | EDUCATOR_ROLES
+
+
+def role_may_generate_homework(user: User) -> bool:
+    return user.role in ROLES_THAT_MAY_GENERATE
+
+
 async def can_view_student(db: AsyncSession, user: User, student: Student) -> bool:
     """Return True if the user may read this student's homework data."""
     if user.role == "admin":

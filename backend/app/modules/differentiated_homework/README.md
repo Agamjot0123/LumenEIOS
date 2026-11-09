@@ -25,7 +25,35 @@ Backend for giving students homework matched to their learning needs, with teach
 
 | **Homework Assembler** (service only; no endpoint, nothing saved) | `homework_assembler.py`, `schemas.py` | `assemble_homework_draft(analysis, selection, request)` builds an unsaved `HomeworkDraft` for teacher review. Pure logic; raises `AssemblyError` on inconsistent input |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`.
+| **Homework preview endpoint** | `router.py`, `access.py` | `POST /students/{student_id}/homework/preview` runs the whole pipeline for one student and returns the `HomeworkDraft`. **Nothing is saved** |
+
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`.
+
+### Homework preview endpoint
+
+`POST /api/v1/students/{student_id}/homework/preview`
+
+**Request body (`HomeworkPreviewRequest`; unknown fields rejected):**
+
+| Field | Rule |
+|---|---|
+| `subject_id` | Required, non-empty |
+| `max_questions` | Required integer, at least 1 |
+| `max_total_marks` | Optional integer, at least 1 |
+| `include_ai_generated` | Required, a real `true` or `false` |
+
+**No `school_id`:** the school comes from the student's record, and sending one gives 422.
+
+**Order of checks:**
+1. **Role:** must be admin, principal or teacher, otherwise 403 before any lookup. Parents and students are refused; parents can still view the gap analysis.
+2. **Student:** must exist, otherwise 404.
+3. **Access:** the same rule as the gap analysis endpoint (`can_view_student`): admin any school; teachers and principals their own school or an active membership. Otherwise 403.
+4. **Subject:** must exist in `subjects`, otherwise 404, **and** be in the student's class `subject_ids_json`, otherwise 422 (agreed rule). A missing or inconsistent class record gives 500.
+5. **Scores:** invalid stored scores give a 500 with a safe message.
+6. **Pipeline:** gap analysis, then questions from the student's school and the requested subject, then selection, then assembly.
+7. **Result:** 200 with the `HomeworkDraft`. Malformed question rows are skipped, and a note gives the count.
+
+An `AssemblyError` here would mean the pipeline produced inconsistent data, so it returns a generic 500.
 
 ### How homework assembly works
 
@@ -179,6 +207,8 @@ All paths are under `/api/v1`.
 | `GET /students/{student_id}/homework` | Logged-in user; students limited to their own ID | Partial |
 | `POST /homework/{homework_id}/submissions` | Any logged-in user | **Mock** |
 | `GET /students/{student_id}/remediation/recommendation` | Any logged-in user | Partial |
+| `GET /students/{student_id}/homework/gap-analysis` | admin; principal or teacher (school or active membership); linked parent | Works; read-only |
+| `POST /students/{student_id}/homework/preview` | admin; principal or teacher (school or active membership) | Works; saves nothing |
 
 ## Integration with other modules
 

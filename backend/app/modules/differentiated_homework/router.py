@@ -17,6 +17,16 @@ from backend.app.modules.differentiated_homework.access import can_view_student,
 from backend.app.modules.differentiated_homework.competency_adapter import load_competency_profile
 from backend.app.modules.differentiated_homework.gap_analyzer import analyze_gaps
 from backend.app.modules.differentiated_homework.schemas import GapAnalysis
+from backend.app.models.entities import ClassSection, Subject
+from backend.app.modules.differentiated_homework.access import role_may_generate_homework
+from backend.app.modules.differentiated_homework.homework_assembler import AssemblyError, assemble_homework_draft
+from backend.app.modules.differentiated_homework.question_bank_adapter import load_candidate_questions
+from backend.app.modules.differentiated_homework.question_selector import select_questions
+from backend.app.modules.differentiated_homework.schemas import (
+    HomeworkDraft,
+    HomeworkPreviewRequest,
+    SelectionRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,4 +161,83 @@ async def get_student_gap_analysis(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
 
     return analyze_gaps(profile)
+
+
+INVALID_DATA = "This student's data is invalid. Contact an administrator."
+
+
+@router.post("/students/{student_id}/homework/preview", response_model=HomeworkDraft)
+async def preview_student_homework(
+    student_id: str,
+    body: HomeworkPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Build an unsaved homework draft for one student. Nothing is written to the database.
+
+    Runs the existing pipeline: competency adapter, Gap Analyzer, question bank adapter,
+    Question Selector, Homework Assembler. The school comes from the student's record.
+    """
+    if not role_may_generate_homework(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    student = (await db.execute(select(Student).filter(Student.id == student_id))).scalars().first()
+    if student is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+    if not await can_view_student(db, current_user, student):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    # The subject must exist and be offered by the student's own class (agreed rule).
+    subject = (await db.execute(select(Subject.id).filter(Subject.id == body.subject_id))).first()
+    if subject is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subject not found.")
+    student_class = (
+        await db.execute(select(ClassSection).filter(ClassSection.id == student.class_id))
+    ).scalars().first()
+    if (
+        student_class is None
+        or student_class.school_id != student.school_id
+        or not isinstance(student_class.subject_ids_json, list)
+    ):
+        logger.warning("Student class record missing or inconsistent; homework preview refused.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=INVALID_DATA)
+    if body.subject_id not in student_class.subject_ids_json:
+        raise HTTPException(
+            status_code=422,  # plain number: the named constant differs between Starlette versions
+            detail="This subject isn't offered in the student's class.",
+        )
+
+    try:
+        profile = await load_competency_profile(db, student_id)
+    except ValidationError:
+        logger.warning("Invalid stored competency scores for a student; homework preview refused.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="This student's competency data is invalid. Contact an administrator.",
+        )
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Student not found.")
+
+    analysis = analyze_gaps(profile)
+    selection_request = SelectionRequest(
+        school_id=student.school_id,
+        subject_id=body.subject_id,
+        max_questions=body.max_questions,
+        max_total_marks=body.max_total_marks,
+        include_ai_generated=body.include_ai_generated,
+    )
+    loaded = await load_candidate_questions(db, student.school_id, body.subject_id)
+    selection = select_questions(analysis, loaded.candidates, selection_request)
+
+    try:
+        draft = assemble_homework_draft(analysis, selection, selection_request)
+    except AssemblyError:
+        # The pipeline produced inconsistent data; this is a server fault, not a client error.
+        logger.exception("Homework assembly failed on pipeline output.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Homework preview failed.")
+
+    if loaded.malformed_question_ids:
+        note = f"{len(loaded.malformed_question_ids)} question bank row(s) couldn't be read and were skipped."
+        draft = draft.model_copy(update={"notes": [*draft.notes, note]})
+    return draft
 

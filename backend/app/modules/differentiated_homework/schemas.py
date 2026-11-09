@@ -1,7 +1,7 @@
 """Data shapes for the Differentiated Homework module."""
 from typing import Annotated, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
 Competency = Literal["LU", "CU", "AU", "CT"]
 
@@ -178,3 +178,18 @@ class HomeworkDraft(BaseModel):
     contains_ai_generated: bool
     rationale: DraftRationale
     notes: List[str]  # gap-analysis notes, then selection notes, then assembly notes
+
+
+class HomeworkPreviewRequest(BaseModel):
+    """Body of POST /students/{student_id}/homework/preview.
+
+    No school_id: the school comes from the student's record on the server. Unknown fields
+    are rejected, so a client can't supply one.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_id: str = Field(min_length=1)
+    max_questions: StrictInt = Field(ge=1)
+    max_total_marks: Optional[StrictInt] = Field(default=None, ge=1)
+    include_ai_generated: StrictBool  # required and must be a real true/false
