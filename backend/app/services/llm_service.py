@@ -700,7 +700,9 @@ class QwenQuestionStudioService:
             raise QwenQuestionStudioUnavailable("PDF reading requires PyMuPDF.") from exc
 
         try:
-            pdf = pymupdf.open(pdf_path)
+            # Open from bytes so a failed open never leaves the upload locked on Windows.
+            with open(pdf_path, "rb") as handle:
+                pdf = pymupdf.open(stream=handle.read(), filetype="pdf")
         except Exception as exc:
             raise QwenQuestionStudioInputError("The uploaded PDF could not be opened.") from exc
 

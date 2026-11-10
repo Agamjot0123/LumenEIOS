@@ -704,7 +704,8 @@ export const apiClient = {
   health: {
     async check() {
       try {
-        const res = await fetch('http://localhost:8000/health');
+        // /health sits at the server root, outside /api/v1.
+        const res = await fetch(`${API_BASE_URL.replace(/\/api\/v1\/?$/, '')}/health`);
         return res.ok;
       } catch {
         return false;
