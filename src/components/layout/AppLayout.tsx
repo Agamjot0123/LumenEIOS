@@ -27,6 +27,8 @@ export const AppLayout: React.FC = () => {
         <span className="text-xs font-semibold">LumenEIOS Menu</span>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={mobileMenuOpen}
           className="p-1 rounded bg-navy-700 text-gray-200"
         >
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -46,13 +48,13 @@ export const AppLayout: React.FC = () => {
               onClick={() => setMobileMenuOpen(false)}
             />
             <div className="relative z-50 w-64 bg-navy-800 h-full flex flex-col shadow-xl">
-              <Sidebar />
+              <Sidebar mobile />
             </div>
           </div>
         )}
 
         {/* Dynamic Route Viewport */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
+        <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
           <Outlet />
         </main>
       </div>

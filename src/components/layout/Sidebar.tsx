@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export const Sidebar: React.FC = () => {
+export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
   const { currentUser } = useAuth();
   const location = useLocation();
   const role = currentUser?.role || 'admin';
@@ -55,10 +55,10 @@ export const Sidebar: React.FC = () => {
             badge: 'AI',
           },
           {
-            label: 'Auto-Grade & OCR',
+            label: 'Scan Review',
             path: '/teacher/scan-review',
             icon: <ScanLine className="w-4 h-4" />,
-            badge: 'Batch',
+            badge: 'OCR',
           },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
         ];
@@ -83,10 +83,10 @@ export const Sidebar: React.FC = () => {
             badge: 'AI',
           },
           {
-            label: 'Auto-Grade & OCR',
+            label: 'Scan Review',
             path: '/teacher/scan-review',
             icon: <ScanLine className="w-4 h-4" />,
-            badge: 'Batch',
+            badge: 'OCR',
           },
           { label: 'Compliance Reports', path: '/principal/reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
         ];
@@ -111,10 +111,10 @@ export const Sidebar: React.FC = () => {
           },
           { label: 'Differentiated Homework', path: '/teacher/remediation', icon: <Sparkles className="w-4 h-4" /> },
           {
-            label: 'Auto-Grade & OCR',
+            label: 'Scan Review',
             path: '/teacher/scan-review',
             icon: <ScanLine className="w-4 h-4" />,
-            badge: 'Batch',
+            badge: 'OCR',
           },
         ];
 
@@ -140,7 +140,10 @@ export const Sidebar: React.FC = () => {
   const navItems = getNavItems();
 
   return (
-    <aside className="w-64 bg-navy-800 text-white shrink-0 hidden md:flex flex-col border-r border-navy-700 min-h-[calc(100vh-4rem)]">
+    <aside className={cn(
+      'w-64 bg-navy-800 text-white shrink-0 flex-col border-r border-navy-700',
+      mobile ? 'flex h-full' : 'hidden md:flex min-h-[calc(100vh-4rem)]'
+    )}>
       {/* Brand Header */}
       <div className="p-5 border-b border-navy-700/60 flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-teal-500 text-navy-950 flex items-center justify-center font-black text-lg shadow-sm">

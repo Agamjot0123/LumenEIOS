@@ -36,7 +36,7 @@ export const RoleSwitcherBanner: React.FC = () => {
         </span>
       </div>
 
-      <div className="flex items-center gap-1.5 overflow-x-auto">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <span className="text-gray-400 text-[11px] hidden lg:inline mr-1">Switch Persona:</span>
         {roles.map((item) => {
           const isActive = currentUser?.role === item.role;
@@ -44,7 +44,7 @@ export const RoleSwitcherBanner: React.FC = () => {
             <button
               key={item.role}
               onClick={() => handleRoleSelect(item.role)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+              className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                 isActive
                   ? 'bg-teal-500 text-white shadow-sm ring-1 ring-teal-400'
                   : 'bg-navy-800 text-gray-300 hover:bg-navy-700 hover:text-white'
@@ -58,7 +58,7 @@ export const RoleSwitcherBanner: React.FC = () => {
 
         <button
           onClick={() => navigate('/teacher/time-aware')}
-          className="ml-2 inline-flex items-center gap-1 text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded border border-amber-500/30 transition-colors"
+          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded border border-amber-500/30 transition-colors"
           title="Direct link to signature Time-Aware Pedagogical Engine"
         >
           <span>Time-Aware Engine</span>

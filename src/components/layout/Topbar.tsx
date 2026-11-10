@@ -108,10 +108,11 @@ export const Topbar: React.FC = () => {
         <button
           onClick={handleResetData}
           title="Reset LocalStorage demo data to clean baseline"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-content-secondary hover:text-navy-800 hover:bg-surface-bg border border-surface-border rounded-lg transition-colors"
+          aria-label="Reset Demo Data"
+          className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-content-secondary hover:text-navy-800 hover:bg-surface-bg border border-surface-border rounded-lg transition-colors"
         >
           <RotateCcw className="w-3.5 h-3.5 text-content-muted" />
-          <span>Reset Demo Data</span>
+          <span className="hidden lg:inline">Reset Demo Data</span>
         </button>
 
         {/* Notifications Dropdown */}
