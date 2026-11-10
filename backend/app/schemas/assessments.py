@@ -1,5 +1,5 @@
 from typing import Optional, List, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from backend.app.schemas.common import BaseSchema
 
 
@@ -22,21 +22,13 @@ class GenerateQuestionsRequest(BaseModel):
     subject_id: str
     subject_name: Optional[str] = None
     source_document_ids: List[str] = []
+    # Learning-resource links (Wikipedia, BYJU'S, ...) used with or instead of the chapter PDF.
+    source_urls: List[str] = []
     mcq_count: int = 3
     theory_count: int = 2
     bloom_level: str = "Apply"
     focus_topic: Optional[str] = None
     save_to_bank: bool = True
-
-
-class RegenerateQuestionRequest(BaseModel):
-    subject_id: str
-    question_type: str = "mcq"
-    bloom_level: str = "Apply"
-    competency: str = "CU"
-    source_document_ids: List[str] = []
-    source_document_names: List[str] = []
-    current_text: str = ""
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -51,14 +43,14 @@ class QuestionUpdateRequest(BaseModel):
 
 
 class AssessmentCreate(BaseModel):
-    class_id: Optional[str] = "class-8a"
+    class_id: Optional[str] = None
     subject_id: str
     title: str
     cycle_number: int = 1
     date: str
     duration_minutes: int = 45
     total_marks: int = 25
-    questions: List[QuestionSchema]
+    questions: List[QuestionSchema] = Field(min_length=1)
     competency_focus: List[str]
 
 
@@ -75,6 +67,37 @@ class AssessmentOut(BaseSchema):
     status: str
     competency_focus_json: List[str]
     questions_json: List[Any]
+
+
+class AssignmentSubject(BaseModel):
+    id: str
+    name: str
+
+
+class AssignmentTarget(BaseModel):
+    id: str
+    name: str
+    subjects: List[AssignmentSubject]
+
+
+class UploadQuestion(BaseModel):
+    id: Optional[str] = None
+    text: str
+    type: str
+    options: Optional[List[str]] = None
+    marks: int
+    competency: Optional[str] = None
+
+
+class UploadAssignment(BaseModel):
+    id: str
+    title: str
+    date: str
+    class_name: str
+    subject_name: str
+    total_marks: int
+    uploaded: bool
+    questions: List[UploadQuestion]
 
 
 class SubmissionCreate(BaseModel):

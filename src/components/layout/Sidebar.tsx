@@ -18,6 +18,8 @@ import {
   HeartHandshake,
   Settings,
   PlusCircle,
+  History,
+  UserRound,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -34,18 +36,16 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     highlight?: boolean;
   }
 
-  const scanReviewItem: NavItem = {
-    label: 'Scan Review',
-    path: '/teacher/scan-review',
+  const uploadItem: NavItem = {
+    label: 'Upload',
+    path: '/upload',
     icon: <ScanLine className="w-4 h-4" />,
     badge: 'OCR',
   };
-
-  const questionStudioItem: NavItem = {
-    label: 'AI Question Studio',
-    path: '/teacher/assessments',
-    icon: <BookOpen className="w-4 h-4" />,
-    badge: 'AI',
+  const uploadBetaItem: NavItem = {
+    label: 'Upload Beta',
+    path: '/upload-beta',
+    icon: <ScanLine className="w-4 h-4" />,
   };
 
   const questionStudioBetaItem: NavItem = {
@@ -104,10 +104,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             badge: 'Key',
           },
           { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
-          questionStudioItem,
           questionStudioBetaItem,
           { label: 'Differentiated Homework', path: '/teacher/remediation', icon: <Sparkles className="w-4 h-4" /> },
-          scanReviewItem,
+          uploadItem,
+          uploadBetaItem,
         ];
 
       case 'student':
@@ -115,7 +115,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Adaptive Practice', path: '/student/dashboard', icon: <Sparkles className="w-4 h-4" /> },
           { label: 'My Achievements', path: '/student/dashboard', icon: <Award className="w-4 h-4" /> },
-          scanReviewItem,
+          uploadItem,
+          uploadBetaItem,
+          { label: 'History', path: '/student/history', icon: <History className="w-4 h-4" /> },
+          { label: 'Profile', path: '/student/profile', icon: <UserRound className="w-4 h-4" /> },
         ];
 
       case 'parent':

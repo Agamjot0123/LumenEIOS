@@ -39,6 +39,19 @@ export type ProcessStep = {
   total: number;
 };
 
+export type AssignmentTarget = { id: string; name: string; subjects: { id: string; name: string }[] };
+
+export type UploadAssignment = {
+  id: string;
+  title: string;
+  date: string;
+  class_name: string;
+  subject_name: string;
+  total_marks: number;
+  uploaded: boolean;
+  questions: { id: string | null; text: string; type: string; options: string[] | null; marks: number; competency: string | null }[];
+};
+
 function authHeaders(options: RequestInit = {}): Record<string, string> {
   const token = localStorage.getItem('lumeneios_token');
   const currentSchoolId = localStorage.getItem('lumeneios_current_school') || 'school-1';
@@ -281,7 +294,7 @@ export const apiClient = {
   },
 
   student: {
-    async profile(): Promise<Student> {
+    async profile(): Promise<Student & { subjectNames: string[]; parentNames: string[] }> {
       const student = await request<any>('/classes/students/me');
       return {
         id: student.id,
@@ -299,6 +312,8 @@ export const apiClient = {
         homeworkCompletionRate: student.homework_completion_rate,
         needsSupport: student.needs_support,
         supportArea: student.support_area,
+        subjectNames: student.subject_names,
+        parentNames: student.parent_names,
       };
     },
   },
@@ -410,11 +425,14 @@ export const apiClient = {
     async getAll() {
       return request<any[]>('/assessments');
     },
-    async getClassAssessments(classId: string) {
-      return request<any[]>(`/classes/${classId}/assessments`);
+    targets() {
+      return request<AssignmentTarget[]>('/assessments/targets');
+    },
+    uploadAssignments() {
+      return request<UploadAssignment[]>('/assessments/upload-assignments');
     },
     async create(classId: string, data: any) {
-      return request<any>(`/classes/${classId}/assessments`, {
+      return request<{ id: string; school_id: string }>(`/classes/${encodeURIComponent(classId)}/assessments`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -435,41 +453,11 @@ export const apiClient = {
       const list = await request<any[]>(`/assessments/question-bank?${params.toString()}`);
       return list.map(mapQuestionOut);
     },
-    async generateQuestions(data: {
-      subjectId: string;
-      sourceDocumentIds: string[];
-      mcqCount: number;
-      theoryCount: number;
-      bloomLevel: string;
-      topicHint?: string;
-      assessmentId?: string;
-      saveToBank?: boolean;
-    }, onProgress?: (step: ProcessStep) => void) {
-      const body = JSON.stringify({
-        subject_id: data.subjectId,
-        source_document_ids: data.sourceDocumentIds,
-        mcq_count: data.mcqCount,
-        theory_count: data.theoryCount,
-        bloom_level: data.bloomLevel,
-        topic_hint: data.topicHint || undefined,
-        assessment_id: data.assessmentId || undefined,
-        save_to_bank: data.saveToBank ?? true,
-      });
-      const res = onProgress
-        ? await postEventStream<any>('/assessments/generate-questions/stream', { method: 'POST', body }, onProgress)
-        : await request<any>('/assessments/generate-questions', { method: 'POST', body });
-      return {
-        subjectId: res.subject_id,
-        bloomLevel: res.bloom_level,
-        sourceDocumentsUsed: res.source_documents_used || [],
-        generatedCount: res.generated_count,
-        questions: (res.questions || []).map(mapQuestionOut),
-      };
-    },
     async generateQuestionsBeta(data: {
       subjectId: string;
       subjectName: string;
       sourceDocumentIds: string[];
+      sourceUrls?: string[];
       mcqCount: number;
       theoryCount: number;
       bloomLevel: string;
@@ -480,6 +468,7 @@ export const apiClient = {
         subject_id: data.subjectId,
         subject_name: data.subjectName,
         source_document_ids: data.sourceDocumentIds,
+        source_urls: data.sourceUrls ?? [],
         mcq_count: data.mcqCount,
         theory_count: data.theoryCount,
         bloom_level: data.bloomLevel,
@@ -497,16 +486,6 @@ export const apiClient = {
         generatedCount: res.generated_count,
         questions: (res.questions || []).map(mapQuestionOut),
       };
-    },
-    async regenerateQuestion(questionId: string, bloomLevel?: string, customInstruction?: string) {
-      const res = await request<any>(`/assessments/questions/${questionId}/regenerate`, {
-        method: 'POST',
-        body: JSON.stringify({
-          bloom_level: bloomLevel || undefined,
-          custom_instruction: customInstruction || undefined,
-        }),
-      });
-      return mapQuestionOut(res);
     },
     async updateQuestion(questionId: string, data: Partial<{
       text: string;
@@ -542,13 +521,21 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
+    history() {
+      return request<Array<{
+        id: string; file_name: string; extracted_text: string; pages_processed: number; created_at: string;
+        assignment_title: string | null;
+      }>>('/ocr/history');
+    },
     async extractPreview(
       files: File[],
       waitBeforeEachImage: boolean,
       onProgress?: (step: ProcessStep) => void,
+      assessmentId?: string,
     ) {
       const formData = new FormData();
       formData.append('wait_before_each_image', String(waitBeforeEachImage));
+      if (assessmentId) formData.append('assessment_id', assessmentId);
       files.forEach((file) => formData.append('files', file));
 
       const response = onProgress

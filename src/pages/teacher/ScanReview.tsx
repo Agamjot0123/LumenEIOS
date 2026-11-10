@@ -1,45 +1,90 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertCircle, FileText, Loader2, ScanLine, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { useData } from '../../context/DataContext';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
-import { ApiError, apiClient, ProcessStep } from '../../lib/apiClient';
+import { ApiError, apiClient, ProcessStep, UploadAssignment } from '../../lib/apiClient';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES = 50;
 
-type AssignedQuestion = {
-  id: string;
-  text: string;
-  type: string;
-  options: string[];
-  marks: number;
-  competency: string;
-};
-
-type AssignedPaper = {
-  id: string;
-  title: string;
-  date: string;
-  subjectName: string;
-  totalMarks: number;
-  questions: AssignedQuestion[];
-};
-
-function visibleQuestion(raw: any, index: number): AssignedQuestion {
-  return {
-    id: String(raw?.id || `question-${index + 1}`),
-    text: String(raw?.text || ''),
-    type: String(raw?.type || 'descriptive'),
-    options: Array.isArray(raw?.options) ? raw.options.map(String) : [],
-    marks: Number(raw?.marks) || 0,
-    competency: String(raw?.competency || ''),
-  };
+export function ScanReview({ beta = false }: { beta?: boolean }) {
+  const { currentUser } = useAuth();
+  if (!currentUser || !['student', 'teacher'].includes(currentUser.role)) return <UnauthorizedPage />;
+  const key = `${currentUser.id}:${currentUser.schoolId}`;
+  return beta ? <UploadBeta key={key} /> : <UploadPage key={key} />;
 }
 
-export const ScanReview: React.FC = () => {
+function UploadBeta() {
   const { currentUser } = useAuth();
-  const { assessments, students, subjects } = useData();
+  const isStudent = currentUser?.role === 'student';
+  const [assignments, setAssignments] = useState<UploadAssignment[]>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    apiClient.assessments.uploadAssignments()
+      .then((papers) => { if (active) setAssignments(papers); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load assignments.'); });
+    return () => { active = false; };
+  }, []);
+
+  const selected = assignments?.find((assignment) => assignment.id === selectedId);
+  if (selected) {
+    return (
+      <UploadPage
+        key={selected.id}
+        assignment={selected}
+        onBack={() => setSelectedId(null)}
+        onProcessed={isStudent ? () => {
+          setAssignments((papers) => papers?.map((paper) =>
+            paper.id === selected.id ? { ...paper, uploaded: true } : paper
+          ));
+        } : undefined}
+      />
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
+        <h1 className="text-xl font-bold text-navy-900">Upload Beta</h1>
+        <p className="mt-2 text-sm text-content-secondary">
+          {isStudent ? 'Open an assignment for your class and subject.' : 'Open an assignment in your school to preview OCR.'}
+        </p>
+      </header>
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
+      {!assignments && !error && <p role="status">Loading assignments…</p>}
+      {assignments?.length === 0 && <p className="text-sm text-content-secondary">No open assignments.</p>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {assignments?.map((assignment) => (
+          <button
+            key={assignment.id}
+            type="button"
+            onClick={() => setSelectedId(assignment.id)}
+            className="rounded-xl border border-surface-border bg-white p-4 text-left shadow-subtle hover:border-teal-500 focus-visible:outline-teal-500"
+          >
+            <span className="block font-semibold text-teal-700">{assignment.subject_name}</span>
+            <span className="mt-1 block font-bold text-navy-900">{assignment.title}</span>
+            <span className="mt-1 block text-xs text-content-secondary">
+              {assignment.class_name} · {assignment.date} · {assignment.total_marks} marks
+              {isStudent && (assignment.uploaded ? ' · Uploaded' : ' · Awaiting upload')}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function UploadPage({ assignment, onBack, onProcessed }: {
+  assignment?: UploadAssignment;
+  onBack?: () => void;
+  onProcessed?: () => void;
+}) {
+  const { currentUser } = useAuth();
   const isStudent = currentUser?.role === 'student';
   const [files, setFiles] = useState<File[]>([]);
   const [results, setResults] = useState<Awaited<ReturnType<typeof apiClient.ocr.extractPreview>> | null>(
@@ -49,7 +94,6 @@ export const ScanReview: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
-  const [assignedPapers, setAssignedPapers] = useState<AssignedPaper[]>([]);
   const [error, setError] = useState('');
 
   const recordOcrStep = (step: ProcessStep) => {
@@ -61,71 +105,6 @@ export const ScanReview: React.FC = () => {
       return next;
     });
   };
-
-  useEffect(() => {
-    if (!isStudent || !currentUser) {
-      setAssignedPapers([]);
-      return;
-    }
-    let cancelled = false;
-    const subjectName = (subjectId?: string) =>
-      subjects.find((subject) => subject.id === subjectId)?.name || 'Subject';
-
-    (async () => {
-      let classId = students.find((student) => student.id === currentUser.id)?.classId;
-      try {
-        const profile = await apiClient.student.profile();
-        classId = profile.classId || classId;
-      } catch {
-        // The class already stored for this student still identifies the assigned papers.
-      }
-      if (cancelled) return;
-
-      const local = assessments
-        .filter((item) => item.classId === classId)
-        .map((item) => ({
-          id: item.id,
-          title: item.title,
-          date: item.date,
-          subjectName: subjectName(item.subjectId),
-          totalMarks: item.totalMarks,
-          questions: item.questions.map(visibleQuestion),
-        }));
-      let remote: AssignedPaper[] = [];
-      if (classId) {
-        try {
-          const list = await apiClient.assessments.getClassAssessments(classId);
-          remote = (list || []).map((item: any) => ({
-            id: String(item.id),
-            title: String(item.title || 'Assignment'),
-            date: String(item.date || ''),
-            subjectName: subjectName(item.subject_id || item.subjectId),
-            totalMarks: Number(item.total_marks ?? item.totalMarks) || 0,
-            questions: (item.questions_json || item.questions || []).map(visibleQuestion),
-          }));
-        } catch {
-          // Local assignments remain visible when the class request fails.
-        }
-      }
-      if (cancelled) return;
-
-      const merged = [...remote];
-      for (const paper of local) {
-        const alreadyListed = merged.some(
-          (item) =>
-            item.title === paper.title &&
-            item.date === paper.date &&
-            item.questions.length === paper.questions.length,
-        );
-        if (!alreadyListed) merged.unshift(paper);
-      }
-      setAssignedPapers(merged);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isStudent, currentUser, assessments, students, subjects]);
 
   const addFiles = (selected: FileList | File[]) => {
     const additions: File[] = [];
@@ -166,7 +145,8 @@ export const ScanReview: React.FC = () => {
     setResults(null);
     setOcrSteps([]);
     try {
-      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage, recordOcrStep));
+      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage, recordOcrStep, assignment?.id));
+      onProcessed?.();
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -190,63 +170,46 @@ export const ScanReview: React.FC = () => {
       <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
         <div className="flex items-center gap-2">
           <ScanLine className="h-5 w-5 text-teal-600" />
-          <h1 className="text-xl font-bold tracking-tight text-navy-900">OCR Extraction Preview</h1>
+          <h1 className="text-xl font-bold tracking-tight text-navy-900">{assignment ? 'Upload Beta' : 'Upload'}</h1>
           <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700">
             Qwen2.5-VL
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          {isStudent
-            ? 'Questions assigned by your teacher appear here. You can also extract text from a photo or PDF of your work.'
-            : 'The FastAPI backend runs Qwen on its CUDA GPU. This preview extracts text only; it does not grade or publish marks.'}
+          Upload a photo or PDF to extract text. OCR does not grade the work.
+          {isStudent && !assignment && (
+            <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
+          )}
         </p>
+        {isStudent && (
+          <p className="mt-2 text-sm text-content-secondary">
+            Successful extracts are saved to your <Link to="/student/history" className="text-teal-700 underline">History</Link>.
+          </p>
+        )}
       </header>
 
-      {isStudent && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-lg font-bold text-navy-900">Assigned questions</h2>
-            <p className="text-xs text-content-secondary">
-              These are the questions your teacher assigned. The answer key stays with the teacher.
-            </p>
-          </div>
-          {assignedPapers.length === 0 ? (
-            <p className="rounded-xl border border-surface-border bg-white p-4 text-sm text-content-secondary">
-              No questions have been assigned to your class yet.
-            </p>
-          ) : (
-            assignedPapers.map((paper) => (
-              <article key={paper.id} className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold text-navy-900">{paper.title}</h3>
-                  <span className="text-xs text-content-secondary">
-                    {paper.subjectName} · {paper.date} · {paper.totalMarks} marks
-                  </span>
-                </div>
-                <ol className="mt-3 space-y-3">
-                  {paper.questions.map((question, index) => (
-                    <li key={question.id} className="text-sm text-navy-900">
-                      <p>
-                        <span className="font-semibold">Q{index + 1}.</span> {question.text}
-                      </p>
-                      <p className="mt-1 text-xs text-content-secondary">
-                        {question.type.toUpperCase()} · {question.marks} marks
-                        {question.competency ? ` · ${question.competency}` : ''}
-                      </p>
-                      {question.options.length > 0 && (
-                        <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
-                          {question.options.map((option, optionIndex) => (
-                            <li key={`${question.id}-${optionIndex}`}>{option}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </article>
-            ))
-          )}
-        </section>
+      {assignment && (
+        <article className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">
+          <button type="button" onClick={onBack} disabled={isProcessing} className="mb-3 text-sm font-semibold text-teal-700 underline disabled:opacity-50">
+            Back to assignments
+          </button>
+          <h2 className="font-semibold text-navy-900">{assignment.title}</h2>
+          <p className="text-xs text-content-secondary">
+            {assignment.class_name} · {assignment.subject_name} · {assignment.date} · {assignment.total_marks} marks
+          </p>
+          <ol className="mt-3 space-y-3">
+            {assignment.questions.map((question, index) => (
+              <li key={index} className="text-sm text-navy-900">
+                <p><strong>Q{index + 1}.</strong> {question.text} ({question.marks} marks)</p>
+                {!!question.options?.length && (
+                  <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
+                    {question.options.map((option, optionIndex) => <li key={optionIndex}>{option}</li>)}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ol>
+        </article>
       )}
 
       <section className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
@@ -402,4 +365,4 @@ export const ScanReview: React.FC = () => {
       </section>
     </div>
   );
-};
+}

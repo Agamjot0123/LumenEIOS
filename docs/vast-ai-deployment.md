@@ -3,7 +3,7 @@
 This runs the whole app on one rented GPU machine:
 - the FastAPI backend, port 8000
 - Qwen2.5-VL-3B OCR, loaded inside the backend
-- Ollama with `qwen2.5vl:7b`, used by AI Question Studio
+- Ollama with `qwen2.5vl:7b`, used by AI Question Studio Beta
 - the built frontend, port 3000
 
 Commands run from the repo's `apps/lumeneios` folder unless noted.
@@ -47,7 +47,7 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"   
 
 Install the OCR requirements **after** torch. The `triton==3.6.0` pin matches torch 2.11.0.
 
-## 4. Install Ollama (for AI Question Studio)
+## 4. Install Ollama (for AI Question Studio Beta)
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh

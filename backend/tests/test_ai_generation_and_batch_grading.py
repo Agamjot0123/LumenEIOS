@@ -1,4 +1,5 @@
 import io
+import json
 import uuid
 import pytest
 
@@ -38,46 +39,49 @@ async def test_bulk_source_document_upload_mixed_files(client, teacher_token):
 
 
 @pytest.mark.asyncio
-async def test_ai_question_generation_edit_regenerate_delete(client, teacher_token):
+async def test_beta_question_generation_edit_and_delete(client, teacher_token, monkeypatch):
+    from backend.app.services.llm_service import qwen_question_studio
+
+    pymupdf = pytest.importorskip("pymupdf")
+    with pymupdf.open() as pdf:
+        page = pdf.new_page()
+        page.insert_text((50, 50), "Area of a square equals the side multiplied by itself.")
+        chapter = pdf.tobytes()
+
     headers = {"Authorization": f"Bearer {teacher_token}"}
-
-    # 1. List available source documents
-    docs_res = await client.get("/api/v1/documents?doc_type=source_material", headers=headers)
-    assert docs_res.status_code == 200
-    docs = docs_res.json()
-    assert len(docs) >= 2
-    selected_doc_ids = [docs[0]["id"], docs[1]["id"]]
-
-    # 2. Generate questions from multiple source documents
-    gen_res = await client.post(
-        "/api/v1/assessments/generate-questions",
-        headers=headers,
-        json={
-            "subject_id": "sub-math",
-            "source_document_ids": selected_doc_ids,
-            "mcq_count": 3,
-            "theory_count": 2,
-            "bloom_level": "Analyze",
-            "save_to_bank": True,
-        },
+    upload = await client.post(
+        "/api/v1/documents/studio-pdf-upload", headers=headers,
+        data={"subject_id": "sub-math"}, files={"file": ("square.pdf", chapter, "application/pdf")},
     )
+    assert upload.status_code == 201
+    document_id = upload.json()["id"]
+
+    def generate(prompt, **kwargs):
+        assert "Area of a square" in prompt
+        return json.dumps({
+            "mcqs": [{
+                "type": "mcq", "text": "What is the area of a square of side 3?",
+                "options": ["3", "6", "9", "12"], "correct_answer": "9",
+                "marking_rubric": "Multiply 3 by itself.", "competency": "AU",
+            }],
+            "theory": [{
+                "type": "short", "text": "Explain how to find the area of a square.",
+                "correct_answer": "Multiply its side by itself.",
+                "marking_rubric": "Explain the formula.", "competency": "CU",
+            }],
+        })
+
+    monkeypatch.setattr(qwen_question_studio, "_generate_text", generate)
+    body = {
+        "subject_id": "sub-math", "source_document_ids": [document_id],
+        "mcq_count": 1, "theory_count": 1, "bloom_level": "Apply", "save_to_bank": True,
+    }
+    assert (await client.post("/api/v1/assessments/generate-questions", headers=headers, json=body)).status_code == 404
+    gen_res = await client.post("/api/v1/assessments/generate-questions-beta", headers=headers, json=body)
     assert gen_res.status_code == 200
-    gen_data = gen_res.json()
-    assert gen_data["generated_count"] == 5
-    questions = gen_data["questions"]
-
-    mcqs = [q for q in questions if q["type"] == "mcq"]
-    theories = [q for q in questions if q["type"] != "mcq"]
-    assert len(mcqs) == 3
-    assert len(theories) == 2
-
-    # Verify source document references and rubrics are preserved
-    for q in questions:
-        assert len(q["source_document_ids"]) >= 1
-        assert len(q["source_document_names"]) >= 1
-        assert q["correct_answer"]
-        assert q["marking_rubric"]
-        assert q["bloom_level"] == "Analyze"
+    questions = gen_res.json()["questions"]
+    assert [q["type"] for q in questions] == ["mcq", "short"]
+    assert all(q["source_document_ids"] == [document_id] and q["correct_answer"] for q in questions)
 
     target_q = questions[0]
     q_id = target_q["id"]
@@ -98,26 +102,7 @@ async def test_ai_question_generation_edit_regenerate_delete(client, teacher_tok
     assert edited["marks"] == 3
     assert edited["bloom_level"] == "Evaluate"
 
-    # 4. Regenerate single question
-    regen_res = await client.post(
-        f"/api/v1/assessments/questions/{q_id}/regenerate",
-        headers=headers,
-        json={
-            "subject_id": "sub-math",
-            "question_type": target_q["type"],
-            "bloom_level": "Apply",
-            "competency": target_q["competency"],
-            "source_document_ids": target_q["source_document_ids"],
-            "source_document_names": target_q["source_document_names"],
-            "current_text": edited["text"],
-        },
-    )
-    assert regen_res.status_code == 200
-    regenerated = regen_res.json()
-    assert regenerated["id"] == q_id
-    assert "[Regenerated" in regenerated["text"]
-
-    # 5. Delete question
+    # Delete the saved question.
     del_res = await client.delete(f"/api/v1/assessments/questions/{q_id}", headers=headers)
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "deleted"

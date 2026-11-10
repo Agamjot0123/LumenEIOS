@@ -9,6 +9,7 @@ from backend.app.core.security import verify_password, create_access_token, crea
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.entities import User, SchoolMembership, AuditEvent, utc_now
+from backend.app.seed.seed_data import ROOT_PERSONA_EMAILS
 from backend.app.schemas.auth import LoginRequest, TokenResponse, UserOut, SwitchSchoolRequest
 from backend.app.api.dependencies import get_current_user, oauth2_scheme
 
@@ -42,7 +43,12 @@ ROOT_LOGIN_IDS = {"leofelix", "leofelix@lumeneios.demo"}
 
 
 async def demo_persona(db: AsyncSession, role: str) -> User:
-    user = await db.scalar(select(User).where(User.email == f"{role}@lumeneios.demo", User.role == role))
+    # Roster accounts first; the <role>@lumeneios.demo accounts exist only in the test dataset.
+    for email in (ROOT_PERSONA_EMAILS.get(role), f"{role}@lumeneios.demo"):
+        user = email and await db.scalar(select(User).where(User.email == email, User.role == role))
+        if user:
+            return user
+    user = None
     if not user:
         raise HTTPException(status_code=404, detail="The requested demo persona is missing.")
     return user

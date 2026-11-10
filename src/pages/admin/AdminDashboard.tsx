@@ -50,7 +50,7 @@ export const AdminDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-navy-900 tracking-tight">
-              Statewide Command Center & NEP Governance
+              Welcome, LEOFELIX
             </h1>
             <Badge variant="teal" size="sm">
               Directorate View
@@ -245,4 +245,3 @@ export const AdminDashboard: React.FC = () => {
     </div>
   );
 };
-

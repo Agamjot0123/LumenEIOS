@@ -55,28 +55,8 @@ def test_stamp_keeps_the_mcq_option_and_labels_the_theory_answer():
 
 
 @pytest.mark.asyncio
-async def test_deterministic_generator_reports_each_written_question():
-    from backend.app.services.llm_service import llm_service
-    from backend.app.services.progress import report_progress, reset_progress, stream_job, use_progress
-
-    events = []
-    token = use_progress(lambda step, label, done, total: events.append((step, done, total, label)))
-    try:
-        questions = await llm_service.generate_questions_from_sources(
-            subject_id="sub-math",
-            mcq_count=2,
-            theory_count=1,
-            bloom_level="Apply",
-            source_documents=[{"id": "doc-1", "file_name": "chapter.pdf", "extracted_text": ""}],
-        )
-    finally:
-        reset_progress(token)
-
-    writes = [event for event in events if event[0] == "write"]
-    assert [(done, total) for _, done, total, _ in writes] == [(1, 3), (2, 3), (3, 3)]
-    assert writes[-1][3] == "Wrote question 3 of 3"
-    assert len(questions) == 3
-    report_progress("write", "unbound listeners ignore this", 1, 1)
+async def test_studio_progress_stream_reports_completion():
+    from backend.app.services.progress import report_progress, stream_job
 
     async def work():
         report_progress("write", "Wrote question 1 of 1", 1, 1)

@@ -128,7 +128,7 @@ interface DataContextType {
   updateSchool: (id: string, updates: Partial<School>) => void;
   assignTeacherToClass: (classId: string, teacherId: string, teacherName: string) => void;
   recordLostTeachingDay: (item: Omit<LostTeachingDay, 'id'>) => void;
-  addAssessment: (assessment: Omit<Assessment, 'id'>) => void;
+  addAssessment: (assessment: Omit<Assessment, 'id'>) => Promise<void>;
   gradeAssessmentResult: (result: Omit<AssessmentResult, 'id'>) => void;
   applySyllabusCompression: (plan: CompressionPlanProposal) => void;
   acceptCrossCurricularProposal: (id: string) => void;
@@ -314,42 +314,39 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
-  const addAssessment = (assessmentData: Omit<Assessment, 'id'>) => {
+  const addAssessment = async (assessmentData: Omit<Assessment, 'id'>) => {
+    const saved = await apiClient.assessments.create(assessmentData.classId, {
+      subject_id: assessmentData.subjectId,
+      title: assessmentData.title,
+      cycle_number: assessmentData.cycleNumber,
+      date: assessmentData.date,
+      duration_minutes: assessmentData.durationMinutes,
+      total_marks: assessmentData.totalMarks,
+      competency_focus: assessmentData.competencyFocus,
+      questions: assessmentData.questions.map((question) => ({
+        id: question.id,
+        text: question.text,
+        type: question.type,
+        options: question.options,
+        correct_answer: question.correctAnswer,
+        marking_rubric: question.markingRubric,
+        marks: question.marks,
+        competency: question.competency,
+        bloom_level: question.bloomLevel,
+        source_document_ids: question.sourceDocumentIds,
+        source_document_names: question.sourceDocumentNames,
+        is_ai_generated: question.isAiGenerated,
+      })),
+    });
     const newAsm: Assessment = {
       ...assessmentData,
-      id: `asm-${Date.now()}`,
+      id: saved.id,
+      schoolId: saved.school_id,
+      // Keep the assigned paper and answer key in the backend.
+      questions: [],
     };
     setAssessments((prev) => [newAsm, ...prev]);
     addAuditLog('Created Assessment Cycle', `Created assessment: "${newAsm.title}".`, 'assessment');
-
-    // Sync with backend API
-    apiClient.assessments
-      .create(newAsm.classId, {
-        subject_id: newAsm.subjectId,
-        title: newAsm.title,
-        cycle_number: newAsm.cycleNumber,
-        date: newAsm.date,
-        duration_minutes: newAsm.durationMinutes,
-        total_marks: newAsm.totalMarks,
-        competency_focus: newAsm.competencyFocus,
-        questions: newAsm.questions.map((question) => ({
-          id: question.id,
-          text: question.text,
-          type: question.type,
-          options: question.options,
-          correct_answer: question.correctAnswer,
-          marking_rubric: question.markingRubric,
-          marks: question.marks,
-          competency: question.competency,
-          bloom_level: question.bloomLevel,
-          source_document_ids: question.sourceDocumentIds,
-          source_document_names: question.sourceDocumentNames,
-          is_ai_generated: question.isAiGenerated,
-        })),
-      })
-      .catch((err) => {
-        console.warn('Backend assessment sync notice:', err.message);
-      });
   };
 
   const gradeAssessmentResult = (resultData: Omit<AssessmentResult, 'id'>) => {

@@ -20,6 +20,7 @@ import { ScanReview } from './pages/teacher/ScanReview';
 import { RemediationManager } from './pages/teacher/RemediationManager';
 import { TimeAwareEngine } from './pages/time-aware/TimeAwareEngine';
 import { StudentDashboard } from './pages/student/StudentDashboard';
+import { StudentRecords } from './pages/student/StudentRecords';
 import { ParentDashboard } from './pages/parent/ParentDashboard';
 import { NotFoundPage } from './pages/shared/NotFoundPage';
 import { UnauthorizedPage } from './pages/shared/UnauthorizedPage';
@@ -77,15 +78,18 @@ export const App: React.FC = () => {
         <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
         <Route path="/teacher/classes" element={<MyClasses />} />
         <Route path="/teacher/students/add" element={<OnboardingPage key="student" kind="Student" />} />
-        <Route path="/teacher/assessments" element={<AssessmentBuilder key="studio" />} />
-        <Route path="/teacher/assessments-beta" element={<AssessmentBuilder key="studio-beta" />} />
+        <Route path="/teacher/assessments-beta" element={<AssessmentBuilder />} />
         <Route path="/teacher/curriculum-180" element={<CurriculumPlanner180 />} />
         <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
-        <Route path="/teacher/scan-review" element={<ScanReview />} />
+        <Route path="/upload" element={<ScanReview />} />
+        <Route path="/upload-beta" element={<ScanReview beta />} />
+        <Route path="/teacher/scan-review" element={<Navigate to="/upload" replace />} />
         <Route path="/teacher/remediation" element={<RemediationManager />} />
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />
+        <Route path="/student/history" element={<StudentRecords view="history" />} />
+        <Route path="/student/profile" element={<StudentRecords view="profile" />} />
 
         {/* Parent Routes */}
         <Route path="/parent/dashboard" element={<ParentDashboard />} />

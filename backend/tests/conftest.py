@@ -113,7 +113,7 @@ _assert_isolated(settings.DATABASE_URL, settings.STORAGE_LOCAL_DIR)
 from backend.app.main import app  # noqa: E402
 from backend.app.core.security import create_access_token  # noqa: E402
 from backend.app.db.session import engine, init_db, AsyncSessionLocal  # noqa: E402
-from backend.app.seed.seed_data import seed_database_if_empty  # noqa: E402
+from backend.tests.sample_seed import seed_database_if_empty  # noqa: E402
 from backend.app.services.storage_service import storage_service  # noqa: E402
 
 # Guard phase 2: check the live objects. The engine connects lazily, so it hasn't connected yet.
