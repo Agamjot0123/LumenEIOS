@@ -1,6 +1,6 @@
 import os
 from typing import List
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     HF_TOKEN: str = ""
     DEFAULT_VISION_MODEL: str = "microsoft/trocr-base-handwritten"
     QWEN_VL_MODEL_ID: str = "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
+    QWEN_QUESTION_STUDIO_MODEL_ID: str = "qwen2.5vl:7b"
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
 
     # LLM Provider
     LLM_PROVIDER: str = "deterministic"  # "deterministic", "huggingface", "hosted"
@@ -68,8 +70,17 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Demo mode: allows easy switching and deterministic seed accounts
-    DEMO_MODE: bool = True
+    # Legacy demo mode allows anonymous requests to use the seeded admin.
+    DEMO_MODE: bool = False
+    # Development-only root login: LEOFELIX or leofelix@lumeneios.demo / KVR.
+    # Ignored unless APP_ENV is development. Set empty to disable.
+    DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")
+
+    @property
+    def demo_root_enabled(self) -> bool:
+        return self.APP_ENV == "development" and bool(
+            self.DEMO_ROOT_PASSWORD and self.DEMO_ROOT_PASSWORD.get_secret_value()
+        )
 
 
 settings = Settings()

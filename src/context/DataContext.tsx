@@ -332,7 +332,20 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         duration_minutes: newAsm.durationMinutes,
         total_marks: newAsm.totalMarks,
         competency_focus: newAsm.competencyFocus,
-        questions: newAsm.questions,
+        questions: newAsm.questions.map((question) => ({
+          id: question.id,
+          text: question.text,
+          type: question.type,
+          options: question.options,
+          correct_answer: question.correctAnswer,
+          marking_rubric: question.markingRubric,
+          marks: question.marks,
+          competency: question.competency,
+          bloom_level: question.bloomLevel,
+          source_document_ids: question.sourceDocumentIds,
+          source_document_names: question.sourceDocumentNames,
+          is_ai_generated: question.isAiGenerated,
+        })),
       })
       .catch((err) => {
         console.warn('Backend assessment sync notice:', err.message);

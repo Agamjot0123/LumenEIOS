@@ -1,33 +1,29 @@
 import hashlib
+from hmac import compare_digest
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 from backend.app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Allow demo passwords in DEMO_MODE or verify hash
-    if settings.DEMO_MODE and (plain_password == "demo123" or plain_password == hashed_password):
-        return True
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
-        # Fallback SHA256 comparison for deterministic seed compatibility
-        sha = hashlib.sha256(plain_password.encode()).hexdigest()
-        return sha == hashed_password or plain_password == hashed_password
+    password = plain_password.encode()
+    if hashed_password.startswith("$2"):
+        if len(password) > 72:
+            return False
+        try:
+            return bcrypt.checkpw(password, hashed_password.encode())
+        except ValueError:
+            return False
+    # Existing databases can contain hashes written by the previous fallback.
+    return compare_digest(hashlib.sha256(password).hexdigest().encode("ascii"), hashed_password.encode())
 
 
 def get_password_hash(password: str) -> str:
-    try:
-        return pwd_context.hash(password)
-    except Exception:
-        return hashlib.sha256(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-def create_access_token(subject: Union[str, Any], school_id: Optional[str] = None, role: Optional[str] = None, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(subject: Union[str, Any], school_id: Optional[str] = None, role: Optional[str] = None, expires_delta: Optional[timedelta] = None, *, demo_root: bool = False) -> str:
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -43,6 +39,8 @@ def create_access_token(subject: Union[str, Any], school_id: Optional[str] = Non
         to_encode["school_id"] = school_id
     if role:
         to_encode["role"] = role
+    if demo_root:
+        to_encode["demo_root"] = True
         
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt

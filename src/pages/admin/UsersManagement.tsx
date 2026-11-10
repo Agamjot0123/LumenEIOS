@@ -6,7 +6,7 @@ import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { SearchInput } from '../../components/common/SearchInput';
-import { Users, Shield, BookOpen, GraduationCap, School, CheckCircle2 } from 'lucide-react';
+import { Users, Shield, BookOpen, GraduationCap, School, CheckCircle2, Code } from 'lucide-react';
 
 export const UsersManagement: React.FC = () => {
   const { availableUsers, loginAsRole } = useAuth();
@@ -27,6 +27,8 @@ export const UsersManagement: React.FC = () => {
 
   const getRoleIcon = (role: Role) => {
     switch (role) {
+      case 'developer':
+        return <Code className="w-4 h-4 text-teal-700" />;
       case 'admin':
         return <Shield className="w-4 h-4 text-indigo-600" />;
       case 'principal':

@@ -23,10 +23,12 @@ import { StudentDashboard } from './pages/student/StudentDashboard';
 import { ParentDashboard } from './pages/parent/ParentDashboard';
 import { NotFoundPage } from './pages/shared/NotFoundPage';
 import { UnauthorizedPage } from './pages/shared/UnauthorizedPage';
+import { OnboardingPage } from './pages/shared/OnboardingPage';
 import { getDefaultDashboardPath } from './lib/permissions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isRestoringSession } = useAuth();
+  if (isRestoringSession) return <p role="status" className="p-6">Checking your session…</p>;
   if (!currentUser) {
     return <Navigate to="/login" replace />;
   }
@@ -34,7 +36,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const DefaultRedirect: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, isRestoringSession } = useAuth();
+  if (isRestoringSession) return <p role="status" className="p-6">Checking your session…</p>;
   if (!currentUser) {
     return <Navigate to="/login" replace />;
   }
@@ -58,6 +61,7 @@ export const App: React.FC = () => {
         {/* Admin Routes */}
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/schools" element={<SchoolsManagement />} />
+        <Route path="/admin/schools/add" element={<OnboardingPage key="school" kind="School" />} />
         <Route path="/admin/users" element={<UsersManagement />} />
         <Route path="/admin/academic-config" element={<AcademicConfig />} />
         <Route path="/admin/audit-logs" element={<AuditLogs />} />
@@ -65,13 +69,16 @@ export const App: React.FC = () => {
         {/* Principal Routes */}
         <Route path="/principal/dashboard" element={<PrincipalDashboard />} />
         <Route path="/principal/teachers" element={<TeacherAssignments />} />
+        <Route path="/principal/teachers/add" element={<OnboardingPage key="teacher" kind="Teacher" />} />
         <Route path="/principal/curriculum" element={<CurriculumOversight />} />
         <Route path="/principal/reports" element={<PrincipalReports />} />
 
         {/* Teacher Routes */}
         <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
         <Route path="/teacher/classes" element={<MyClasses />} />
-        <Route path="/teacher/assessments" element={<AssessmentBuilder />} />
+        <Route path="/teacher/students/add" element={<OnboardingPage key="student" kind="Student" />} />
+        <Route path="/teacher/assessments" element={<AssessmentBuilder key="studio" />} />
+        <Route path="/teacher/assessments-beta" element={<AssessmentBuilder key="studio-beta" />} />
         <Route path="/teacher/curriculum-180" element={<CurriculumPlanner180 />} />
         <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
         <Route path="/teacher/scan-review" element={<ScanReview />} />

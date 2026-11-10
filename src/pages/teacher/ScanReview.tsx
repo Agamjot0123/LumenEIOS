@@ -1,11 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircle, FileText, Loader2, ScanLine, Trash2, UploadCloud } from 'lucide-react';
-import { ApiError, apiClient } from '../../lib/apiClient';
+import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
+import { ProcessProgress } from '../../components/common/ProcessProgress';
+import { ApiError, apiClient, ProcessStep } from '../../lib/apiClient';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES = 50;
 
+type AssignedQuestion = {
+  id: string;
+  text: string;
+  type: string;
+  options: string[];
+  marks: number;
+  competency: string;
+};
+
+type AssignedPaper = {
+  id: string;
+  title: string;
+  date: string;
+  subjectName: string;
+  totalMarks: number;
+  questions: AssignedQuestion[];
+};
+
+function visibleQuestion(raw: any, index: number): AssignedQuestion {
+  return {
+    id: String(raw?.id || `question-${index + 1}`),
+    text: String(raw?.text || ''),
+    type: String(raw?.type || 'descriptive'),
+    options: Array.isArray(raw?.options) ? raw.options.map(String) : [],
+    marks: Number(raw?.marks) || 0,
+    competency: String(raw?.competency || ''),
+  };
+}
+
 export const ScanReview: React.FC = () => {
+  const { currentUser } = useAuth();
+  const { assessments, students, subjects } = useData();
+  const isStudent = currentUser?.role === 'student';
   const [files, setFiles] = useState<File[]>([]);
   const [results, setResults] = useState<Awaited<ReturnType<typeof apiClient.ocr.extractPreview>> | null>(
     null
@@ -13,7 +48,84 @@ export const ScanReview: React.FC = () => {
   const [waitBeforeEachImage, setWaitBeforeEachImage] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
+  const [assignedPapers, setAssignedPapers] = useState<AssignedPaper[]>([]);
   const [error, setError] = useState('');
+
+  const recordOcrStep = (step: ProcessStep) => {
+    setOcrSteps((current) => {
+      const index = current.findIndex((item) => item.step === step.step);
+      if (index < 0) return [...current, step];
+      const next = current.slice();
+      next[index] = step;
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!isStudent || !currentUser) {
+      setAssignedPapers([]);
+      return;
+    }
+    let cancelled = false;
+    const subjectName = (subjectId?: string) =>
+      subjects.find((subject) => subject.id === subjectId)?.name || 'Subject';
+
+    (async () => {
+      let classId = students.find((student) => student.id === currentUser.id)?.classId;
+      try {
+        const profile = await apiClient.student.profile();
+        classId = profile.classId || classId;
+      } catch {
+        // The class already stored for this student still identifies the assigned papers.
+      }
+      if (cancelled) return;
+
+      const local = assessments
+        .filter((item) => item.classId === classId)
+        .map((item) => ({
+          id: item.id,
+          title: item.title,
+          date: item.date,
+          subjectName: subjectName(item.subjectId),
+          totalMarks: item.totalMarks,
+          questions: item.questions.map(visibleQuestion),
+        }));
+      let remote: AssignedPaper[] = [];
+      if (classId) {
+        try {
+          const list = await apiClient.assessments.getClassAssessments(classId);
+          remote = (list || []).map((item: any) => ({
+            id: String(item.id),
+            title: String(item.title || 'Assignment'),
+            date: String(item.date || ''),
+            subjectName: subjectName(item.subject_id || item.subjectId),
+            totalMarks: Number(item.total_marks ?? item.totalMarks) || 0,
+            questions: (item.questions_json || item.questions || []).map(visibleQuestion),
+          }));
+        } catch {
+          // Local assignments remain visible when the class request fails.
+        }
+      }
+      if (cancelled) return;
+
+      const merged = [...remote];
+      for (const paper of local) {
+        const alreadyListed = merged.some(
+          (item) =>
+            item.title === paper.title &&
+            item.date === paper.date &&
+            item.questions.length === paper.questions.length,
+        );
+        if (!alreadyListed) merged.unshift(paper);
+      }
+      setAssignedPapers(merged);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isStudent, currentUser, assessments, students, subjects]);
 
   const addFiles = (selected: FileList | File[]) => {
     const additions: File[] = [];
@@ -52,8 +164,9 @@ export const ScanReview: React.FC = () => {
     setIsProcessing(true);
     setError('');
     setResults(null);
+    setOcrSteps([]);
     try {
-      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage));
+      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage, recordOcrStep));
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -68,6 +181,7 @@ export const ScanReview: React.FC = () => {
   const clearFiles = () => {
     setFiles([]);
     setResults(null);
+    setOcrSteps([]);
     setError('');
   };
 
@@ -82,10 +196,58 @@ export const ScanReview: React.FC = () => {
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          The FastAPI backend runs Qwen on its CUDA GPU. This developer preview extracts text only;
-          it does not grade or publish marks.
+          {isStudent
+            ? 'Questions assigned by your teacher appear here. You can also extract text from a photo or PDF of your work.'
+            : 'The FastAPI backend runs Qwen on its CUDA GPU. This preview extracts text only; it does not grade or publish marks.'}
         </p>
       </header>
+
+      {isStudent && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-navy-900">Assigned questions</h2>
+            <p className="text-xs text-content-secondary">
+              These are the questions your teacher assigned. The answer key stays with the teacher.
+            </p>
+          </div>
+          {assignedPapers.length === 0 ? (
+            <p className="rounded-xl border border-surface-border bg-white p-4 text-sm text-content-secondary">
+              No questions have been assigned to your class yet.
+            </p>
+          ) : (
+            assignedPapers.map((paper) => (
+              <article key={paper.id} className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-semibold text-navy-900">{paper.title}</h3>
+                  <span className="text-xs text-content-secondary">
+                    {paper.subjectName} · {paper.date} · {paper.totalMarks} marks
+                  </span>
+                </div>
+                <ol className="mt-3 space-y-3">
+                  {paper.questions.map((question, index) => (
+                    <li key={question.id} className="text-sm text-navy-900">
+                      <p>
+                        <span className="font-semibold">Q{index + 1}.</span> {question.text}
+                      </p>
+                      <p className="mt-1 text-xs text-content-secondary">
+                        {question.type.toUpperCase()} · {question.marks} marks
+                        {question.competency ? ` · ${question.competency}` : ''}
+                      </p>
+                      {question.options.length > 0 && (
+                        <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
+                          {question.options.map((option, optionIndex) => (
+                            <li key={`${question.id}-${optionIndex}`}>{option}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </article>
+            ))
+          )}
+        </section>
+      )}
 
       <section className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
         <label
@@ -186,6 +348,12 @@ export const ScanReview: React.FC = () => {
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {ocrSteps.length > 0 && (
+          <div className="mt-4">
+            <ProcessProgress steps={ocrSteps} />
           </div>
         )}
 

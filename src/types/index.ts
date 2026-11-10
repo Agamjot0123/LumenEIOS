@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
+export type Role = 'developer' | 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
 
 export type InfrastructureTier = 'high-tech' | 'standard' | 'low-tech';
 
@@ -17,6 +17,7 @@ export interface CompetencyScores {
 }
 
 export interface User {
+  demoRoot?: boolean;
   id: string;
   email: string;
   name: string;

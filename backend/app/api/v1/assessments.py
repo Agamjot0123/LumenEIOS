@@ -1,9 +1,11 @@
+import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, require_roles
+from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.entities import (
     Assessment,
@@ -26,9 +28,18 @@ from backend.app.schemas.assessments import (
     RegenerateQuestionRequest,
     QuestionUpdateRequest,
 )
-from backend.app.services.llm_service import llm_service
+from backend.app.services.llm_service import (
+    QwenQuestionStudioInferenceError,
+    QwenQuestionStudioInputError,
+    QwenQuestionStudioUnavailable,
+    llm_service,
+    qwen_question_studio,
+)
+from backend.app.services.progress import report_progress, stream_job
+from backend.app.services.storage_service import storage_service
 
 router = APIRouter(tags=["Assessments"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/assessments", response_model=List[AssessmentOut])
@@ -226,6 +237,7 @@ async def generate_questions_ai(
     )
     db.add(audit)
     await db.commit()
+    report_progress("save", f"Saved {len(saved_out)} questions", len(saved_out), len(saved_out))
 
     return {
         "generated_count": len(saved_out),
@@ -234,6 +246,137 @@ async def generate_questions_ai(
         "source_documents": source_docs_data,
         "questions": saved_out,
     }
+
+
+@router.post("/assessments/generate-questions-beta")
+async def generate_questions_beta(
+    req: GenerateQuestionsRequest,
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+):
+    if (
+        not 0 <= req.mcq_count <= 15
+        or not 0 <= req.theory_count <= 10
+        or req.mcq_count + req.theory_count == 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request 1–15 MCQs and 0–10 theory questions, with at least one question.",
+        )
+    if req.bloom_level not in {"Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Bloom's Taxonomy level.")
+
+    document_ids = list(dict.fromkeys(req.source_document_ids))
+    if len(document_ids) != 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload one chapter PDF to generate questions.")
+    doc_result = await db.execute(
+        select(Document).filter(
+            Document.id == document_ids[0],
+            Document.school_id == (educator.school_id or "school-1"),
+        )
+    )
+    document = doc_result.scalars().first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded PDF not found.")
+    if document.mime_type != "application/pdf" or not document.file_name.lower().endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF source documents are supported.")
+
+    try:
+        pdf_path = storage_service.get_file_path(document.storage_path)
+        generated_items = await qwen_question_studio.generate_questions(
+            pdf_path=pdf_path,
+            subject_id=req.subject_id,
+            subject_name=req.subject_name or req.subject_id,
+            source_document_id=document.id,
+            source_document_name=document.file_name,
+            mcq_count=req.mcq_count,
+            theory_count=req.theory_count,
+            bloom_level=req.bloom_level,
+            focus_topic=req.focus_topic,
+        )
+    except QwenQuestionStudioInputError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except QwenQuestionStudioUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except (QwenQuestionStudioInferenceError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc) or "Qwen returned invalid question data.",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("AI Question Studio Beta generation failed.")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Question generation failed. Check backend logs.",
+        ) from exc
+
+    saved_out = []
+    for item in generated_items:
+        qb_item = QuestionBankItem(
+            id=item["id"],
+            school_id=educator.school_id or "school-1",
+            subject_id=req.subject_id,
+            text=item["text"],
+            type=item["type"],
+            options_json=item["options"],
+            correct_answer=item["correct_answer"],
+            marking_rubric=item["marking_rubric"],
+            marks=item["marks"],
+            competency=item["competency"],
+            bloom_level=req.bloom_level,
+            source_document_ids_json=[document.id],
+            source_document_names_json=[document.file_name],
+            is_ai_generated=True,
+            created_by=educator.id,
+        )
+        if req.save_to_bank:
+            db.add(qb_item)
+        saved_out.append(_serialize_qb_item(qb_item))
+
+    db.add(
+        AuditEvent(
+            timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
+            user_id=educator.id,
+            user_name=educator.name,
+            action="AI Question Studio Beta Generated Questions",
+            details=(
+                f"Generated {req.mcq_count} MCQs and {req.theory_count} Theory items "
+                f"(Bloom: {req.bloom_level}) from {document.file_name} using "
+                f"{settings.QWEN_QUESTION_STUDIO_MODEL_ID}."
+            ),
+            category="assessment",
+        )
+    )
+    await db.commit()
+    report_progress("save", f"Saved {len(saved_out)} questions", len(saved_out), len(saved_out))
+    return {
+        "generated_count": len(saved_out),
+        "subject_id": req.subject_id,
+        "bloom_level": req.bloom_level,
+        "source_documents_used": [document.file_name],
+        "model": settings.QWEN_QUESTION_STUDIO_MODEL_ID,
+        "questions": saved_out,
+    }
+
+
+@router.post("/assessments/generate-questions/stream")
+async def stream_generate_questions_ai(
+    req: GenerateQuestionsRequest,
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+):
+    return stream_job(lambda: generate_questions_ai(req, db, educator))
+
+
+@router.post("/assessments/generate-questions-beta/stream")
+async def stream_generate_questions_beta(
+    req: GenerateQuestionsRequest,
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+):
+    return stream_job(lambda: generate_questions_beta(req, db, educator))
 
 
 @router.post("/assessments/questions/{question_id}/regenerate")

@@ -21,12 +21,14 @@ export const PERMISSIONS = {
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {
+  if (role === 'developer') return true;
   const allowedRoles = PERMISSIONS[permission] as readonly string[];
   return allowedRoles.includes(role);
 }
 
 export function getDefaultDashboardPath(role: Role): string {
   switch (role) {
+    case 'developer':
     case 'admin':
       return '/admin/dashboard';
     case 'principal':

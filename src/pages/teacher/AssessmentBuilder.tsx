@@ -1,8 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { Question, CompetencyKey, BloomLevel, SourceDocument } from '../../types';
 import { sampleQuestionBank } from '../../data/seedData';
-import { apiClient } from '../../lib/apiClient';
+import { apiClient, ProcessStep } from '../../lib/apiClient';
+import { ProcessProgress } from '../../components/common/ProcessProgress';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -38,6 +40,25 @@ const BLOOM_LEVELS: BloomLevel[] = [
   'Evaluate',
   'Create',
 ];
+
+const COMPETENCY_GUIDE: Record<CompetencyKey, { name: string; detail: string }> = {
+  LU: {
+    name: 'Language Understanding',
+    detail: 'Interpret terminology, instructions, or the meaning of a passage.',
+  },
+  CU: {
+    name: 'Conceptual Understanding',
+    detail: 'Explain a concept, relationship, or why a principle works.',
+  },
+  AU: {
+    name: 'Application',
+    detail: 'Use a chapter concept, rule, or method to solve a problem or handle a new situation.',
+  },
+  CT: {
+    name: 'Critical Thinking',
+    detail: 'Evaluate evidence, compare explanations, justify a judgment, or identify assumptions.',
+  },
+};
 
 const BLOOM_DESCRIPTIONS: Record<BloomLevel, string> = {
   Remember: 'Recall foundational facts, terminology, definitions, and standard formulas.',
@@ -85,6 +106,7 @@ function validateSourceFileClient(file: File): string | null {
 }
 
 export const AssessmentBuilder: React.FC = () => {
+  const isBetaStudio = useLocation().pathname === '/teacher/assessments-beta';
   const {
     assessments,
     subjects,
@@ -112,8 +134,15 @@ export const AssessmentBuilder: React.FC = () => {
   // AI QUESTION GENERATION & BULK SOURCE UPLOAD STATE
   // ============================================================================
   const [genSubjectId, setGenSubjectId] = useState<string>('sub-math');
+  const [targetClassId, setTargetClassId] = useState<string>('class-8a');
   const [showAllSubjectDocs, setShowAllSubjectDocs] = useState<boolean>(false);
-  const [selectedDocIds, setSelectedDocIds] = useState<string[]>(['doc-src-math-1', 'doc-src-math-2']);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>(() =>
+    isBetaStudio ? [] : ['doc-src-math-1', 'doc-src-math-2']
+  );
+  const [studioPdfFile, setStudioPdfFile] = useState<File | null>(null);
+  const [studioError, setStudioError] = useState('');
+  const [uploadedStudioPdf, setUploadedStudioPdf] = useState<SourceDocument | null>(null);
+  const [isUploadingStudioPdf, setIsUploadingStudioPdf] = useState(false);
   const [mcqCount, setMcqCount] = useState<number>(3);
   const [theoryCount, setTheoryCount] = useState<number>(2);
   const [bloomIndex, setBloomIndex] = useState<number>(3); // 'Analyze'
@@ -129,9 +158,10 @@ export const AssessmentBuilder: React.FC = () => {
 
   // Generation & Preview State
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationSteps, setGenerationSteps] = useState<ProcessStep[]>([]);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>(() =>
-    questionBank.slice(0, 4)
+    isBetaStudio ? [] : questionBank.slice(0, 4)
   );
 
   // Inline Edit Question State
@@ -158,6 +188,21 @@ export const AssessmentBuilder: React.FC = () => {
   const [newBloom, setNewBloom] = useState<BloomLevel>('Apply');
 
   const currentBloomLevel = BLOOM_LEVELS[bloomIndex] || 'Analyze';
+
+  const chapterPdfs = useMemo(
+    () =>
+      sourceDocuments.filter(
+        (doc) =>
+          /^doc-[0-9a-f]{16}$/.test(doc.id) &&
+          (doc.mimeType === 'application/pdf' || (doc.fileName || '').toLowerCase().endsWith('.pdf'))
+      ),
+    [sourceDocuments]
+  );
+
+  useEffect(() => {
+    if (!isBetaStudio || studioPdfFile || uploadedStudioPdf || chapterPdfs.length === 0) return;
+    setUploadedStudioPdf(chapterPdfs[0]);
+  }, [isBetaStudio, studioPdfFile, uploadedStudioPdf, chapterPdfs]);
 
   // Filter repository documents by subject unless "Show all subjects" is enabled
   const availableSourceDocs = useMemo(() => {
@@ -382,6 +427,50 @@ export const AssessmentBuilder: React.FC = () => {
     executeBulkUpload(retryable);
   };
 
+  const rememberChapterPdf = (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setStudioError('Only a chapter PDF can be used. Choose a .pdf file.');
+      return;
+    }
+    setStudioPdfFile(file);
+    setUploadedStudioPdf(null);
+    setSelectedDocIds([]);
+    setGeneratedQuestions([]);
+    setStudioError('');
+  };
+
+  const uploadStudioPdf = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      throw new Error('Only PDF files are allowed.');
+    }
+    if (file.size === 0 || file.size > MAX_FILE_SIZE_BYTES) {
+      throw new Error(file.size === 0 ? 'The PDF is empty.' : 'The PDF exceeds the 15 MB limit.');
+    }
+
+    setIsUploadingStudioPdf(true);
+    try {
+      const document = await apiClient.documents.uploadStudioPdf(file, genSubjectId);
+      addSourceDocuments([document]);
+      setUploadedStudioPdf(document);
+      setSelectedDocIds([document.id]);
+      setGeneratedQuestions([]);
+      setStudioPdfFile(null);
+      return document;
+    } finally {
+      setIsUploadingStudioPdf(false);
+    }
+  };
+
+  const handleUploadStudioPdf = async () => {
+    if (!studioPdfFile) return;
+    setStudioError('');
+    try {
+      await uploadStudioPdf(studioPdfFile);
+    } catch (error) {
+      setStudioError(error instanceof Error ? error.message : 'PDF upload failed.');
+    }
+  };
+
   // ============================================================================
   // AI QUESTION GENERATION HANDLERS
   // ============================================================================
@@ -390,12 +479,56 @@ export const AssessmentBuilder: React.FC = () => {
       showToast('Please specify at least 1 MCQ or 1 Theory question to generate.', 'warning');
       return;
     }
-    if (selectedDocIds.length === 0) {
+    if (!isBetaStudio && selectedDocIds.length === 0) {
       showToast('Please select at least one source document to ground generation.', 'warning');
       return;
     }
 
     setIsGenerating(true);
+    setGenerationSteps([]);
+    const recordStep = (step: ProcessStep) => {
+      setGenerationSteps((current) => {
+        const index = current.findIndex((item) => item.step === step.step);
+        if (index < 0) return [...current, step];
+        const next = current.slice();
+        next[index] = step;
+        return next;
+      });
+    };
+    if (isBetaStudio) {
+      setStudioError('');
+      try {
+        let document = uploadedStudioPdf;
+        if (studioPdfFile) {
+          recordStep({ step: 'upload', label: 'Uploading the chapter PDF', done: 0, total: 1 });
+          document = await uploadStudioPdf(studioPdfFile);
+          recordStep({ step: 'upload', label: 'Uploaded the chapter PDF', done: 1, total: 1 });
+        }
+        if (!document) throw new Error('Choose a chapter PDF to generate questions.');
+        const subjectName = subjects.find((subject) => subject.id === genSubjectId)?.name || 'Subject';
+        const response = await apiClient.assessments.generateQuestionsBeta({
+          subjectId: genSubjectId,
+          subjectName,
+          sourceDocumentIds: [document.id],
+          mcqCount,
+          theoryCount,
+          bloomLevel: currentBloomLevel,
+          topicHint: topicHint.trim() || undefined,
+          saveToBank: true,
+        }, recordStep);
+        setGeneratedQuestions(response.questions);
+        addQuestionsToBank(response.questions);
+        showToast(
+          `Generated ${response.questions.length} questions from the uploaded PDF with Qwen ${response.model || '2.5-VL-7B'}.`
+        );
+      } catch (error) {
+        setStudioError(error instanceof Error ? error.message : 'Question generation failed.');
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
     try {
       const response = await apiClient.assessments.generateQuestions({
         subjectId: genSubjectId,
@@ -405,7 +538,7 @@ export const AssessmentBuilder: React.FC = () => {
         bloomLevel: currentBloomLevel,
         topicHint: topicHint.trim() || undefined,
         saveToBank: true,
-      });
+      }, recordStep);
 
       if (response.questions && response.questions.length > 0) {
         setGeneratedQuestions(response.questions);
@@ -425,7 +558,19 @@ export const AssessmentBuilder: React.FC = () => {
       const subName = subjectObj?.name || 'Mathematics';
 
       const fallbackQuestions: Question[] = [];
-      const competencies: CompetencyKey[] = ['CU', 'AU', 'CT', 'LU'];
+      const competencies: CompetencyKey[] = ['LU', 'CU', 'AU', 'CT'];
+      const totalToWrite = mcqCount + theoryCount;
+      const noteWritten = async () => {
+        setGenerationSteps([{
+          step: 'write',
+          label: `Wrote question ${fallbackQuestions.length} of ${totalToWrite}`,
+          done: fallbackQuestions.length,
+          total: totalToWrite,
+        }]);
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+      };
 
       for (let i = 0; i < mcqCount; i++) {
         const comp = competencies[i % competencies.length];
@@ -444,7 +589,7 @@ export const AssessmentBuilder: React.FC = () => {
             `D. Reverses the causal relationship between independent variables`,
           ],
           correctAnswer: `A. Applies the verified ${subName} conservation identity with complete dimensional consistency`,
-          markingRubric: `1 mark for selecting Option A; 0 marks for distractors B, C, or D.`,
+          markingRubric: `${comp}: ${COMPETENCY_GUIDE[comp].name}. ${COMPETENCY_GUIDE[comp].detail} 1 mark for selecting Option A; 0 marks for distractors B, C, or D.`,
           marks: 2,
           competency: comp,
           bloomLevel: currentBloomLevel,
@@ -452,10 +597,11 @@ export const AssessmentBuilder: React.FC = () => {
           sourceDocumentNames: [srcName],
           isAiGenerated: true,
         });
+        await noteWritten();
       }
 
       for (let j = 0; j < theoryCount; j++) {
-        const comp = competencies[(j + 1) % competencies.length];
+        const comp = competencies[(mcqCount + j) % competencies.length];
         const srcName = docNames[j % docNames.length];
         fallbackQuestions.push({
           id: `q-ai-th-${Date.now()}-${j}`,
@@ -464,8 +610,8 @@ export const AssessmentBuilder: React.FC = () => {
             topicHint || 'multi-variable relationships'
           } (Theory Problem #${j + 1}).`,
           type: 'descriptive',
-          correctAnswer: `Complete derivation establishing the governing principle, step-by-step substitution with appropriate SI/metric units, and critical interpretation of edge cases.`,
-          markingRubric: `Award 2 marks for conceptual setup (${comp}), 2 marks for analytical derivation & intermediate steps, and 1 mark for final verified conclusion with units (5 marks total).`,
+          correctAnswer: `Complete derivation establishing the governing principle, step-by-step substitution with appropriate SI/metric units, and critical interpretation of edge cases.\nRecommended answer focus — ${comp}: ${COMPETENCY_GUIDE[comp].name}. ${COMPETENCY_GUIDE[comp].detail}`,
+          markingRubric: `${comp}: ${COMPETENCY_GUIDE[comp].name}. ${COMPETENCY_GUIDE[comp].detail} Award 2 marks for conceptual setup, 2 marks for analytical derivation and intermediate steps, and 1 mark for the final verified conclusion with units (5 marks total).`,
           marks: 5,
           competency: comp,
           bloomLevel: currentBloomLevel,
@@ -473,6 +619,7 @@ export const AssessmentBuilder: React.FC = () => {
           sourceDocumentNames: [srcName],
           isAiGenerated: true,
         });
+        await noteWritten();
       }
 
       setGeneratedQuestions(fallbackQuestions);
@@ -487,16 +634,32 @@ export const AssessmentBuilder: React.FC = () => {
 
   const handleRegenerateSingle = async (q: Question) => {
     setRegeneratingId(q.id);
+    if (isBetaStudio) setStudioError('');
     try {
-      const updated = await apiClient.assessments.regenerateQuestion(
-        q.id,
-        currentBloomLevel,
-        topicHint || undefined
-      );
+      let updated: Question;
+      if (isBetaStudio) {
+        const result = await apiClient.assessments.generateQuestionsBeta({
+          subjectId: q.subjectId || genSubjectId,
+          subjectName: subjects.find((subject) => subject.id === (q.subjectId || genSubjectId))?.name || 'Subject',
+          sourceDocumentIds: q.sourceDocumentIds ?? [],
+          mcqCount: q.type === 'mcq' ? 1 : 0,
+          theoryCount: q.type === 'mcq' ? 0 : 1,
+          bloomLevel: currentBloomLevel,
+          topicHint: `${topicHint.trim() || 'Use the uploaded chapter'}. Write a different question from: ${q.text}`,
+          saveToBank: false,
+        });
+        updated = { ...result.questions[0], id: q.id };
+      } else {
+        updated = await apiClient.assessments.regenerateQuestion(q.id, currentBloomLevel, topicHint || undefined);
+      }
       setGeneratedQuestions((prev) => prev.map((item) => (item.id === q.id ? updated : item)));
       updateBankQuestion(q.id, updated);
       showToast(`Regenerated question with fresh ${currentBloomLevel}-level framing!`);
-    } catch {
+    } catch (error) {
+      if (isBetaStudio) {
+        setStudioError(error instanceof Error ? error.message : 'Question regeneration failed.');
+        return;
+      }
       const refreshed: Question = {
         ...q,
         bloomLevel: currentBloomLevel,
@@ -547,6 +710,36 @@ export const AssessmentBuilder: React.FC = () => {
         targetAsm?.title || 'Assessment'
       }"!`
     );
+  };
+
+  const handleAssignStudioAssignment = () => {
+    if (!targetClassId || generatedQuestions.length === 0) {
+      showToast('Select a target class and generate questions first.', 'warning');
+      return;
+    }
+    const targetClass = classes.find((item) => item.id === targetClassId);
+    const targetSubject = subjects.find((item) => item.id === genSubjectId);
+    const nextCycleNumber =
+      Math.max(
+        0,
+        ...assessments
+          .filter((item) => item.classId === targetClassId && item.subjectId === genSubjectId)
+          .map((item) => item.cycleNumber)
+      ) + 1;
+    addAssessment({
+      schoolId: targetClass?.schoolId || 'school-1',
+      classId: targetClassId,
+      subjectId: genSubjectId,
+      title: `${targetSubject?.name || 'Class'} Assignment`,
+      cycleNumber: nextCycleNumber,
+      date: new Date().toISOString().slice(0, 10),
+      durationMinutes: 45,
+      totalMarks: generatedQuestions.reduce((total, question) => total + question.marks, 0),
+      questions: generatedQuestions,
+      status: 'scheduled',
+      competencyFocus: Array.from(new Set(generatedQuestions.map((question) => question.competency))),
+    });
+    showToast(`Assignment assigned to ${targetClass?.name || 'the selected class'}.`);
   };
 
   // ============================================================================
@@ -783,19 +976,24 @@ export const AssessmentBuilder: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-navy-900 tracking-tight">
-              AI Question Generation & Competency Assessment Studio
+              {isBetaStudio
+                ? 'AI Question Studio Beta'
+                : 'AI Question Generation & Competency Assessment Studio'}
             </h1>
             <Badge variant="teal" size="sm">
               NEP 2020 Grounded
             </Badge>
           </div>
           <p className="text-xs text-content-secondary mt-0.5">
-            Bulk-upload curriculum source documents, synthesize Bloom-calibrated MCQs & theory rubrics, and assemble diagnostic cycles
+            {isBetaStudio
+              ? 'Generate Bloom-calibrated questions from a chapter PDF and assign them to a class.'
+              : 'Bulk-upload curriculum source documents, synthesize Bloom-calibrated MCQs & theory rubrics, and assemble diagnostic cycles'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex p-1 bg-surface-bg rounded-xl border border-surface-border">
+          {!isBetaStudio && (
+            <div className="inline-flex p-1 bg-surface-bg rounded-xl border border-surface-border">
             <button
               type="button"
               onClick={() => setActiveTab('ai-generator')}
@@ -832,16 +1030,19 @@ export const AssessmentBuilder: React.FC = () => {
               <BookOpen className="w-3.5 h-3.5" />
               Question Bank ({questionBank.length})
             </button>
-          </div>
+            </div>
+          )}
 
-          <Button
-            variant="teal"
-            size="sm"
-            onClick={() => setIsModalOpen(true)}
-            icon={<PlusCircle className="w-4 h-4" />}
-          >
-            New Cycle
-          </Button>
+          {!isBetaStudio && (
+            <Button
+              variant="teal"
+              size="sm"
+              onClick={() => setIsModalOpen(true)}
+              icon={<PlusCircle className="w-4 h-4" />}
+            >
+              New Cycle
+            </Button>
+          )}
         </div>
       </div>
 
@@ -854,9 +1055,13 @@ export const AssessmentBuilder: React.FC = () => {
           <div className="lg:col-span-5 space-y-5">
             <Card>
               <CardHeader
-                title="1. Curriculum Grounding & Bulk Sources"
-                subtitle="Select subject and ground AI generation in one or multiple verified documents"
-                action={
+                title={isBetaStudio ? '1. Chapter PDF & Target' : '1. Curriculum Grounding & Bulk Sources'}
+                subtitle={
+                  isBetaStudio
+                    ? 'Upload one chapter PDF. Qwen uses its content to ground question generation.'
+                    : 'Select subject and ground AI generation in one or multiple verified documents'
+                }
+                action={!isBetaStudio && (
                   <button
                     type="button"
                     onClick={() => setShowBulkUploadZone((v) => !v)}
@@ -865,29 +1070,59 @@ export const AssessmentBuilder: React.FC = () => {
                     <UploadCloud className="w-3.5 h-3.5" />
                     {showBulkUploadZone ? 'Hide Bulk Uploader' : 'Bulk Upload Docs'}
                   </button>
-                }
+                )}
               />
               <CardBody className="space-y-4 text-xs">
-                {/* Subject Dropdown */}
-                <div>
-                  <label className="block font-semibold text-navy-900 mb-1.5">
-                    Target Subject
-                  </label>
-                  <select
-                    value={genSubjectId}
-                    onChange={(e) => handleSubjectChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs font-medium text-navy-900 focus:outline-none focus:border-teal-600"
-                  >
-                    {subjects.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name} ({sub.code} • Grade {sub.grade})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {isBetaStudio ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-navy-900 mb-1.5">Target Class</label>
+                      <select
+                        value={targetClassId}
+                        onChange={(e) => setTargetClassId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs font-medium text-navy-900 focus:outline-none focus:border-teal-600"
+                      >
+                        {classes.map((targetClass) => (
+                          <option key={targetClass.id} value={targetClass.id}>
+                            {targetClass.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-navy-900 mb-1.5">Target Subject</label>
+                      <select
+                        value={genSubjectId}
+                        onChange={(e) => setGenSubjectId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs font-medium text-navy-900 focus:outline-none focus:border-teal-600"
+                      >
+                        {subjects.map((sub) => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.name} ({sub.code} • Grade {sub.grade})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block font-semibold text-navy-900 mb-1.5">Target Subject</label>
+                    <select
+                      value={genSubjectId}
+                      onChange={(e) => handleSubjectChange(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs font-medium text-navy-900 focus:outline-none focus:border-teal-600"
+                    >
+                      {subjects.map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name} ({sub.code} • Grade {sub.grade})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Source Document Repository Multi-Selector */}
-                <div>
+                {!isBetaStudio && <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="font-semibold text-navy-900">
                       Source Document Repository ({selectedDocIds.length} Selected)
@@ -961,10 +1196,10 @@ export const AssessmentBuilder: React.FC = () => {
                       );
                     })}
                   </div>
-                </div>
+                </div>}
 
                 {/* Bulk Source-Document Upload Panel */}
-                {showBulkUploadZone && (
+                {!isBetaStudio && showBulkUploadZone && (
                   <div className="p-3.5 rounded-xl bg-surface-bg border border-surface-border space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-navy-900 flex items-center gap-1.5">
@@ -1139,6 +1374,80 @@ export const AssessmentBuilder: React.FC = () => {
                     )}
                   </div>
                 )}
+                {isBetaStudio && (
+                  <div
+                    className="space-y-3 rounded-xl border border-dashed border-teal-300 bg-teal-50/40 p-4"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const file = event.dataTransfer.files?.[0];
+                      if (file) rememberChapterPdf(file);
+                    }}
+                  >
+                    <label htmlFor="studio-chapter-pdf" className="block font-semibold text-navy-900">
+                      Upload Chapter PDF
+                    </label>
+                    <input
+                      id="studio-chapter-pdf"
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      disabled={isUploadingStudioPdf || isGenerating}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) rememberChapterPdf(file);
+                      }}
+                      className="block w-full text-xs text-content-secondary file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:font-semibold file:text-navy-900"
+                    />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="teal"
+                        size="sm"
+                        disabled={!studioPdfFile || isUploadingStudioPdf || isGenerating}
+                        onClick={handleUploadStudioPdf}
+                        icon={<UploadCloud className="w-3.5 h-3.5" />}
+                      >
+                        {isUploadingStudioPdf ? 'Uploading PDF...' : 'Upload PDF'}
+                      </Button>
+                      {uploadedStudioPdf && (
+                        <span className="text-[11px] font-medium text-emerald-700">
+                          Ready: {uploadedStudioPdf.fileName}
+                        </span>
+                      )}
+                      {studioPdfFile && !isUploadingStudioPdf && (
+                        <span>Selected: {studioPdfFile.name}</span>
+                      )}
+                    </div>
+                    {chapterPdfs.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="font-semibold text-navy-900">Chapter PDFs already uploaded</p>
+                        {chapterPdfs.map((doc) => (
+                          <button
+                            key={doc.id}
+                            type="button"
+                            onClick={() => {
+                              setUploadedStudioPdf(doc);
+                              setStudioPdfFile(null);
+                              setStudioError('');
+                            }}
+                            className={`block w-full truncate rounded-lg border px-2 py-1 text-left ${
+                              uploadedStudioPdf?.id === doc.id
+                                ? 'border-teal-500 bg-white text-navy-900'
+                                : 'border-surface-border bg-white/70 text-content-secondary'
+                            }`}
+                          >
+                            {doc.fileName}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[11px] text-content-secondary">
+                      Only PDF files (up to 15 MB, 25 pages) are accepted. Qwen uses the chapter as source context.
+                      Generate Questions stays off until a PDF is selected here. Bloom level and question counts do not turn it on.
+                      Generate Questions uploads the selected PDF automatically.
+                    </p>
+                  </div>
+                )}
               </CardBody>
             </Card>
 
@@ -1224,6 +1533,15 @@ export const AssessmentBuilder: React.FC = () => {
                   </p>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {(Object.keys(COMPETENCY_GUIDE) as CompetencyKey[]).map((key) => (
+                    <p key={key} className="rounded-lg border border-surface-border bg-surface-bg p-2 text-[11px] text-content-secondary">
+                      <strong className="text-navy-900">{key}: {COMPETENCY_GUIDE[key].name}.</strong>{' '}
+                      {COMPETENCY_GUIDE[key].detail}
+                    </p>
+                  ))}
+                </div>
+
                 {/* Optional Topic / Concept Focus */}
                 <div>
                   <label className="block font-semibold text-navy-900 mb-1">
@@ -1240,10 +1558,11 @@ export const AssessmentBuilder: React.FC = () => {
 
                 {/* Primary Generate Questions Button */}
                 <Button
+                  type="button"
                   variant="teal"
                   size="lg"
-                  className="w-full"
-                  disabled={isGenerating}
+                  className="relative z-10 w-full"
+                  disabled={isGenerating || isUploadingStudioPdf || (isBetaStudio && !studioPdfFile && !uploadedStudioPdf)}
                   onClick={handleGenerateQuestions}
                   icon={<Sparkles className="w-4 h-4" />}
                 >
@@ -1251,6 +1570,17 @@ export const AssessmentBuilder: React.FC = () => {
                     ? 'Synthesizing Grounded Questions...'
                     : `Generate Questions (${mcqCount} MCQ + ${theoryCount} Theory)`}
                 </Button>
+                <ProcessProgress steps={generationSteps} />
+                {isBetaStudio && !studioPdfFile && !uploadedStudioPdf && !isGenerating && (
+                  <p className="rounded-lg bg-amber-50 p-3 text-amber-900">
+                    {isUploadingStudioPdf
+                      ? 'The PDF is still uploading. Generate Questions turns on when that upload finishes.'
+                      : 'Generate Questions is off because no chapter PDF is selected. Choose or drop a PDF in the box above. Setting the Bloom level, class, subject, or question counts does not enable it.'}
+                  </p>
+                )}
+                {isBetaStudio && studioError && (
+                  <p role="alert" className="rounded-lg bg-rose-50 p-3 text-rose-800">{studioError}</p>
+                )}
               </CardBody>
             </Card>
           </div>
@@ -1267,7 +1597,9 @@ export const AssessmentBuilder: React.FC = () => {
                     {generatedQuestions.reduce((s, q) => s + q.marks, 0)} Marks)
                   </h2>
                   <p className="text-[11px] text-content-secondary mt-0.5">
-                    Review, edit inline, regenerate individual items, attach to an assessment cycle, or export paper
+                    {isBetaStudio
+                      ? 'Review and edit generated questions, export the paper, and assign it to your class.'
+                      : 'Review, edit inline, regenerate individual items, attach to an assessment cycle, or export paper'}
                   </p>
                 </div>
 
@@ -1304,33 +1636,34 @@ export const AssessmentBuilder: React.FC = () => {
               </CardBody>
             </Card>
 
-            {/* Attach to Assessment Cycle Bar */}
-            <div className="bg-white p-3.5 rounded-2xl border border-surface-border shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <FolderPlus className="w-4 h-4 text-teal-600 shrink-0" />
-                <span className="font-semibold text-navy-900">Assign to Assessment Cycle:</span>
-                <select
-                  value={targetAssessmentId}
-                  onChange={(e) => setTargetAssessmentId(e.target.value)}
-                  className="px-2.5 py-1.5 bg-surface-bg border border-surface-border rounded-lg text-xs font-medium text-navy-900"
+            {!isBetaStudio && (
+              <div className="bg-white p-3.5 rounded-2xl border border-surface-border shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <FolderPlus className="w-4 h-4 text-teal-600 shrink-0" />
+                  <span className="font-semibold text-navy-900">Assign to Assessment Cycle:</span>
+                  <select
+                    value={targetAssessmentId}
+                    onChange={(e) => setTargetAssessmentId(e.target.value)}
+                    className="px-2.5 py-1.5 bg-surface-bg border border-surface-border rounded-lg text-xs font-medium text-navy-900"
+                  >
+                    {assessments.map((asm) => (
+                      <option key={asm.id} value={asm.id}>
+                        {asm.title} (Cycle {asm.cycleNumber})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={generatedQuestions.length === 0}
+                  onClick={handleAttachToAssessment}
+                  icon={<FileCheck2 className="w-3.5 h-3.5" />}
                 >
-                  {assessments.map((asm) => (
-                    <option key={asm.id} value={asm.id}>
-                      {asm.title} (Cycle {asm.cycleNumber})
-                    </option>
-                  ))}
-                </select>
+                  Attach {generatedQuestions.length} Questions to Cycle
+                </Button>
               </div>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={generatedQuestions.length === 0}
-                onClick={handleAttachToAssessment}
-                icon={<FileCheck2 className="w-3.5 h-3.5" />}
-              >
-                Attach {generatedQuestions.length} Questions to Cycle
-              </Button>
-            </div>
+            )}
 
             {/* SKELETON LOADING STATE */}
             {isGenerating ? (
@@ -1362,7 +1695,9 @@ export const AssessmentBuilder: React.FC = () => {
                   <Sparkles className="w-8 h-8 text-teal-600 mx-auto" />
                   <h3 className="text-sm font-bold text-navy-900">No Questions in Preview</h3>
                   <p className="text-xs text-content-secondary max-w-md mx-auto">
-                    Select one or more source documents on the left, adjust the Bloom's Taxonomy slider, and click <strong>Generate Questions</strong>.
+                    {isBetaStudio
+                      ? "Upload a chapter PDF, adjust the Bloom's Taxonomy level, and click Generate Questions."
+                      : 'Select one or more source documents on the left, adjust the Bloom’s Taxonomy slider, and click Generate Questions.'}
                   </p>
                 </CardBody>
               </Card>
@@ -1390,7 +1725,7 @@ export const AssessmentBuilder: React.FC = () => {
                               {q.type === 'mcq' ? 'MCQ' : 'THEORY / DESCRIPTIVE'}
                             </Badge>
                             <Badge variant="outline" size="sm">
-                              Competency: {q.competency}
+                              {q.competency}: {COMPETENCY_GUIDE[q.competency]?.name || q.competency}
                             </Badge>
                             <Badge variant="outline" size="sm">
                               Bloom: {q.bloomLevel}
@@ -1431,6 +1766,7 @@ export const AssessmentBuilder: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleRegenerateSingle(q)}
+                              disabled={isBetaStudio && (isGenerating || regeneratingId !== null)}
                               className="p-1.5 rounded-lg border border-surface-border bg-white hover:bg-teal-50 text-teal-700 transition-colors"
                               title="Regenerate Question"
                             >
@@ -1611,7 +1947,7 @@ export const AssessmentBuilder: React.FC = () => {
                               {q.correctAnswer && (
                                 <div className="text-navy-900">
                                   <strong className="text-teal-900">
-                                    {q.type === 'mcq' ? 'Official Answer Key:' : 'Model Answer:'}
+                                    {q.type === 'mcq' ? 'Recommended answer:' : 'Recommended answer:'}
                                   </strong>{' '}
                                   {q.correctAnswer}
                                 </div>
@@ -1629,6 +1965,23 @@ export const AssessmentBuilder: React.FC = () => {
                     </Card>
                   );
                 })}
+              </div>
+            )}
+            {isBetaStudio && (
+              <div className="bg-white p-3.5 rounded-2xl border border-surface-border shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <span className="font-medium text-content-secondary">
+                  Assign to {classes.find((item) => item.id === targetClassId)?.name || 'target class'} ·{' '}
+                  {subjects.find((item) => item.id === genSubjectId)?.name || 'target subject'}
+                </span>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={generatedQuestions.length === 0}
+                  onClick={handleAssignStudioAssignment}
+                  icon={<FileCheck2 className="w-3.5 h-3.5" />}
+                >
+                  Assign the Assignment
+                </Button>
               </div>
             )}
           </div>

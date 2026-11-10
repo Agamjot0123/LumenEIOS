@@ -43,6 +43,7 @@ from backend.app.services.ocr_service import (
     QwenOCRUnavailableError,
     get_ocr_provider,
 )
+from backend.app.services.progress import report_progress, stream_job
 from backend.app.services.storage_service import storage_service
 from backend.app.services.batch_grading_service import (
     match_student_from_filename_or_text,
@@ -69,7 +70,7 @@ class ProcessOCRRequest(BaseModel):
 async def extract_ocr_preview(
     files: List[UploadFile] = File(...),
     wait_before_each_image: bool = Form(False),
-    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="Please select at least one image or PDF.")
@@ -78,7 +79,14 @@ async def extract_ocr_preview(
 
     provider = get_ocr_provider("qwen")
     results = []
-    for file in files:
+    total_files = len(files)
+    for index, file in enumerate(files, start=1):
+        report_progress(
+            "file",
+            f"Opening {file.filename or 'file'} ({index} of {total_files})",
+            index - 1,
+            total_files,
+        )
         extension = os.path.splitext((file.filename or "").lower())[1]
         if (
             extension not in OCR_PREVIEW_EXTENSIONS
@@ -102,7 +110,10 @@ async def extract_ocr_preview(
 
             extraction = await provider.extract_document(
                 detail["storage_path"],
-                {"buffer_seconds": 5 if wait_before_each_image else 0},
+                {
+                    "buffer_seconds": 5 if wait_before_each_image else 0,
+                    "file_name": detail["file_name"],
+                },
             )
             results.append(
                 {
@@ -110,6 +121,12 @@ async def extract_ocr_preview(
                     "extracted_text": extraction["extracted_text"],
                     "pages_processed": extraction["pages_processed"],
                 }
+            )
+            report_progress(
+                "file",
+                f"Finished {detail['file_name']} ({index} of {total_files})",
+                index,
+                total_files,
             )
         except QwenOCRUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -134,6 +151,15 @@ async def extract_ocr_preview(
         "model_version": settings.QWEN_VL_MODEL_ID,
         "results": results,
     }
+
+
+@router.post("/extract-preview/stream")
+async def stream_extract_ocr_preview(
+    files: List[UploadFile] = File(...),
+    wait_before_each_image: bool = Form(False),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
+):
+    return stream_job(lambda: extract_ocr_preview(files, wait_before_each_image, current_user))
 
 
 @router.post("/process", response_model=OCRRunOut)

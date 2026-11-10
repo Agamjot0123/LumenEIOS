@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -39,6 +40,15 @@ class User(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     memberships = relationship("SchoolMembership", back_populates="user", cascade="all, delete-orphan")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    user_id = Column(String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    phone = Column(String(40), nullable=True)
+    address = Column(Text, nullable=True)
+    date_of_birth = Column(Date, nullable=True)
 
 
 class School(Base):

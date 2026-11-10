@@ -33,7 +33,10 @@ async def get_current_user(
     try:
         payload = decode_token(token)
         user_id: str = payload.get("sub")
-        if not user_id:
+        if (
+            not user_id or payload.get("type") != "access"
+            or (payload.get("demo_root") and not settings.demo_root_enabled)
+        ):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials.")
@@ -45,8 +48,13 @@ async def get_current_user(
     return user
 
 
-def require_roles(*allowed_roles: str):
-    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+def require_roles(*allowed_roles: str, authenticated: bool = False):
+    def role_checker(
+        current_user: User = Depends(get_current_user),
+        token: Optional[str] = Depends(oauth2_scheme),
+    ) -> User:
+        if authenticated and not token:
+            raise HTTPException(status_code=401, detail="Authentication token required.")
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

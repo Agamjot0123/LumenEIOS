@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { demoMode, useAuth } from '../../context/AuthContext';
+import { ApiError } from '../../lib/apiClient';
 import { Role } from '../../types';
 import { getDefaultDashboardPath } from '../../lib/permissions';
 import {
@@ -17,12 +18,13 @@ import {
 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login, loginAsRole } = useAuth();
+  const { login, loginAsRole, isRestoringSession } = useAuth();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('teacher@lumeneios.demo');
-  const [password, setPassword] = useState('demo123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   const demoAccounts: Array<{
     role: Role;
@@ -80,22 +82,25 @@ export const LoginPage: React.FC = () => {
     },
   ];
 
-  const handleManualSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const signIn = async (authenticate: () => ReturnType<typeof login>) => {
+    if (isSigningIn || isRestoringSession) return;
     setError('');
-    const success = login(email);
-    if (success) {
-      const matched = demoAccounts.find((a) => a.email.toLowerCase() === email.toLowerCase());
-      const role = matched ? matched.role : 'teacher';
-      navigate(getDefaultDashboardPath(role));
-    } else {
-      setError('Invalid credentials. Please click one of the pre-configured demo personas below.');
+    setIsSigningIn(true);
+    try {
+      const user = await authenticate();
+      navigate(getDefaultDashboardPath(user.role), { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError && [401, 422].includes(err.status)
+        ? 'Invalid email or password.'
+        : 'Could not sign in. Check that the backend is running and try again.');
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
-  const handleQuickLogin = (acc: typeof demoAccounts[0]) => {
-    loginAsRole(acc.role);
-    navigate(getDefaultDashboardPath(acc.role));
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    void signIn(() => login(email, password));
   };
 
   return (
@@ -117,56 +122,68 @@ export const LoginPage: React.FC = () => {
           {/* Form */}
           <form onSubmit={handleManualSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-content-primary mb-1">
-                Demo Account Email
+              <label htmlFor="login-email" className="block text-xs font-semibold text-content-primary mb-1">
+                Email or username
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-content-muted absolute left-3 top-3 pointer-events-none" />
                 <input
-                  type="email"
+                  id="login-email"
+                  type="text"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   className="w-full pl-9 pr-3 py-2 bg-surface-bg/40 border border-surface-border rounded-lg text-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-                  placeholder="e.g. teacher@lumeneios.demo"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-content-primary mb-1">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-content-primary mb-1">
                 Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-content-muted absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="login-password"
                   type="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   className="w-full pl-9 pr-3 py-2 bg-surface-bg/40 border border-surface-border rounded-lg text-sm text-content-primary focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-                  placeholder="demo123"
                 />
               </div>
             </div>
 
             {error && (
-              <p className="text-xs text-rose-600 font-medium bg-rose-50 p-2.5 rounded-lg border border-rose-200">
+              <p role="alert" className="text-xs text-rose-600 font-medium bg-rose-50 p-2.5 rounded-lg border border-rose-200">
                 {error}
               </p>
             )}
 
+            <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 text-xs text-navy-900">
+              <p className="font-semibold">Team root login</p>
+              <p className="mt-1 font-mono">Login: LEOFELIX or leofelix@lumeneios.demo</p>
+              <p className="font-mono">Password: KVR</p>
+              <p className="mt-1 text-content-secondary">
+                Signs in as Developer, with access to every role. After login, use the bar at the top to open Developer, Admin, Principal, Teacher, Student, or Parent.
+              </p>
+            </div>
+
             <button
               type="submit"
+              disabled={isSigningIn || isRestoringSession}
               className="w-full py-2.5 px-4 bg-navy-800 hover:bg-navy-900 active:bg-navy-950 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors flex items-center justify-center gap-2"
             >
-              <span>Sign In to Dashboard</span>
+              <span>{isSigningIn ? 'Signing in…' : 'Sign In to Dashboard'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
           {/* Quick 1-Click Persona Chooser */}
-          <div className="mt-8 pt-6 border-t border-surface-border">
+          {demoMode && <div className="mt-8 pt-6 border-t border-surface-border">
             <div className="flex items-center justify-between mb-3.5">
               <span className="text-xs font-bold text-navy-800 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-teal-600" />
@@ -179,7 +196,6 @@ export const LoginPage: React.FC = () => {
               {demoAccounts.map((acc) => (
                 <div
                   key={acc.role}
-                  onClick={() => handleQuickLogin(acc)}
                   className={`p-3 rounded-xl border border-surface-border transition-all cursor-pointer flex items-center justify-between group ${acc.color}`}
                 >
                   <div className="flex items-center gap-3">
@@ -199,13 +215,13 @@ export const LoginPage: React.FC = () => {
                       <p className="text-[10px] text-content-muted font-mono mt-0.5">{acc.email}</p>
                     </div>
                   </div>
-                  <button className="px-3 py-1.5 text-xs font-semibold text-navy-800 bg-white border border-surface-border rounded-lg group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0 shadow-xs">
+                  <button type="button" disabled={isSigningIn || isRestoringSession} onClick={() => void signIn(() => loginAsRole(acc.role))} className="px-3 py-1.5 text-xs font-semibold text-navy-800 bg-white border border-surface-border rounded-lg group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0 shadow-xs">
                     Login as {acc.role}
                   </button>
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* NEP 2020 pedagogical footnote */}

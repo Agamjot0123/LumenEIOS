@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Dict, List, Any, Optional
 from backend.app.core.config import settings
+from backend.app.services.progress import report_progress
 
 logger = logging.getLogger(__name__)
 
@@ -130,12 +131,14 @@ class QwenVisionOCRProvider(BaseOCRProvider):
     async def extract_document(
         self, document_path: str, options: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        buffer_seconds = 5 if options and options.get("buffer_seconds") else 0
-        return await asyncio.to_thread(self._extract_sync, document_path, buffer_seconds)
+        buffer = options or {}
+        return await asyncio.to_thread(self._extract_sync, document_path, buffer)
 
     def _load_model(self) -> None:
         if self._model is not None:
             return
+
+        report_progress("model", "Loading the OCR model", 0, 1)
 
         try:
             import torch
@@ -183,6 +186,7 @@ class QwenVisionOCRProvider(BaseOCRProvider):
         self._processor = processor
         self._model = model
         self._process_vision_info = process_vision_info
+        report_progress("model", "Loaded the OCR model", 1, 1)
 
     def _infer_image(self, image: Any) -> str:
         try:
@@ -229,9 +233,12 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                 "Qwen OCR inference failed; check backend logs for the model error."
             ) from exc
 
-    def _extract_sync(self, document_path: str, buffer_seconds: int) -> Dict[str, Any]:
+    def _extract_sync(self, document_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         from PIL import Image
 
+        options = options or {}
+        buffer_seconds = int(options.get("buffer_seconds") or 0)
+        file_name = str(options.get("file_name") or os.path.basename(document_path))
         page_texts: List[str] = []
         is_pdf = os.path.splitext(document_path)[1].lower() == ".pdf"
 
@@ -257,17 +264,19 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                     raise QwenOCRInputError(
                         f"PDF exceeds the {self._max_pdf_pages}-page OCR limit."
                     )
-                pages = (
-                    Image.open(
+                total_pages = pdf.page_count
+                for index, page in enumerate(pdf, start=1):
+                    report_progress(
+                        "extract",
+                        f"{file_name}: extracting page {index} of {total_pages}",
+                        index - 1,
+                        total_pages,
+                    )
+                    page_image = Image.open(
                         io.BytesIO(
-                            page.get_pixmap(
-                                matrix=pymupdf.Matrix(2, 2), alpha=False
-                            ).tobytes("png")
+                            page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False).tobytes("png")
                         )
                     )
-                    for page in pdf
-                )
-                for page_image in pages:
                     with page_image:
                         # ponytail: serialize inference on the shared GPU; add per-device workers if throughput matters
                         with self._inference_lock:
@@ -275,6 +284,12 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                             if buffer_seconds:
                                 time.sleep(buffer_seconds)
                             page_texts.append(self._infer_image(page_image.convert("RGB")))
+                    report_progress(
+                        "extract",
+                        f"{file_name}: extracted page {index} of {total_pages}",
+                        index,
+                        total_pages,
+                    )
         else:
             try:
                 image = Image.open(document_path)
@@ -285,11 +300,13 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                     rgb_image = image.convert("RGB")
                 except (OSError, ValueError) as exc:
                     raise QwenOCRInputError("The uploaded image could not be decoded.") from exc
+                report_progress("extract", f"{file_name}: extracting page 1 of 1", 0, 1)
                 with self._inference_lock:
                     self._load_model()
                     if buffer_seconds:
                         time.sleep(buffer_seconds)
                     page_texts.append(self._infer_image(rgb_image))
+                report_progress("extract", f"{file_name}: extracted page 1 of 1", 1, 1)
 
         return {
             "provider": "qwen2.5-vl",

@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
+import { apiClient } from '../../lib/apiClient';
+import type { School } from '../../types';
 import {
   Bell,
   Search,
@@ -25,7 +27,23 @@ export const Topbar: React.FC = () => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const currentSchool = schools.find((s) => s.id === currentSchoolId) || schools[0];
+  const localSchool = schools.find((s) => s.id === currentSchoolId);
+  const [loadedSchool, setLoadedSchool] = useState<Pick<School, 'id' | 'name' | 'state' | 'infrastructureTier'>>();
+  const currentSchool = localSchool || (loadedSchool?.id === currentSchoolId ? loadedSchool : undefined);
+
+  useEffect(() => {
+    if (localSchool) return;
+    let active = true;
+    apiClient.schools.getById(currentSchoolId).then((school) => {
+      if (active) setLoadedSchool({
+        id: school.id,
+        name: school.name,
+        state: school.state,
+        infrastructureTier: school.infrastructure_tier,
+      });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [currentSchoolId, localSchool]);
   const userNotifications = notifications.filter(
     (n) => !currentUser || n.userId === currentUser.id || n.userId === 'user-active'
   );
@@ -53,12 +71,12 @@ export const Topbar: React.FC = () => {
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
                 <span className="font-semibold text-content-primary leading-tight line-clamp-1 max-w-[190px]">
-                  {currentSchool?.name}
+                  {currentSchool?.name || 'Active campus'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-content-secondary" />
               </div>
               <span className="text-[11px] text-content-secondary">
-                {currentSchool?.state} • {currentSchool?.infrastructureTier}
+                {currentSchool && `${currentSchool.state} • ${currentSchool.infrastructureTier}`}
               </span>
             </div>
           </button>
@@ -72,8 +90,12 @@ export const Topbar: React.FC = () => {
                 {schools.map((sch) => (
                   <button
                     key={sch.id}
-                    onClick={() => {
-                      switchSchool(sch.id);
+                    onClick={async () => {
+                      try {
+                        await switchSchool(sch.id);
+                      } catch {
+                        window.alert('Could not switch to that school.');
+                      }
                       setShowSchoolMenu(false);
                     }}
                     className={`w-full px-3.5 py-2 text-left text-xs hover:bg-surface-bg flex items-center justify-between transition-colors ${

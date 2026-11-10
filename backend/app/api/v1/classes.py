@@ -8,6 +8,7 @@ from backend.app.db.session import get_db
 from backend.app.models.entities import ClassSection, Student, User, AuditEvent, utc_now
 from backend.app.schemas.schools import ClassSectionOut, TeacherAssignmentRequest
 from backend.app.schemas.competencies import StudentOut, CompetencyScoresSchema
+from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
 
 router = APIRouter(prefix="/classes", tags=["Classes"])
 
@@ -50,39 +51,46 @@ async def assign_teacher(
     return cls
 
 
+def student_out(s: Student) -> StudentOut:
+    return StudentOut(
+        id=s.id,
+        school_id=s.school_id,
+        class_id=s.class_id,
+        class_name=s.class_name,
+        name=s.name,
+        roll_no=s.roll_no,
+        gender=s.gender,
+        attendance_pct=s.attendance_pct,
+        competencies=CompetencyScoresSchema(
+            LU=s.lu_score, CU=s.cu_score, AU=s.au_score, CT=s.ct_score, overall=s.overall_score
+        ),
+        baseline_competencies=CompetencyScoresSchema(
+            LU=s.baseline_lu, CU=s.baseline_cu, AU=s.baseline_au, CT=s.baseline_ct, overall=s.baseline_overall
+        ),
+        learning_modality=s.learning_modality,
+        parent_id=s.parent_id,
+        homework_completion_rate=s.homework_completion_rate,
+        needs_support=s.needs_support,
+        support_area=s.support_area,
+    )
+
+
+@router.get("/students/me", response_model=StudentOut)
+async def my_student_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("student", authenticated=True)),
+):
+    student = await resolve_linked_student(db, current_user)
+    if not student:
+        raise HTTPException(status_code=404, detail="Your login is not linked to a student profile.")
+    return student_out(student)
+
+
 @router.get("/{class_id}/students", response_model=List[StudentOut])
 async def list_class_students(
     class_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Student).filter(Student.class_id == class_id).order_by(Student.roll_no))
-    students = result.scalars().all()
-    
-    out = []
-    for s in students:
-        out.append(
-            StudentOut(
-                id=s.id,
-                school_id=s.school_id,
-                class_id=s.class_id,
-                class_name=s.class_name,
-                name=s.name,
-                roll_no=s.roll_no,
-                gender=s.gender,
-                attendance_pct=s.attendance_pct,
-                competencies=CompetencyScoresSchema(
-                    LU=s.lu_score, CU=s.cu_score, AU=s.au_score, CT=s.ct_score, overall=s.overall_score
-                ),
-                baseline_competencies=CompetencyScoresSchema(
-                    LU=s.baseline_lu, CU=s.baseline_cu, AU=s.baseline_au, CT=s.baseline_ct, overall=s.baseline_overall
-                ),
-                learning_modality=s.learning_modality,
-                parent_id=s.parent_id,
-                homework_completion_rate=s.homework_completion_rate,
-                needs_support=s.needs_support,
-                support_area=s.support_area,
-            )
-        )
-    return out
-
+    return [student_out(student) for student in result.scalars()]

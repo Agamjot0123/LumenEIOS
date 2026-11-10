@@ -20,6 +20,7 @@ class QuestionSchema(BaseSchema):
 
 class GenerateQuestionsRequest(BaseModel):
     subject_id: str
+    subject_name: Optional[str] = None
     source_document_ids: List[str] = []
     mcq_count: int = 3
     theory_count: int = 2

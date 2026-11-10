@@ -1,6 +1,6 @@
 """Student identity and student-facing homework views.
 
-A student is identified only through an explicit StudentAccountLink created by an admin. Never
+A student is identified only through an explicit StudentAccountLink. Never
 by matching User.id to Student.id, and never by email (Student has no email field).
 
 resolve_linked_student fails closed. It returns None unless all of these hold:

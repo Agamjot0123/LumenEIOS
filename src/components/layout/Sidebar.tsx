@@ -17,6 +17,7 @@ import {
   Award,
   HeartHandshake,
   Settings,
+  PlusCircle,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -33,12 +34,34 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     highlight?: boolean;
   }
 
+  const scanReviewItem: NavItem = {
+    label: 'Scan Review',
+    path: '/teacher/scan-review',
+    icon: <ScanLine className="w-4 h-4" />,
+    badge: 'OCR',
+  };
+
+  const questionStudioItem: NavItem = {
+    label: 'AI Question Studio',
+    path: '/teacher/assessments',
+    icon: <BookOpen className="w-4 h-4" />,
+    badge: 'AI',
+  };
+
+  const questionStudioBetaItem: NavItem = {
+    label: 'AI Question Studio Beta',
+    path: '/teacher/assessments-beta',
+    icon: <Sparkles className="w-4 h-4" />,
+  };
+
   const getNavItems = (): NavItem[] => {
     switch (role) {
+      case 'developer':
       case 'admin':
         return [
           { label: 'Platform Overview', path: '/admin/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Schools Directory', path: '/admin/schools', icon: <Building2 className="w-4 h-4" /> },
+          { label: 'Add School', path: '/admin/schools/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Users & Roles', path: '/admin/users', icon: <Users className="w-4 h-4" /> },
           { label: 'Academic Config', path: '/admin/academic-config', icon: <Settings className="w-4 h-4" /> },
           {
@@ -48,18 +71,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             highlight: true,
             badge: 'Core',
           },
-          {
-            label: 'AI Question Studio',
-            path: '/teacher/assessments',
-            icon: <Sparkles className="w-4 h-4" />,
-            badge: 'AI',
-          },
-          {
-            label: 'Scan Review',
-            path: '/teacher/scan-review',
-            icon: <ScanLine className="w-4 h-4" />,
-            badge: 'OCR',
-          },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
         ];
 
@@ -67,6 +78,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         return [
           { label: 'Campus Dashboard', path: '/principal/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Teacher Assignments', path: '/principal/teachers', icon: <Users className="w-4 h-4" /> },
+          { label: 'Add Teacher', path: '/principal/teachers/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'Curriculum Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
           {
@@ -76,18 +88,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             highlight: true,
             badge: 'Pacing',
           },
-          {
-            label: 'AI Question Studio',
-            path: '/teacher/assessments',
-            icon: <Sparkles className="w-4 h-4" />,
-            badge: 'AI',
-          },
-          {
-            label: 'Scan Review',
-            path: '/teacher/scan-review',
-            icon: <ScanLine className="w-4 h-4" />,
-            badge: 'OCR',
-          },
           { label: 'Compliance Reports', path: '/principal/reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
         ];
 
@@ -95,6 +95,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         return [
           { label: 'Teacher Dashboard', path: '/teacher/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'My Classes & Heatmap', path: '/teacher/classes', icon: <Users className="w-4 h-4" /> },
+          { label: 'Add Student', path: '/teacher/students/add', icon: <PlusCircle className="w-4 h-4" /> },
           {
             label: 'Time-Aware Engine',
             path: '/teacher/time-aware',
@@ -103,19 +104,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             badge: 'Key',
           },
           { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
-          {
-            label: 'AI Question Studio',
-            path: '/teacher/assessments',
-            icon: <BookOpen className="w-4 h-4" />,
-            badge: 'AI',
-          },
+          questionStudioItem,
+          questionStudioBetaItem,
           { label: 'Differentiated Homework', path: '/teacher/remediation', icon: <Sparkles className="w-4 h-4" /> },
-          {
-            label: 'Scan Review',
-            path: '/teacher/scan-review',
-            icon: <ScanLine className="w-4 h-4" />,
-            badge: 'OCR',
-          },
+          scanReviewItem,
         ];
 
       case 'student':
@@ -123,6 +115,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Adaptive Practice', path: '/student/dashboard', icon: <Sparkles className="w-4 h-4" /> },
           { label: 'My Achievements', path: '/student/dashboard', icon: <Award className="w-4 h-4" /> },
+          scanReviewItem,
         ];
 
       case 'parent':
@@ -175,6 +168,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             <NavLink
               key={item.label}
               to={item.path}
+              end
               className={cn(
                 'flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors group',
                 isActive

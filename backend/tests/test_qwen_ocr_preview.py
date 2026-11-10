@@ -143,10 +143,11 @@ async def test_preview_rejects_files_over_size_limit(client, teacher_token):
 
 
 @pytest.mark.asyncio
-async def test_preview_forbids_students(client, student_token):
+async def test_preview_accepts_student_uploads(client, student_token, fake_model):
     response = await post(client, student_token, "sheet.png", png_bytes(), "image/png")
 
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["results"][0]["extracted_text"] == "recognized text"
 
 
 @pytest.mark.asyncio
