@@ -49,6 +49,11 @@ class SchoolOut(BaseSchema):
     is_archived: bool
 
 
+class ClassCreate(BaseModel):
+    school_id: str
+    name: str
+
+
 class ClassSectionOut(BaseSchema):
     id: str
     school_id: str

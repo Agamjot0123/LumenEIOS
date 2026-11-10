@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from backend.app.api.v1.auth import router as auth_router
 from backend.app.api.v1.schools import router as schools_router
 from backend.app.api.v1.users import router as users_router
+from backend.app.api.v1.teachers import router as teachers_router
 from backend.app.api.v1.classes import router as classes_router
 from backend.app.api.v1.calendar import router as calendar_router
 from backend.app.api.v1.assessments import router as assessments_router
@@ -23,6 +24,7 @@ api_router = APIRouter()
 api_router.include_router(auth_router)
 api_router.include_router(schools_router)
 api_router.include_router(users_router)
+api_router.include_router(teachers_router)
 api_router.include_router(classes_router)
 api_router.include_router(calendar_router)
 api_router.include_router(assessments_router)

@@ -5,12 +5,64 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, require_roles, require_school_access
 from backend.app.db.session import get_db
-from backend.app.models.entities import ClassSection, ParentStudentLink, Student, User, AuditEvent, utc_now
-from backend.app.schemas.schools import ClassSectionOut, TeacherAssignmentRequest
+from backend.app.lib.class_names import parse_class_name, class_identity
+from backend.app.models.entities import ClassSection, ParentStudentLink, School, Student, User, AuditEvent, utc_now
+from backend.app.schemas.schools import ClassCreate, ClassSectionOut, TeacherAssignmentRequest
 from backend.app.schemas.competencies import StudentOut, StudentProfileOut, CompetencyScoresSchema
-from backend.app.modules.differentiated_homework.student_access import require_linked_student, subject_names
+from backend.app.modules.differentiated_homework.student_access import (
+    require_linked_student,
+    resolve_linked_student,
+    subject_names,
+)
 
 router = APIRouter(prefix="/classes", tags=["Classes"])
+
+
+@router.post("", response_model=ClassSectionOut, status_code=status.HTTP_201_CREATED)
+async def create_class(
+    body: ClassCreate,
+    db: AsyncSession = Depends(get_db),
+    principal: User = Depends(require_roles("principal")),
+):
+    try:
+        grade, section, display, identity = parse_class_name(body.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    school = (await db.execute(select(School).filter(School.id == body.school_id))).scalars().first()
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found.")
+    await require_school_access(db, principal, body.school_id)
+
+    existing = (await db.execute(select(ClassSection).filter(ClassSection.school_id == body.school_id))).scalars().all()
+    if any(class_identity(item.name) == identity for item in existing):
+        raise HTTPException(status_code=409, detail="A class with this name already exists")
+
+    created = ClassSection(
+        school_id=body.school_id,
+        grade=grade,
+        section=section,
+        name=display,
+        class_teacher_id=None,
+        class_teacher_name=None,
+        student_count=0,
+        subject_ids_json=[],
+    )
+    school.class_count = (school.class_count or 0) + 1
+    db.add(created)
+    db.add(
+        AuditEvent(
+            timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
+            user_id=principal.id,
+            user_name=principal.name,
+            action="Class Created",
+            details=f"{principal.name} added class {display}.",
+            category="curriculum",
+        )
+    )
+    await db.commit()
+    await db.refresh(created)
+    return created
 
 
 @router.get("/{class_id}", response_model=ClassSectionOut)

@@ -10,10 +10,13 @@ import {
   LostTeachingDay,
   CrossCurricularProposal,
   HomeworkRemediation,
+  AnswerSheetUpload,
+  SheetAssignment,
   AuditLog,
   NotificationItem,
   SourceDocument,
   Question,
+  User,
 } from '../types';
 import {
   initialSchools,
@@ -28,8 +31,10 @@ import {
   initialHomeworkRemediations,
   initialAuditLogs,
   initialNotifications,
+  initialSheetAssignments,
 } from '../data/seedData';
 import { CompressionPlanProposal } from '../lib/calculations';
+import { classIdentity, parseClassName } from '../lib/className';
 import { apiClient } from '../lib/apiClient';
 
 const initialSourceDocuments: SourceDocument[] = [
@@ -118,6 +123,8 @@ interface DataContextType {
   lostTeachingDays: LostTeachingDay[];
   crossCurricularProposals: CrossCurricularProposal[];
   homeworkRemediations: HomeworkRemediation[];
+  answerSheetUploads: AnswerSheetUpload[];
+  sheetAssignments: SheetAssignment[];
   auditLogs: AuditLog[];
   notifications: NotificationItem[];
   sourceDocuments: SourceDocument[];
@@ -126,6 +133,22 @@ interface DataContextType {
   // Mutators
   addSchool: (school: Partial<School>) => void;
   updateSchool: (id: string, updates: Partial<School>) => void;
+  addClass: (schoolId: string, name: string) => { ok: true; name: string } | { ok: false; error: string };
+  addedTeachers: User[];
+  addTeacher: (teacher: {
+    name: string;
+    email: string;
+    designation: string;
+    schoolId: string;
+    existingEmails: string[];
+  }) => { ok: true; teacher: User } | { ok: false; error: string };
+  addStudent: (student: {
+    name: string;
+    rollNo: number;
+    gender: 'M' | 'F' | 'Other';
+    classId: string;
+    schoolId: string;
+  }) => void;
   assignTeacherToClass: (classId: string, teacherId: string, teacherName: string) => void;
   recordLostTeachingDay: (item: Omit<LostTeachingDay, 'id'>) => void;
   addAssessment: (assessment: Omit<Assessment, 'id'>) => Promise<void>;
@@ -135,6 +158,8 @@ interface DataContextType {
   rejectCrossCurricularProposal: (id: string) => void;
   assignHomeworkRemediation: (item: Omit<HomeworkRemediation, 'id'>) => void;
   submitStudentHomework: (id: string) => void;
+  addAnswerSheetUpload: (item: Omit<AnswerSheetUpload, 'id' | 'uploadedAt'>) => AnswerSheetUpload;
+  addSheetAssignment: (item: Omit<SheetAssignment, 'id' | 'createdAt'>) => void;
   markNotificationAsRead: (id: string) => void;
   addSourceDocuments: (docs: SourceDocument[]) => void;
   removeSourceDocument: (id: string) => void;
@@ -185,6 +210,13 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [homeworkRemediations, setHomeworkRemediations] = useState<HomeworkRemediation[]>(() =>
     loadStorage('homeworkRemediations', initialHomeworkRemediations)
   );
+  const [answerSheetUploads, setAnswerSheetUploads] = useState<AnswerSheetUpload[]>(() =>
+    loadStorage('answerSheetUploads', [])
+  );
+  const [sheetAssignments, setSheetAssignments] = useState<SheetAssignment[]>(() =>
+    loadStorage('sheetAssignments', initialSheetAssignments)
+  );
+  const [addedTeachers, setAddedTeachers] = useState<User[]>(() => loadStorage('addedTeachers', []));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => loadStorage('auditLogs', initialAuditLogs));
   const [notifications, setNotifications] = useState<NotificationItem[]>(() =>
     loadStorage('notifications', initialNotifications)
@@ -206,6 +238,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => saveStorage('lostTeachingDays', lostTeachingDays), [lostTeachingDays]);
   useEffect(() => saveStorage('crossCurricularProposals', crossCurricularProposals), [crossCurricularProposals]);
   useEffect(() => saveStorage('homeworkRemediations', homeworkRemediations), [homeworkRemediations]);
+  useEffect(() => saveStorage('answerSheetUploads', answerSheetUploads), [answerSheetUploads]);
+  useEffect(() => saveStorage('sheetAssignments', sheetAssignments), [sheetAssignments]);
+  useEffect(() => saveStorage('addedTeachers', addedTeachers), [addedTeachers]);
   useEffect(() => saveStorage('auditLogs', auditLogs), [auditLogs]);
   useEffect(() => saveStorage('notifications', notifications), [notifications]);
   useEffect(() => saveStorage('sourceDocuments', sourceDocuments), [sourceDocuments]);
@@ -253,6 +288,105 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSchools((prev) => [newSchool, ...prev]);
 
     addAuditLog('Onboarded New School', `Added ${newSchool.name} to state network.`, 'system');
+  };
+
+  const addClass = (schoolId: string, rawName: string): { ok: true; name: string } | { ok: false; error: string } => {
+    const parsed = parseClassName(rawName);
+    if (!parsed.ok) return parsed;
+    const duplicate = classes.some(
+      (item) => item.schoolId === schoolId && classIdentity(item.name) === parsed.identity
+    );
+    if (duplicate) return { ok: false, error: 'A class with this name already exists' };
+    const created: ClassSection = {
+      id: `class-${Date.now()}`,
+      schoolId,
+      grade: parsed.grade,
+      section: parsed.section,
+      name: parsed.display,
+      classTeacherId: '',
+      classTeacherName: 'Unassigned',
+      studentCount: 0,
+      subjectIds: [],
+    };
+    setClasses((prev) => [...prev, created]);
+    setSchools((prev) =>
+      prev.map((school) =>
+        school.id === schoolId ? { ...school, classCount: school.classCount + 1 } : school
+      )
+    );
+    addAuditLog('Class Created', `Added ${created.name}.`, 'curriculum');
+    return { ok: true, name: created.name };
+  };
+
+  const addTeacher = (input: {
+    name: string;
+    email: string;
+    designation: string;
+    schoolId: string;
+    existingEmails: string[];
+  }): { ok: true; teacher: User } | { ok: false; error: string } => {
+    const name = input.name.trim();
+    const email = input.email.trim().toLowerCase();
+    const designation = input.designation.trim();
+    if (!name) return { ok: false, error: "Enter the teacher's name." };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: 'Enter a valid email.' };
+    const known = new Set([
+      ...input.existingEmails.map((item) => item.toLowerCase()),
+      ...addedTeachers.map((item) => item.email.toLowerCase()),
+    ]);
+    if (known.has(email)) return { ok: false, error: 'A user with this email already exists.' };
+    const teacher: User = {
+      id: `user-teacher-${Date.now()}`,
+      name,
+      email,
+      role: 'teacher',
+      schoolId: input.schoolId,
+      designation: designation || 'Teacher',
+      assignedClassIds: [],
+      assignedSubjectIds: [],
+    };
+    setAddedTeachers((prev) => [teacher, ...prev]);
+    addAuditLog('Teacher Added', `Added ${teacher.name} (${teacher.email}).`, 'user');
+    return { ok: true, teacher };
+  };
+
+  const addStudent = (studentData: {
+    name: string;
+    rollNo: number;
+    gender: 'M' | 'F' | 'Other';
+    classId: string;
+    schoolId: string;
+  }) => {
+    const classSection = classes.find((item) => item.id === studentData.classId);
+    const blankScores = { LU: 0, CU: 0, AU: 0, CT: 0, overall: 0 };
+    const newStudent: Student = {
+      id: `student-${Date.now()}`,
+      schoolId: studentData.schoolId,
+      classId: studentData.classId,
+      className: classSection?.name || 'Unassigned',
+      name: studentData.name.trim(),
+      rollNo: Number(studentData.rollNo),
+      gender: studentData.gender,
+      attendancePct: 100,
+      competencies: blankScores,
+      baselineCompetencies: blankScores,
+      learningModality: 'Visual',
+      parentId: '',
+      homeworkCompletionRate: 0,
+      needsSupport: false,
+    };
+    setStudents((prev) => [newStudent, ...prev]);
+    setSchools((prev) =>
+      prev.map((school) =>
+        school.id === newStudent.schoolId ? { ...school, studentCount: school.studentCount + 1 } : school
+      )
+    );
+    setClasses((prev) =>
+      prev.map((item) =>
+        item.id === newStudent.classId ? { ...item, studentCount: item.studentCount + 1 } : item
+      )
+    );
+    addAuditLog('Added Student', `Added ${newStudent.name} to ${newStudent.className}.`, 'user');
   };
 
   const updateSchool = (id: string, updates: Partial<School>) => {
@@ -309,7 +443,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       type: 'warning',
       read: false,
       createdAt: 'Just now',
-      link: '/teacher/time-aware',
+      link: '/teacher/dashboard',
     };
     setNotifications((prev) => [newNotif, ...prev]);
   };
@@ -478,6 +612,35 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     addAuditLog('Student Homework Submitted', `Student completed remediation task #${id}.`, 'assessment');
   };
 
+  const addSheetAssignment = (item: Omit<SheetAssignment, 'id' | 'createdAt'>) => {
+    const assignment: SheetAssignment = {
+      ...item,
+      id: `assign-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setSheetAssignments((prev) => [assignment, ...prev]);
+    addAuditLog(
+      'Assignment Given',
+      `${assignment.teacherName} gave "${assignment.title}" to ${assignment.className}.`,
+      'assessment'
+    );
+  };
+
+  const addAnswerSheetUpload = (item: Omit<AnswerSheetUpload, 'id' | 'uploadedAt'>) => {
+    const upload: AnswerSheetUpload = {
+      ...item,
+      id: `sheet-${Date.now()}`,
+      uploadedAt: new Date().toISOString(),
+    };
+    setAnswerSheetUploads((prev) => [upload, ...prev]);
+    addAuditLog(
+      'Answer Sheet Uploaded',
+      `${upload.studentName} uploaded ${upload.fileName} for demo OCR review.`,
+      'assessment'
+    );
+    return upload;
+  };
+
   const markNotificationAsRead = (id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
@@ -587,6 +750,9 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLostTeachingDays(initialLostTeachingDays);
     setCrossCurricularProposals(initialCrossCurricularProposals);
     setHomeworkRemediations(initialHomeworkRemediations);
+    setAnswerSheetUploads([]);
+    setSheetAssignments(initialSheetAssignments);
+    setAddedTeachers([]);
     setAuditLogs(initialAuditLogs);
     setNotifications(initialNotifications);
     setSourceDocuments(initialSourceDocuments);
@@ -606,12 +772,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lostTeachingDays,
         crossCurricularProposals,
         homeworkRemediations,
+        answerSheetUploads,
+        sheetAssignments,
         auditLogs,
         notifications,
         sourceDocuments,
         questionBank,
         addSchool,
         updateSchool,
+        addStudent,
+        addClass,
+        addedTeachers,
+        addTeacher,
         assignTeacherToClass,
         recordLostTeachingDay,
         addAssessment,
@@ -621,6 +793,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         rejectCrossCurricularProposal,
         assignHomeworkRemediation,
         submitStudentHomework,
+        addAnswerSheetUpload,
+        addSheetAssignment,
         markNotificationAsRead,
         addSourceDocuments,
         removeSourceDocument,

@@ -74,14 +74,16 @@ export const RoleSwitcherBanner: React.FC = () => {
           );
         })}
 
-        <button
-          onClick={() => navigate('/teacher/time-aware')}
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded border border-amber-500/30 transition-colors"
-          title="Direct link to signature Time-Aware Pedagogical Engine"
-        >
-          <span>Time-Aware Engine</span>
-          <ArrowRight className="w-3 h-3" />
-        </button>
+        {currentUser?.role === 'principal' && (
+          <button
+            onClick={() => navigate('/teacher/time-aware')}
+            className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded border border-amber-500/30 transition-colors"
+            title="Direct link to signature Time-Aware Pedagogical Engine"
+          >
+            <span>Time-Aware Engine</span>
+            <ArrowRight className="w-3 h-3" />
+          </button>
+        )}
       </div>
     </div>
   );

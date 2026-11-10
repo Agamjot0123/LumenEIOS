@@ -13,6 +13,7 @@ import {
   HomeworkRemediation,
   AuditLog,
   NotificationItem,
+  SheetAssignment,
 } from '../types';
 
 export const initialSchools: School[] = [
@@ -1036,7 +1037,7 @@ export const initialNotifications: NotificationItem[] = [
     type: 'alert',
     read: false,
     createdAt: 'Today, 09:15 AM',
-    link: '/teacher/time-aware',
+    link: '/teacher/dashboard',
   },
   {
     id: 'notif-2',
@@ -1046,7 +1047,7 @@ export const initialNotifications: NotificationItem[] = [
     type: 'info',
     read: false,
     createdAt: 'Today, 11:00 AM',
-    link: '/teacher/time-aware',
+    link: '/teacher/dashboard',
   },
   {
     id: 'notif-3',
@@ -1077,6 +1078,22 @@ export const initialNotifications: NotificationItem[] = [
     read: false,
     createdAt: 'Yesterday, 04:30 PM',
     link: '/parent/dashboard',
+  },
+];
+
+export const initialSheetAssignments: SheetAssignment[] = [
+  {
+    id: 'assign-mensuration-8a',
+    teacherId: 'user-teacher-1',
+    teacherName: 'Vikram Sengupta',
+    schoolId: 'school-1',
+    classId: 'class-8a',
+    className: 'Class 8-A',
+    subject: 'Mathematics',
+    title: 'Mensuration: water tank volume',
+    instructions: 'Solve the cuboid tank question and the cube surface-area question. Photograph the handwritten sheet and upload it.',
+    dueDate: '2026-11-12',
+    createdAt: '2026-11-06T10:00:00.000Z',
   },
 ];
 

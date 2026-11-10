@@ -25,6 +25,16 @@ async def test_teacher_cannot_read_another_school(client, teacher_token, admin_t
 
 
 @pytest.mark.asyncio
+async def test_principal_cannot_add_classes_or_teachers_to_another_school(client, principal_token):
+    headers = auth(principal_token)  # principal of school-1
+    teacher = await client.post("/api/v1/teachers", headers=headers, json={
+        "name": "Cross School", "email": "cross.school@lumeneios.demo", "school_id": "school-3", "designation": "Teacher"})
+    assert teacher.status_code == 403
+    section = await client.post("/api/v1/classes", headers=headers, json={"name": "10Z", "school_id": "school-3"})
+    assert section.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_teacher_reads_own_school_and_lists_only_it(client, teacher_token, admin_token):
     students = await client.get(f"/api/v1/classes/{OWN_CLASS}/students", headers=auth(teacher_token))
     assert students.status_code == 200 and students.json()
