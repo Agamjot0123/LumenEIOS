@@ -17,7 +17,10 @@ export const PERMISSIONS = {
   APPROVE_COMPRESSION: ['admin', 'principal', 'teacher'],
   ASSIGN_REMEDIATION: ['teacher'],
   SUBMIT_ASSIGNMENTS: ['student'],
+  REVIEW_STUDENT_SHEETS: ['teacher'],
   VIEW_CHILD_PROGRESS: ['parent'],
+  ADD_STUDENT: ['principal'],
+  ADD_TEACHER: ['principal'],
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {

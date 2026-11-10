@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { School, InfrastructureTier } from '../../types';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
-import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { SearchInput } from '../../components/common/SearchInput';
 import { getTierBadge } from '../../lib/utils';
-import { Building2, PlusCircle, Edit2, Archive, CheckCircle2, MapPin } from 'lucide-react';
+import { SchoolPerformance } from '../../components/school/SchoolPerformance';
+import { PlusCircle, Edit2, CheckCircle2 } from 'lucide-react';
 
 export const SchoolsManagement: React.FC = () => {
   const { schools, addSchool, updateSchool } = useData();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState<string>('all');
@@ -36,6 +38,12 @@ export const SchoolsManagement: React.FC = () => {
     const matchesTier = tierFilter === 'all' || s.infrastructureTier === tierFilter;
     return matchesSearch && matchesTier;
   });
+
+  const selectedSchool = schools.find((s) => s.id === searchParams.get('school')) || null;
+
+  const openSchool = (schoolId: string) => {
+    setSearchParams({ school: schoolId });
+  };
 
   const handleOpenCreate = () => {
     setEditingSchool(null);
@@ -112,7 +120,7 @@ export const SchoolsManagement: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-navy-900 tracking-tight">Affiliated Schools Directory</h1>
           <p className="text-xs text-content-secondary mt-0.5">
-            Manage participating campus profiles, infrastructure tiers, and capacity settings
+            Choose a school to see its teachers, students, and benchmark scores
           </p>
         </div>
 
@@ -126,6 +134,10 @@ export const SchoolsManagement: React.FC = () => {
         </Button>
       </div>
 
+      {selectedSchool ? (
+        <SchoolPerformance schoolId={selectedSchool.id} onBack={() => setSearchParams({})} />
+      ) : (
+      <>
       {/* Filters */}
       <Card>
         <CardBody className="p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs">
@@ -157,7 +169,20 @@ export const SchoolsManagement: React.FC = () => {
         {filteredSchools.map((s) => {
           const tierInfo = getTierBadge(s.infrastructureTier);
           return (
-            <Card key={s.id} className="flex flex-col justify-between">
+            <Card
+              key={s.id}
+              hoverable
+              role="button"
+              tabIndex={0}
+              onClick={() => openSchool(s.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  openSchool(s.id);
+                }
+              }}
+              className="flex flex-col justify-between"
+            >
               <CardHeader
                 title={s.name}
                 subtitle={`${s.location}, ${s.state}`}
@@ -203,7 +228,10 @@ export const SchoolsManagement: React.FC = () => {
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => handleOpenEdit(s)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenEdit(s);
+                      }}
                       className="p-1.5 text-content-secondary hover:text-navy-900 hover:bg-surface-bg rounded-lg transition-colors"
                       title="Edit school"
                     >
@@ -216,6 +244,8 @@ export const SchoolsManagement: React.FC = () => {
           );
         })}
       </div>
+      </>
+      )}
 
       {/* Create / Edit Modal */}
       <Modal

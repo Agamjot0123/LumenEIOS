@@ -1250,7 +1250,7 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
             message="16 lost instructional days have reduced buffer to -4 days. Syllabus compression is recommended.",
             type="alert",
             is_read=False,
-            link="/teacher/time-aware",
+            link="/teacher/dashboard",
         ),
         Notification(
             id="notif-2",
@@ -1259,7 +1259,7 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
             message="Syllabus Engine detected 3.5 hrs recoverable time between Maths (Data Handling) and Science.",
             type="info",
             is_read=False,
-            link="/teacher/time-aware",
+            link="/teacher/dashboard",
         ),
         Notification(
             id="notif-3",

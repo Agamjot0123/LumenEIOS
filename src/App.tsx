@@ -24,6 +24,12 @@ import { ParentDashboard } from './pages/parent/ParentDashboard';
 import { NotFoundPage } from './pages/shared/NotFoundPage';
 import { UnauthorizedPage } from './pages/shared/UnauthorizedPage';
 import { OnboardingPage } from './pages/shared/OnboardingPage';
+import { WelcomePage } from './pages/shared/WelcomePage';
+import { SchoolStudents } from './pages/principal/SchoolStudents';
+import { SchoolTeachers } from './pages/principal/SchoolTeachers';
+import { SchoolPerformancePage } from './pages/principal/SchoolPerformancePage';
+import { StudentHomework } from './pages/teacher/StudentHomework';
+import { StudentAnswerSheets } from './pages/student/StudentAnswerSheets';
 import { getDefaultDashboardPath } from './lib/permissions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -38,9 +44,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const DefaultRedirect: React.FC = () => {
   const { currentUser, isRestoringSession } = useAuth();
   if (isRestoringSession) return <p role="status" className="p-6">Checking your session…</p>;
-  if (!currentUser) {
-    return <Navigate to="/login" replace />;
-  }
+  if (!currentUser) return <WelcomePage />;
   return <Navigate to={getDefaultDashboardPath(currentUser.role)} replace />;
 };
 
@@ -48,6 +52,7 @@ export const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/welcome" element={<WelcomePage />} />
       <Route path="/" element={<DefaultRedirect />} />
 
       {/* Main Authenticated Layout */}
@@ -72,6 +77,9 @@ export const App: React.FC = () => {
         <Route path="/principal/teachers/add" element={<OnboardingPage key="teacher" kind="Teacher" />} />
         <Route path="/principal/curriculum" element={<CurriculumOversight />} />
         <Route path="/principal/reports" element={<PrincipalReports />} />
+        <Route path="/principal/students" element={<SchoolStudents />} />
+        <Route path="/principal/performance" element={<SchoolPerformancePage />} />
+        <Route path="/principal/staff" element={<SchoolTeachers />} />
 
         {/* Teacher Routes */}
         <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
@@ -83,9 +91,11 @@ export const App: React.FC = () => {
         <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
         <Route path="/teacher/scan-review" element={<ScanReview />} />
         <Route path="/teacher/remediation" element={<RemediationManager />} />
+        <Route path="/teacher/student-homework" element={<StudentHomework />} />
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />
+        <Route path="/student/answer-sheets" element={<StudentAnswerSheets />} />
 
         {/* Parent Routes */}
         <Route path="/parent/dashboard" element={<ParentDashboard />} />

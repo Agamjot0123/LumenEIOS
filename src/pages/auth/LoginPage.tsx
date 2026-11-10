@@ -4,6 +4,7 @@ import { demoMode, useAuth } from '../../context/AuthContext';
 import { ApiError } from '../../lib/apiClient';
 import { Role } from '../../types';
 import { getDefaultDashboardPath } from '../../lib/permissions';
+import { ThemeMenu } from '../../components/layout/ThemeMenu';
 import {
   Shield,
   School,
@@ -104,7 +105,8 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface-bg flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 font-sans">
+    <div className="relative min-h-screen bg-surface-bg flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 font-sans">
+      <ThemeMenu className="absolute top-4 right-4 z-20" />
       <div className="sm:mx-auto sm:w-full sm:max-w-2xl text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-teal-500 text-navy-950 font-black text-2xl shadow-card mb-4">
           L

@@ -83,6 +83,7 @@ export interface Student {
   homeworkCompletionRate: number;
   needsSupport: boolean;
   supportArea?: string;
+  joinedYear?: number;
 }
 
 export interface Question {
@@ -290,6 +291,42 @@ export interface CrossCurricularProposal {
   estimatedDurationHours: number;
   timeSavedHours: number;
   status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface ExtractedBlock {
+  kind: 'text' | 'equation';
+  content: string;
+}
+
+export interface SheetAssignment {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  schoolId: string;
+  classId: string;
+  className: string;
+  subject: string;
+  title: string;
+  instructions: string;
+  dueDate: string;
+  createdAt: string;
+}
+
+export interface AnswerSheetUpload {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  schoolId: string;
+  subject: string;
+  fileName: string;
+  mimeType: string;
+  previewDataUrl?: string;
+  uploadedAt: string;
+  blocks: ExtractedBlock[];
 }
 
 export interface HomeworkRemediation {

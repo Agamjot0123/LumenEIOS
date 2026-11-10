@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { calculateTimeAwarePacing, generateSyllabusCompressionPlan } from '../../lib/calculations';
 import { PacingProgressChart } from '../../components/charts/PacingProgressChart';
 import { CompressionPreviewModal } from './CompressionPreviewModal';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -87,6 +88,10 @@ export const TimeAwareEngine: React.FC = () => {
 
   const pendingProposals = crossCurricularProposals.filter((p) => p.status === 'pending');
   const acceptedProposals = crossCurricularProposals.filter((p) => p.status === 'accepted');
+
+  if (currentUser?.role !== 'principal') {
+    return <UnauthorizedPage />;
+  }
 
   return (
     <div className="space-y-6">

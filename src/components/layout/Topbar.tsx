@@ -17,6 +17,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { Badge } from '../common/Badge';
+import { ThemeMenu } from './ThemeMenu';
+import { FontSizeControl } from './FontSizeControl';
 
 export const Topbar: React.FC = () => {
   const { currentUser, currentSchoolId, switchSchool, logout } = useAuth();
@@ -126,6 +128,9 @@ export const Topbar: React.FC = () => {
 
       {/* Right Controls: Notifications, Reset Demo Data, User Profile */}
       <div className="flex items-center gap-2.5">
+        <FontSizeControl />
+        <ThemeMenu />
+
         {/* Reset Demo Data Pill */}
         <button
           onClick={handleResetData}

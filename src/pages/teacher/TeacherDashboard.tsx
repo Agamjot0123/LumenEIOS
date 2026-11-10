@@ -70,14 +70,6 @@ export const TeacherDashboard: React.FC = () => {
           >
             Review Scanned Sheets
           </Button>
-          <Button
-            variant="teal"
-            size="sm"
-            onClick={() => navigate('/teacher/time-aware')}
-            icon={<Clock className="w-4 h-4" />}
-          >
-            Time-Aware Pacing Center
-          </Button>
         </div>
       </div>
 
@@ -95,15 +87,6 @@ export const TeacherDashboard: React.FC = () => {
               </p>
             </div>
           </div>
-          <Button
-            variant="danger"
-            size="sm"
-            className="shrink-0 self-start sm:self-auto"
-            onClick={() => navigate('/teacher/time-aware')}
-            icon={<Sparkles className="w-3.5 h-3.5" />}
-          >
-            Apply 60/40 Compression
-          </Button>
         </div>
       )}
 
@@ -131,7 +114,6 @@ export const TeacherDashboard: React.FC = () => {
           subtitle={`${pacing.totalLostDays} days lost to official duties`}
           icon={<Clock className="w-5 h-5 text-amber-600" />}
           iconBg="bg-amber-50"
-          onClick={() => navigate('/teacher/time-aware')}
         />
         <KPICard
           title="Differentiated Remediations"

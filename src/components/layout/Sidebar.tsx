@@ -64,13 +64,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Add School', path: '/admin/schools/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Users & Roles', path: '/admin/users', icon: <Users className="w-4 h-4" /> },
           { label: 'Academic Config', path: '/admin/academic-config', icon: <Settings className="w-4 h-4" /> },
-          {
-            label: 'Time-Aware Engine',
-            path: '/teacher/time-aware',
-            icon: <Clock className="w-4 h-4" />,
-            highlight: true,
-            badge: 'Core',
-          },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
         ];
 
@@ -79,6 +72,9 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Campus Dashboard', path: '/principal/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Teacher Assignments', path: '/principal/teachers', icon: <Users className="w-4 h-4" /> },
           { label: 'Add Teacher', path: '/principal/teachers/add', icon: <PlusCircle className="w-4 h-4" /> },
+          { label: 'Teachers', path: '/principal/staff', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Students', path: '/principal/students', icon: <GraduationCap className="w-4 h-4" /> },
+          { label: 'School Performance', path: '/principal/performance', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'Curriculum Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
           {
@@ -96,23 +92,18 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Teacher Dashboard', path: '/teacher/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'My Classes & Heatmap', path: '/teacher/classes', icon: <Users className="w-4 h-4" /> },
           { label: 'Add Student', path: '/teacher/students/add', icon: <PlusCircle className="w-4 h-4" /> },
-          {
-            label: 'Time-Aware Engine',
-            path: '/teacher/time-aware',
-            icon: <Clock className="w-4 h-4" />,
-            highlight: true,
-            badge: 'Key',
-          },
           { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
           questionStudioItem,
           questionStudioBetaItem,
           { label: 'Differentiated Homework', path: '/teacher/remediation', icon: <Sparkles className="w-4 h-4" /> },
+          { label: 'Student Homework', path: '/teacher/student-homework', icon: <FileSpreadsheet className="w-4 h-4" />, badge: 'Demo' },
           scanReviewItem,
         ];
 
       case 'student':
         return [
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+          { label: 'Answer Sheet OCR', path: '/student/answer-sheets', icon: <ScanLine className="w-4 h-4" />, badge: 'Demo' },
           { label: 'Adaptive Practice', path: '/student/dashboard', icon: <Sparkles className="w-4 h-4" /> },
           { label: 'My Achievements', path: '/student/dashboard', icon: <Award className="w-4 h-4" /> },
           scanReviewItem,

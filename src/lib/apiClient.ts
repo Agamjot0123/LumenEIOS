@@ -313,6 +313,30 @@ export const apiClient = {
     },
   },
 
+  teachers: {
+    async create(teacher: { name: string; email: string; designation: string; schoolId: string }) {
+      return request<any>('/teachers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: teacher.name,
+          email: teacher.email,
+          designation: teacher.designation,
+          school_id: teacher.schoolId,
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+    },
+  },
+
+  classes: {
+    async create(schoolId: string, name: string) {
+      return request<any>('/classes', {
+        method: 'POST',
+        body: JSON.stringify({ school_id: schoolId, name }),
+      });
+    },
+  },
+
   // Documents & Bulk Source Upload
   documents: {
     async list(subjectId?: string, docType: string = 'source_material') {
