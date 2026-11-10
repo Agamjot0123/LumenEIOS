@@ -5,11 +5,21 @@ repo=/workspace/arena
 app=$repo/apps/lumeneios
 node_env=/workspace/.lumeneios-node
 jupyter=/opt/sys-venv/bin/jupyter
+repo_url=https://github.com/kvr-leofelix/arena.git
+branch=main  # Always deploy the main branch.
 
 if [ ! -d "$repo/.git" ]; then
-  git clone --branch sync/lumeneios-updates --single-branch \
-    https://github.com/kvr-leofelix/arena.git "$repo"
+  git clone --branch "$branch" --single-branch "$repo_url" "$repo"
+else
+  # Re-run on an existing instance: move to the latest main, even if it was cloned from another branch.
+  # Undo this script's own basename edit (reapplied below); .env, the database and uploads are untracked and kept.
+  git -C "$repo" checkout -- apps/lumeneios/src/main.tsx
+  git -C "$repo" remote set-url origin "$repo_url"
+  git -C "$repo" remote set-branches origin "$branch"
+  git -C "$repo" fetch origin "$branch"
+  git -C "$repo" checkout -B "$branch" "origin/$branch"
 fi
+git -C "$repo" log -1 --format='Deploying %h (%s) from '"$branch"
 cd "$app"
 
 if [ ! -x "$node_env/bin/node" ]; then

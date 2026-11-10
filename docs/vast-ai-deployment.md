@@ -29,7 +29,7 @@ After it starts, open the instance's **IP & ports** panel. Vast maps 8000 and 30
 The repo is private, so use a GitHub token or a deploy key:
 
 ```bash
-git clone https://github.com/kvr-leofelix/arena.git
+git clone --branch main https://github.com/kvr-leofelix/arena.git   # always deploy main
 cd arena/apps/lumeneios
 nvidia-smi            # must list the GPU and a driver >= 570
 ```
