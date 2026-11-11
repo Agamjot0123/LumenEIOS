@@ -182,8 +182,9 @@ async def test_partial_failure_rolls_back_everything(client, db_session, teacher
         return record
 
     monkeypatch.setattr(homework_router, "build_draft_record", broken)
-    with pytest.raises(IntegrityError):
-        await save(client, teacher_token, world)
+    failed = await save(client, teacher_token, world)
+    assert failed.status_code == 500
+    assert failed.json() == {"detail": "Database operation failed."}
 
     assert await draft_count(db_session, world["student"].id) == 0
     orphans = await db_session.scalar(text(

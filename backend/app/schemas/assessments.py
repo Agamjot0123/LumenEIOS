@@ -20,7 +20,10 @@ class QuestionSchema(BaseSchema):
 
 class GenerateQuestionsRequest(BaseModel):
     subject_id: str
+    subject_name: Optional[str] = None
     source_document_ids: List[str] = []
+    # Learning-resource links (Wikipedia, BYJU'S, ...) used with or instead of the chapter PDF.
+    source_urls: List[str] = []
     mcq_count: int = 3
     theory_count: int = 2
     bloom_level: str = "Apply"
@@ -29,13 +32,14 @@ class GenerateQuestionsRequest(BaseModel):
 
 
 class RegenerateQuestionRequest(BaseModel):
-    subject_id: str
+    subject_id: Optional[str] = None
     question_type: str = "mcq"
     bloom_level: str = "Apply"
     competency: str = "CU"
     source_document_ids: List[str] = []
     source_document_names: List[str] = []
     current_text: str = ""
+    custom_instruction: Optional[str] = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -100,3 +104,35 @@ class SubmissionOut(BaseSchema):
     feedback: Optional[str] = None
     submission_date: str
     is_scanned: bool
+
+
+class AssignmentSubject(BaseModel):
+    id: str
+    name: str
+
+
+class AssignmentTarget(BaseModel):
+    id: str
+    name: str
+    subjects: List[AssignmentSubject]
+
+
+class UploadQuestion(BaseModel):
+    id: Optional[str] = None
+    text: str
+    type: str
+    options: Optional[List[str]] = None
+    marks: int
+    competency: Optional[str] = None
+
+
+class UploadAssignment(BaseModel):
+    id: str
+    title: str
+    date: str
+    class_name: str
+    subject_name: str
+    total_marks: int
+    uploaded: bool
+    questions: List[UploadQuestion]
+

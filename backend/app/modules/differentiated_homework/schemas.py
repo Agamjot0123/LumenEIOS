@@ -377,6 +377,27 @@ class StudentAssignmentOut(StudentAssignmentSummaryOut):
     items: List[StudentAssignmentItemOut]
 
 
+# --- Parent discovery (read-only) ------------------------------------------------------
+
+
+class ParentChildOut(BaseModel):
+    """A student linked to the logged-in parent through ParentStudentLink. Name and class
+    only; no scores, rosters or other students."""
+
+    id: str
+    name: str
+    class_name: str
+    school_id: str
+
+
+class ParentAssignmentSummaryOut(StudentAssignmentSummaryOut):
+    """A linked child's assignment as the child sees it in their list, plus progress flags.
+    Never includes questions, answers, keys, rubrics or unreleased marks."""
+
+    submission_status: Literal["not_started", "in_progress", "submitted"]
+    result_released: bool
+
+
 # --- Student answer submissions ---------------------------------------------------------
 
 SubmissionStatus = Literal["in_progress", "submitted"]
@@ -558,3 +579,157 @@ class TeacherQuestionAnswerOut(BaseModel):
 class TeacherSubmissionDetailOut(TeacherStudentSubmissionOut):
     assignment_id: str
     questions: List[TeacherQuestionAnswerOut]  # every question, by position
+
+
+# --- Homework evaluations (manual grading) ---------------------------------------------------
+# Marks are whole numbers, like every other marks column in the project (the frozen question's
+# `marks`, AssessmentSubmission.marks_obtained). StrictInt rejects floats, NaN, infinity,
+# booleans and strings. No percentages, grades or thresholds are computed anywhere.
+
+EvaluationStatus = Literal["pending", "marked", "released"]
+MAX_FEEDBACK_LENGTH = 2000  # the same limit as a draft review note
+MAX_MARK_UPDATES = 500
+
+
+class EvaluationMarkUpdate(BaseModel):
+    """A change to one question's mark and/or feedback, by its 1-based position.
+
+    Give awarded_marks, feedback, or both. Fields left out keep their values. null is rejected
+    (as in the answer-save request); send feedback "" to clear it. A mark can be changed while
+    the evaluation is pending, but not removed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    position: StrictInt = Field(ge=1)
+    awarded_marks: Optional[StrictInt] = Field(default=None, ge=0)
+    feedback: Optional[str] = Field(default=None, max_length=MAX_FEEDBACK_LENGTH)
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> "EvaluationMarkUpdate":
+        given = {"awarded_marks", "feedback"} & self.model_fields_set
+        if not given:
+            raise ValueError("give awarded_marks, feedback, or both")
+        for name in given:
+            if getattr(self, name) is None:
+                raise ValueError(f"{name} can't be null")
+        return self
+
+
+class EvaluationMarksUpdate(BaseModel):
+    """Several question updates applied together (all or nothing), against the current version."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: StrictInt = Field(ge=1)
+    items: List[EvaluationMarkUpdate] = Field(min_length=1, max_length=MAX_MARK_UPDATES)
+
+    @model_validator(mode="after")
+    def _unique_positions(self) -> "EvaluationMarksUpdate":
+        positions = [i.position for i in self.items]
+        repeated = sorted({p for p in positions if positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class EvaluationTransitionRequest(BaseModel):
+    """Body of finalize and release."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: StrictInt = Field(ge=1)
+
+
+class TeacherEvaluationItemOut(BaseModel):
+    """One question for the marking teacher: the frozen question, its frozen answer key and
+    rubric, the student's answer, and the mark.
+
+    TEACHER-ONLY: correct_answer and marking_rubric come from the question's frozen snapshot
+    (HomeworkDraftItemRecord), not the live question bank, exactly as stored (text; for an MCQ
+    the key is the option text). null when the snapshot has none. This schema must only be used
+    by the authorized grading endpoints, never in a student or parent response."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    max_marks: int
+    answered: bool
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+    awarded_marks: Optional[int]  # null until marked
+    feedback: Optional[str]
+    marked_by: Optional[str]
+    marked_at: Optional[datetime]
+    correct_answer: Optional[str]  # teacher-only, from the frozen snapshot
+    marking_rubric: Optional[str]  # teacher-only, from the frozen snapshot
+
+
+class TeacherEvaluationOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    assignment_id: str
+    student_id: str
+    student_name: Optional[str]
+    status: EvaluationStatus
+    version: int  # send back as expected_version
+    submitted_at: datetime
+    is_late: bool
+    total_max: int
+    total_awarded: Optional[int]  # set when finalized
+    marked_count: int
+    question_count: int
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    finalized_by: Optional[str]
+    finalized_at: Optional[datetime]
+    released_by: Optional[str]
+    released_at: Optional[datetime]
+    items: List[TeacherEvaluationItemOut]
+
+
+class TeacherEvaluationQueueItemOut(BaseModel):
+    """A submitted homework and how far its evaluation has got."""
+
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    student_name: Optional[str]
+    submitted_at: datetime
+    is_late: bool
+    evaluation_status: Literal["not_started", "pending", "marked", "released"]
+    evaluation_id: Optional[str]
+    marked_count: int
+    question_count: int
+
+
+class StudentResultItemOut(BaseModel):
+    """A released mark as the student sees it. No answer key, rubric or marking metadata."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+    max_marks: int
+    awarded_marks: int
+    feedback: Optional[str]
+
+
+class StudentResultOut(BaseModel):
+    """Released results only. No evaluation ID, version, teacher IDs or internal timestamps."""
+
+    model_config = ConfigDict(frozen=True)
+
+    assignment_id: str
+    released_at: datetime
+    total_awarded: int
+    total_max: int
+    items: List[StudentResultItemOut]

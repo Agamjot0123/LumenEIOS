@@ -34,7 +34,7 @@ export const StudentDashboard: React.FC = () => {
 
   const handleQuizSubmit = () => {
     setQuizSubmitted(true);
-    setToast('Practice Quiz Submitted! You scored 100% (+4 AU Points)');
+    setToast('Demo practice completed. No score or competency update was recorded.');
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -326,10 +326,10 @@ export const StudentDashboard: React.FC = () => {
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 animate-fade-in text-emerald-950">
               <div className="flex items-center gap-2 font-bold text-sm text-emerald-800">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Correct Answer! 4/4 Marks Awarded.</span>
+                <span>Practice explanation (demo only).</span>
               </div>
               <p className="text-[11px] leading-relaxed">
-                <strong>Pedagogical Step:</strong> Volume = 4 × 3 × 2 = 24 m³ = 24,000 L. Time = 24,000 / 60 = 400 minutes = 6 hours and 40 minutes. Your Application Understanding (AU) mastery increased!
+                <strong>Pedagogical Step:</strong> Volume = 4 × 3 × 2 = 24 m³ = 24,000 L. Time = 24,000 / 60 = 400 minutes = 6 hours and 40 minutes. No marks or competency changes are recorded by this demo.
               </p>
             </div>
           )}

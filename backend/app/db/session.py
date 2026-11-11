@@ -34,19 +34,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db():
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Safely migrate optional columns on documents table if upgrading existing SQLite DB
-        for col_sql in [
-            "ALTER TABLE documents ADD COLUMN subject_id VARCHAR(64)",
-            "ALTER TABLE documents ADD COLUMN doc_type VARCHAR(50) DEFAULT 'source_material'",
-            "ALTER TABLE documents ADD COLUMN content_hash VARCHAR(128)",
-            "ALTER TABLE documents ADD COLUMN extracted_text TEXT",
-        ]:
-            try:
-                await conn.execute(text(col_sql))
-            except Exception:
-                pass
+        # Preserve the existing optional-column upgrade without deliberately failing DDL.
+        # Catching an error inside this transaction leaves PostgreSQL's transaction aborted.
+        existing = await conn.run_sync(lambda sync: {
+            column["name"] for column in inspect(sync).get_columns("documents")
+        })
+        for name, definition in {
+            "subject_id": "VARCHAR(64)",
+            "doc_type": "VARCHAR(50) DEFAULT 'source_material'",
+            "content_hash": "VARCHAR(128)",
+            "extracted_text": "TEXT",
+        }.items():
+            if name not in existing:
+                await conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {definition}"))
 
 

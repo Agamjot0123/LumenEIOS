@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -39,6 +40,15 @@ class User(Base):
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
     memberships = relationship("SchoolMembership", back_populates="user", cascade="all, delete-orphan")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    user_id = Column(String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    phone = Column(String(40), nullable=True)
+    address = Column(Text, nullable=True)
+    date_of_birth = Column(Date, nullable=True)
 
 
 class School(Base):
@@ -137,6 +147,18 @@ class Student(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+
+class StudentOcrHistory(Base):
+    __tablename__ = "student_ocr_history"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    extracted_text = Column(Text, nullable=False)
+    pages_processed = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
 class ParentStudentLink(Base):
     __tablename__ = "parent_student_links"
 
@@ -175,6 +197,14 @@ class Assessment(Base):
     competency_focus_json = Column(JSON, default=list, nullable=False)
     questions_json = Column(JSON, default=list, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+
+class AssignmentOcrUpload(Base):
+    __tablename__ = "assignment_ocr_uploads"
+
+    history_id = Column(String(64), ForeignKey("student_ocr_history.id", ondelete="CASCADE"), primary_key=True)
+    assessment_id = Column(String(64), ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True)
 
 
 class AssessmentSubmission(Base):

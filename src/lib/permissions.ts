@@ -18,15 +18,20 @@ export const PERMISSIONS = {
   ASSIGN_REMEDIATION: ['teacher'],
   SUBMIT_ASSIGNMENTS: ['student'],
   VIEW_CHILD_PROGRESS: ['parent'],
+  ADD_STUDENT: ['admin', 'principal', 'teacher'],
+  ADD_TEACHER: ['admin', 'principal'],
+  REVIEW_STUDENT_SHEETS: ['admin', 'principal', 'teacher'],
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {
+  if (role === 'developer') return true;
   const allowedRoles = PERMISSIONS[permission] as readonly string[];
   return allowedRoles.includes(role);
 }
 
 export function getDefaultDashboardPath(role: Role): string {
   switch (role) {
+    case 'developer':
     case 'admin':
       return '/admin/dashboard';
     case 'principal':

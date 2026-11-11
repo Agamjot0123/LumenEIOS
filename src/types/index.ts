@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
+export type Role = 'developer' | 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
 
 export type InfrastructureTier = 'high-tech' | 'standard' | 'low-tech';
 
@@ -27,6 +27,8 @@ export interface User {
   assignedSubjectIds?: string[];
   linkedChildIds?: string[];
   designation?: string;
+  /** True when signed in via the development demo-root login (LEOFELIX / KVR). */
+  demoRoot?: boolean;
 }
 
 export interface School {
@@ -82,6 +84,50 @@ export interface Student {
   homeworkCompletionRate: number;
   needsSupport: boolean;
   supportArea?: string;
+  /** Optional admission year used by school performance charts. */
+  joinedYear?: number;
+  /** Present on `/classes/students/me` profile responses. */
+  subjectNames?: string[];
+  parentNames?: string[];
+}
+
+/** Demo OCR transcript block shown beside an uploaded answer-sheet image. */
+export interface ExtractedBlock {
+  kind: 'text' | 'equation';
+  content: string;
+}
+
+/** Teacher-created sheet task that students photograph and upload (frontend demo). */
+export interface SheetAssignment {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  schoolId: string;
+  classId: string;
+  className: string;
+  subject: string;
+  title: string;
+  instructions: string;
+  dueDate: string;
+  createdAt: string;
+}
+
+/** Student-uploaded answer sheet with demo OCR extraction (frontend demo). */
+export interface AnswerSheetUpload {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  schoolId: string;
+  subject: string;
+  fileName: string;
+  mimeType: string;
+  previewDataUrl?: string;
+  blocks: ExtractedBlock[];
+  uploadedAt: string;
 }
 
 export interface Question {

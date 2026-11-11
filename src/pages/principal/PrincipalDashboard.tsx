@@ -10,6 +10,8 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarChart';
 import { CompetencyBarChart } from '../../components/charts/CompetencyBarChart';
+import { ApiError, apiClient } from '../../lib/apiClient';
+import { CLASS_NAME_HELP } from '../../lib/className';
 import {
   School,
   Users,
@@ -21,15 +23,20 @@ import {
   CheckCircle2,
   TrendingUp,
   FileSpreadsheet,
+  PlusCircle,
 } from 'lucide-react';
 
 export const PrincipalDashboard: React.FC = () => {
-  const { schools, classes, students, curriculumDays, lostTeachingDays } = useData();
+  const { schools, classes, students, curriculumDays, lostTeachingDays, addClass } = useData();
   const { currentUser, currentSchoolId } = useAuth();
   const navigate = useNavigate();
 
   const [isAnnounceModalOpen, setIsAnnounceModalOpen] = useState(false);
   const [announceText, setAnnounceText] = useState('');
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [className, setClassName] = useState('');
+  const [classError, setClassError] = useState<string | null>(null);
+  const [savingClass, setSavingClass] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const activeSchool = schools.find((s) => s.id === currentSchoolId) || schools[0];
@@ -53,6 +60,31 @@ export const PrincipalDashboard: React.FC = () => {
     setIsAnnounceModalOpen(false);
     setAnnounceText('');
     setToast('Faculty announcement successfully broadcast to all teachers!');
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleAddClass = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSavingClass(true);
+    setClassError(null);
+    try {
+      await apiClient.classes.create(activeSchool.id, className);
+    } catch (error) {
+      if (error instanceof ApiError && error.status !== 0) {
+        setClassError(error.message || 'A class with this name already exists');
+        setSavingClass(false);
+        return;
+      }
+    }
+    const saved = addClass(activeSchool.id, className);
+    setSavingClass(false);
+    if (!saved.ok) {
+      setClassError(saved.error);
+      return;
+    }
+    setClassName('');
+    setIsClassModalOpen(false);
+    setToast(`Added ${saved.name}.`);
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -90,6 +122,18 @@ export const PrincipalDashboard: React.FC = () => {
             icon={<Send className="w-4 h-4" />}
           >
             Broadcast to Faculty
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setClassName('');
+              setClassError(null);
+              setIsClassModalOpen(true);
+            }}
+            icon={<PlusCircle className="w-4 h-4" />}
+          >
+            Add Class
           </Button>
           <Button
             variant="teal"
@@ -234,6 +278,43 @@ export const PrincipalDashboard: React.FC = () => {
           </p>
         </div>
       </div>
+
+      <Modal
+        isOpen={isClassModalOpen}
+        onClose={() => setIsClassModalOpen(false)}
+        title="Add Class"
+        subtitle={CLASS_NAME_HELP}
+        maxWidth="md"
+        footer={
+          <div className="flex items-center justify-end gap-2.5 w-full">
+            <Button variant="secondary" size="md" onClick={() => setIsClassModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="teal" size="md" onClick={handleAddClass} loading={savingClass}>
+              Save Class
+            </Button>
+          </div>
+        }
+      >
+        <form onSubmit={handleAddClass} className="space-y-3 text-sm">
+          <label className="block font-semibold text-content-primary">
+            Class name
+            <input
+              value={className}
+              onChange={(event) => {
+                setClassName(event.target.value);
+                setClassError(null);
+              }}
+              placeholder="8A or 8 Name1"
+              className="mt-1 w-full px-3 py-2 bg-white border border-surface-border rounded-lg text-sm font-normal"
+            />
+          </label>
+          <p className="text-xs text-content-secondary leading-relaxed">
+            Letter sections look like 8A, 8B, or 8X. Named sections look like 8 Name1. Grade is 1 to 12.
+          </p>
+          {classError && <p className="text-sm font-semibold text-rose-700">{classError}</p>}
+        </form>
+      </Modal>
 
       {/* Broadcast Announcement Modal */}
       <Modal

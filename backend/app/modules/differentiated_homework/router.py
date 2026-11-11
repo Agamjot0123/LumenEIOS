@@ -1,3 +1,5 @@
+from backend.app.api.dependencies import require_bearer_token
+from backend.app.api.dependencies import reject_non_finite_json as _reject_non_finite_json
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -55,7 +57,7 @@ from backend.app.modules.differentiated_homework.draft_service import (
     to_assignment_summary,
 )
 from backend.app.modules.differentiated_homework.models import HomeworkAssignmentRecord, StudentAccountLink
-from fastapi import Response
+from fastapi import Request, Response
 from backend.app.modules.differentiated_homework.draft_service import as_utc
 from backend.app.modules.differentiated_homework.schemas import (
     StudentAccountLinkCreate,
@@ -98,6 +100,26 @@ from backend.app.modules.differentiated_homework.teacher_submissions import (
     student_row,
     submission_detail,
 )
+from backend.app.modules.differentiated_homework.models import HomeworkEvaluationRecord
+from backend.app.modules.differentiated_homework.schemas import (
+    EvaluationMarksUpdate,
+    EvaluationTransitionRequest,
+    StudentResultOut,
+    TeacherEvaluationOut,
+    TeacherEvaluationQueueItemOut,
+)
+from backend.app.modules.differentiated_homework.evaluation_service import (
+    EvaluationError,
+    InvalidMarks,
+    apply_marks,
+    build_evaluation,
+    check_evaluation,
+    finalize_evaluation,
+    release_evaluation,
+    to_queue_item,
+    to_student_result,
+    to_teacher_evaluation,
+)
 from backend.app.modules.differentiated_homework.schemas import (
     AssignmentOut,
     AssignmentStatus,
@@ -116,7 +138,7 @@ from backend.app.modules.differentiated_homework.schemas import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Homework & Remediation"])
+router = APIRouter(tags=["Homework & Remediation"], dependencies=[Depends(require_bearer_token)])
 
 
 class HomeworkCreate(BaseModel):
@@ -130,84 +152,110 @@ class HomeworkCreate(BaseModel):
     due_date: str
 
 
-@router.get("/classes/{class_id}/homework", response_model=List[HomeworkOut])
+async def _require_legacy_login(token: Optional[str] = Depends(oauth2_scheme)) -> None:
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication token required.",
+                            headers={"WWW-Authenticate": "Bearer"})
+
+
+async def _legacy_student(db: AsyncSession, user: User, student_id: str) -> Student:
+    """Explicit account/parent links or educator school access; no ID/email shortcut."""
+    if user.role not in {"admin", "principal", "teacher", "parent", "student"}:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    student = await db.get(Student, student_id)
+    if user.role == "student":
+        linked = await resolve_linked_student(db, user)
+        allowed = student is not None and linked is not None and linked.id == student.id
+    else:
+        allowed = student is not None and await can_view_student(db, user, student)
+    if not allowed:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    return student
+
+
+async def _legacy_class(db: AsyncSession, user: User, class_id: str) -> ClassSection:
+    from backend.app.modules.differentiated_homework.access import has_school_access
+    if not role_may_generate_homework(user):
+        raise HTTPException(status_code=403, detail="Access denied.")
+    record = await db.get(ClassSection, class_id)
+    if record is None or not await has_school_access(db, user, record.school_id):
+        raise HTTPException(status_code=404, detail="Class not found.")
+    return record
+
+
+@router.get("/classes/{class_id}/homework", response_model=List[HomeworkOut],
+            dependencies=[Depends(_require_legacy_login)])
 async def list_class_homework(class_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    res = await db.execute(select(HomeworkRemediation).filter(HomeworkRemediation.class_id == class_id))
+    record = await _legacy_class(db, current_user, class_id)
+    res = await db.execute(select(HomeworkRemediation).join(Student, Student.id == HomeworkRemediation.student_id)
+                           .filter(HomeworkRemediation.class_id == record.id, Student.class_id == record.id,
+                                   Student.school_id == record.school_id))
     return res.scalars().all()
 
 
-@router.post("/classes/{class_id}/homework", response_model=HomeworkOut, status_code=status.HTTP_201_CREATED)
+@router.post("/classes/{class_id}/homework", response_model=HomeworkOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(_require_legacy_login)])
 async def assign_homework(
     class_id: str,
     req: HomeworkCreate,
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
-    st_res = await db.execute(select(Student).filter(Student.id == req.student_id))
-    st = st_res.scalars().first()
-    student_name = st.name if st else "Student"
-
+    record = await _legacy_class(db, educator, class_id)
+    st = await _legacy_student(db, educator, req.student_id)
+    if req.class_id != class_id or st.class_id != class_id or st.school_id != record.school_id:
+        raise HTTPException(status_code=422, detail="Student and request must belong to the target class.")
     hw = HomeworkRemediation(
-        student_id=req.student_id,
-        student_name=student_name,
-        class_id=class_id,
-        subject_id=req.subject_id,
-        title=req.title,
-        competency_target=req.competency_target,
-        reason=req.reason,
-        description=req.description,
-        due_date=req.due_date,
-        status="assigned"
+        student_id=st.id, student_name=st.name, class_id=class_id, subject_id=req.subject_id,
+        title=req.title, competency_target=req.competency_target, reason=req.reason,
+        description=req.description, due_date=req.due_date, status="assigned"
     )
     db.add(hw)
-
-    audit = AuditEvent(
-        timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
-        user_id=educator.id,
-        user_name=educator.name,
-        action="Assigned Differentiated Remediation",
-        details=f"Assigned {req.competency_target} task '{req.title}' to {student_name}",
-        category="curriculum"
-    )
-    db.add(audit)
+    db.add(_audit(educator, "Assigned Differentiated Remediation",
+                  f"Assigned {req.competency_target} task '{req.title}' to {st.name}"))
     await db.commit()
     await db.refresh(hw)
     return hw
 
 
-@router.get("/students/{student_id}/homework", response_model=List[HomeworkOut])
+@router.get("/students/{student_id}/homework", response_model=List[HomeworkOut],
+            dependencies=[Depends(_require_legacy_login)])
 async def list_student_homework(student_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role == "student" and current_user.id != student_id:
-        raise HTTPException(status_code=403, detail="Access denied.")
-
-    res = await db.execute(select(HomeworkRemediation).filter(HomeworkRemediation.student_id == student_id))
+    student = await _legacy_student(db, current_user, student_id)
+    res = await db.execute(select(HomeworkRemediation).filter(
+        HomeworkRemediation.student_id == student.id, HomeworkRemediation.class_id == student.class_id))
     return res.scalars().all()
 
 
-@router.post("/homework/{homework_id}/submissions")
+@router.post("/homework/{homework_id}/submissions", dependencies=[Depends(_require_legacy_login)])
 async def submit_homework(homework_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    res = await db.execute(select(HomeworkRemediation).filter(HomeworkRemediation.id == homework_id))
-    hw = res.scalars().first()
-    if not hw:
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Access denied.")
+    linked = await resolve_linked_student(db, current_user)
+    hw = (await db.execute(select(HomeworkRemediation).filter(
+        HomeworkRemediation.id == homework_id,
+        HomeworkRemediation.student_id == linked.id,
+        HomeworkRemediation.class_id == linked.class_id,
+    ))).scalars().first() if linked is not None else None
+    if hw is None:
         raise HTTPException(status_code=404, detail="Homework not found.")
+    if hw.status == "assigned":
+        hw.status = "submitted"
+        await db.commit()
+    elif hw.status not in {"submitted", "reviewed"}:
+        raise HTTPException(status_code=409, detail="Homework cannot be submitted in its current state.")
+    # Completion only: preserve any historical score without inventing a grade or overwriting review.
+    return {"message": "Homework submitted successfully.", "score": hw.score}
 
-    hw.status = "submitted"
-    hw.score = 92
-    await db.commit()
-    return {"message": "Homework submitted successfully.", "score": 92}
 
-
-@router.get("/students/{student_id}/remediation/recommendation")
+@router.get("/students/{student_id}/remediation/recommendation", dependencies=[Depends(_require_legacy_login)])
 async def get_student_remediation_recommendation(
     student_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    st_res = await db.execute(select(Student).filter(Student.id == student_id))
-    st = st_res.scalars().first()
-    if not st:
-        raise HTTPException(status_code=404, detail="Student not found.")
-    return generate_differentiated_recommendation(st)
+    student = await _legacy_student(db, current_user, student_id)
+    return generate_differentiated_recommendation(student)
 
 
 @router.get("/students/{student_id}/homework/gap-analysis", response_model=GapAnalysis)
@@ -902,6 +950,8 @@ def _check_stored_submission(submission: Optional[HomeworkSubmissionRecord],
         _render(submission, assignment)
 
 
+
+
 @router.get(SUBMISSION_PATH, response_model=HomeworkSubmissionOut)
 async def get_my_submission(
     assignment_id: str,
@@ -918,6 +968,7 @@ async def get_my_submission(
 
 
 @router.put(SUBMISSION_PATH, response_model=HomeworkSubmissionOut,
+            dependencies=[Depends(_reject_non_finite_json)],
             responses={201: {"model": HomeworkSubmissionOut, "description": "First save: submission created"}})
 async def save_my_answers(
     assignment_id: str,
@@ -943,7 +994,8 @@ async def save_my_answers(
     return _render(submission, assignment)
 
 
-@router.post(f"{SUBMISSION_PATH}/submit", response_model=HomeworkSubmissionOut)
+@router.post(f"{SUBMISSION_PATH}/submit", response_model=HomeworkSubmissionOut,
+             dependencies=[Depends(_reject_non_finite_json)])
 async def submit_my_answers(
     assignment_id: str,
     body: SubmissionFinalizeRequest,
@@ -1043,3 +1095,408 @@ async def get_student_submission(
     except SubmissionMismatch as exc:
         raise _submission_error(exc)
 
+
+# --- Homework evaluations: manual grading (teacher) and released results (student) -----------------
+# Teacher endpoints: same access as the Phase 3 views (_teacher_assignment: role check -> 403;
+# missing or inaccessible assignment -> the same 404) and a real bearer token is required.
+# Grading never changes the submission, its answers or any competency score.
+
+EVALUATION_PATH = "/homework/assignments/{assignment_id}/evaluation"
+EVALUATION_NOT_FOUND = "Evaluation not found."
+EVALUATION_CHANGED = "This evaluation was changed by another request. Reload it and try again."
+DUPLICATE_EVALUATION_MARKERS = ("uq_homework_evaluations_submission", "homework_evaluations.submission_id")
+
+
+async def _reload_grading_context(db: AsyncSession, assignment_id: str):
+    """After a rollback the session's objects are expired; reload them with fresh queries (access
+    was already checked for this request)."""
+    assignment = (await db.execute(
+        select(HomeworkAssignmentRecord).filter(HomeworkAssignmentRecord.id == assignment_id)
+        .execution_options(populate_existing=True)
+    )).scalars().one()
+    student = (await db.execute(
+        select(Student).filter(Student.id == assignment.student_id).execution_options(populate_existing=True)
+    )).scalars().first()
+    submission = (await db.execute(
+        select(HomeworkSubmissionRecord).filter(HomeworkSubmissionRecord.assignment_id == assignment_id)
+        .execution_options(populate_existing=True)
+    )).scalars().first()
+    return assignment, student, submission
+
+
+async def _load_evaluation(db: AsyncSession, submission_id: str) -> Optional[HomeworkEvaluationRecord]:
+    return (await db.execute(
+        select(HomeworkEvaluationRecord).filter(HomeworkEvaluationRecord.submission_id == submission_id)
+    )).scalars().first()
+
+
+def _evaluation_error(exc: Exception) -> HTTPException:
+    """Map an evaluation-service error to HTTP. Inconsistent data is a 500 (via the submission
+    mapping, which logs it); invalid marks are 422 with one entry per question; state and
+    version problems are 409."""
+    if isinstance(exc, SubmissionMismatch):  # includes EvaluationMismatch
+        return _submission_error(exc)
+    if isinstance(exc, InvalidMarks):
+        return HTTPException(status_code=422, detail=[
+            AnswerProblemOut(position=p.position, reason=p.reason).model_dump() for p in exc.problems
+        ])
+    if isinstance(exc, EvaluationError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    raise exc
+
+
+async def _grading_context(db: AsyncSession, user: User, assignment_id: str):
+    """The accessible assignment, its student and its submission (any of the last two may be None)."""
+    assignment = await _teacher_assignment(db, user, assignment_id)
+    student, submission = await _roster_entry(db, assignment)
+    return assignment, student, submission
+
+
+async def _existing_evaluation(db: AsyncSession, assignment, submission) -> HomeworkEvaluationRecord:
+    """The assignment's evaluation, checked for consistency before anything uses it."""
+    evaluation = await _load_evaluation(db, submission.id) if submission is not None else None
+    if evaluation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=EVALUATION_NOT_FOUND)
+    try:
+        check_evaluation(evaluation, assignment, submission)
+    except SubmissionMismatch as exc:
+        raise _evaluation_error(exc)
+    return evaluation
+
+
+async def _commit_evaluation(db: AsyncSession) -> None:
+    """One commit per request. Version conflicts -> 409; anything else rolls back and re-raises."""
+    try:
+        await db.commit()
+    except StaleDataError:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EVALUATION_CHANGED)
+    except IntegrityError:
+        await db.rollback()
+        raise
+
+
+def _render_evaluation(evaluation, assignment, submission, student) -> TeacherEvaluationOut:
+    try:
+        return to_teacher_evaluation(evaluation, assignment, submission, student)
+    except SubmissionMismatch as exc:
+        raise _evaluation_error(exc)
+
+
+@router.get("/homework/assignments/{assignment_id}/evaluations", response_model=List[TeacherEvaluationQueueItemOut],
+            dependencies=[Depends(_require_bearer_token)])
+async def list_assignment_evaluations(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submitted homework for this assignment and where its evaluation stands (not_started,
+    pending, marked, released). Homework that isn't submitted yet isn't listed. Read-only."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    if submission is None or submission.status != "submitted":
+        return []
+    evaluation = await _load_evaluation(db, submission.id)
+    try:
+        return [to_queue_item(assignment, submission, student, evaluation)]
+    except SubmissionMismatch as exc:
+        raise _evaluation_error(exc)
+
+
+@router.post(EVALUATION_PATH, response_model=TeacherEvaluationOut, dependencies=[Depends(_require_bearer_token)],
+             responses={201: {"model": TeacherEvaluationOut, "description": "Evaluation created"}})
+async def start_evaluation(
+    assignment_id: str,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Start marking a submitted homework: 201 with a new pending evaluation (one unmarked item per
+    question), or 200 with the existing one. Never creates a second evaluation and never assigns
+    marks. 409 if the homework isn't submitted."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    existing = await _load_evaluation(db, submission.id) if submission is not None else None
+    if existing is not None:
+        try:
+            check_evaluation(existing, assignment, submission)
+        except SubmissionMismatch as exc:
+            raise _evaluation_error(exc)
+        response.status_code = status.HTTP_200_OK
+        return _render_evaluation(existing, assignment, submission, student)
+
+    try:
+        evaluation = build_evaluation(assignment, submission, current_user.id, utc_now())
+    except Exception as exc:
+        raise _evaluation_error(exc)
+    db.add(evaluation)
+    db.add(_audit(current_user, "Homework Evaluation Started", f"Started evaluation of assignment {assignment.id}."))
+    assignment_key, submission_key = assignment.id, submission.id  # plain values survive a rollback
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        # Another request started it first (unique submission_id): return that one, as for a
+        # repeated request. Any other integrity failure is a real fault.
+        if any(marker in str(getattr(exc, "orig", exc)) for marker in DUPLICATE_EVALUATION_MARKERS):
+            assignment, student, submission = await _reload_grading_context(db, assignment_key)
+            winner = await _load_evaluation(db, submission_key)
+            if winner is not None:
+                try:
+                    check_evaluation(winner, assignment, submission)
+                except SubmissionMismatch as mismatch:
+                    raise _evaluation_error(mismatch)
+                response.status_code = status.HTTP_200_OK
+                return _render_evaluation(winner, assignment, submission, student)
+        raise
+    response.status_code = status.HTTP_201_CREATED
+    return _render_evaluation(evaluation, assignment, submission, student)
+
+
+@router.get(EVALUATION_PATH, response_model=TeacherEvaluationOut, dependencies=[Depends(_require_bearer_token)])
+async def get_evaluation(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The evaluation with every question, the student's answer, marks and feedback. Read-only;
+    404 if marking hasn't been started."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    return _render_evaluation(evaluation, assignment, submission, student)
+
+
+@router.patch(f"{EVALUATION_PATH}/items", response_model=TeacherEvaluationOut,
+              dependencies=[Depends(_require_bearer_token), Depends(_reject_non_finite_json)])
+async def mark_evaluation_items(
+    assignment_id: str,
+    body: EvaluationMarksUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Set marks and/or feedback on one or more questions of a pending evaluation. All or
+    nothing; 422 lists every invalid entry; 409 on a stale version or a finalized evaluation."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    try:
+        apply_marks(evaluation, body, current_user.id, utc_now())
+    except Exception as exc:
+        raise _evaluation_error(exc)
+    await _commit_evaluation(db)
+    return _render_evaluation(evaluation, assignment, submission, student)
+
+
+@router.post(f"{EVALUATION_PATH}/finalize", response_model=TeacherEvaluationOut,
+             dependencies=[Depends(_require_bearer_token), Depends(_reject_non_finite_json)])
+async def finalize_homework_evaluation(
+    assignment_id: str,
+    body: EvaluationTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """pending -> marked, once every question has a mark. Stores the totals; the evaluation is
+    read-only afterwards. The audit event is saved in the same transaction."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    try:
+        finalize_evaluation(evaluation, body, current_user.id, utc_now())
+    except Exception as exc:
+        raise _evaluation_error(exc)
+    db.add(_audit(current_user, "Homework Evaluation Finalized",
+                  f"Finalized evaluation of assignment {assignment.id}: "
+                  f"{evaluation.total_awarded}/{evaluation.total_max}."))
+    await _commit_evaluation(db)
+    return _render_evaluation(evaluation, assignment, submission, student)
+
+
+@router.post(f"{EVALUATION_PATH}/release", response_model=TeacherEvaluationOut,
+             dependencies=[Depends(_require_bearer_token), Depends(_reject_non_finite_json)])
+async def release_homework_evaluation(
+    assignment_id: str,
+    body: EvaluationTransitionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """marked -> released: the student can now see the results. Idempotent: releasing again
+    returns the evaluation unchanged, with no new audit event. 409 if not finalized."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    try:
+        released_now = release_evaluation(evaluation, body, current_user.id, utc_now())
+    except Exception as exc:
+        raise _evaluation_error(exc)
+    if released_now:
+        db.add(_audit(current_user, "Homework Results Released",
+                      f"Released results of assignment {assignment.id}."))
+        assignment_key = assignment.id  # plain value survives a rollback
+        try:
+            await db.commit()
+        except StaleDataError:
+            await db.rollback()
+            # Lost a race. If the other request released it, this request has what it asked
+            # for: return the released evaluation (idempotent), without a second audit event.
+            # Any other concurrent change is a real conflict.
+            assignment, student, submission = await _reload_grading_context(db, assignment_key)
+            winner = (await db.execute(
+                select(HomeworkEvaluationRecord).filter(HomeworkEvaluationRecord.submission_id == submission.id)
+                .execution_options(populate_existing=True)
+            )).scalars().first() if submission is not None else None
+            if winner is None or winner.status != "released":
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=EVALUATION_CHANGED)
+            try:
+                check_evaluation(winner, assignment, submission)
+            except SubmissionMismatch as exc:
+                raise _evaluation_error(exc)
+            return _render_evaluation(winner, assignment, submission, student)
+        except IntegrityError:
+            await db.rollback()
+            raise
+    return _render_evaluation(evaluation, assignment, submission, student)
+
+
+@router.get("/students/me/homework/assignments/{assignment_id}/evaluation", response_model=StudentResultOut)
+async def get_my_homework_result(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """The student's own released results. Identity via StudentAccountLink only. 404 for another
+    student's assignment ("Assignment not found.") and for results not released yet, or not
+    started ("Evaluation not found."), so unreleased marks can't be detected."""
+    assignment = await _my_assignment(db, current_user, assignment_id)
+    submission = await _load_submission(db, assignment.id)
+    evaluation = await _load_evaluation(db, submission.id) if submission is not None else None
+    if evaluation is None or evaluation.status != "released":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=EVALUATION_NOT_FOUND)
+    try:
+        return to_student_result(evaluation, assignment, submission)
+    except SubmissionMismatch as exc:
+        raise _evaluation_error(exc)
+
+
+# --- Parent access to released results ---------------------------------------------------------
+# A parent sees exactly what their linked child sees (StudentResultOut, built by the same
+# to_student_result): released results only, never answer keys, rubrics or teacher details.
+# The link is the existing ParentStudentLink, checked through the existing can_view_student.
+# There is no "verified" flag on ParentStudentLink; a link row is the authorization, as in the
+# gap-analysis endpoint. No new mapping, and never matching IDs or emails.
+
+PARENT_RESULT_NOT_FOUND = "Result not found."
+
+
+@router.get("/parents/me/students/{student_id}/homework/assignments/{assignment_id}/evaluation",
+            response_model=StudentResultOut)
+async def get_child_homework_result(
+    student_id: str,
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """A linked child's released homework result. Read-only; parents only (other roles 403).
+
+    Every other case gives the same 404 "Result not found.": no link to this student, the
+    student no longer exists, the assignment is missing or belongs to another student, or the
+    result isn't released (not started, pending or marked). So a parent can't learn whether
+    another student, assignment or unreleased evaluation exists."""
+    if current_user.role != "parent":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PARENT_RESULT_NOT_FOUND)
+
+    student = await db.get(Student, student_id)
+    if student is None or not await can_view_student(db, current_user, student):
+        raise not_found
+    assignment = (await db.execute(
+        select(HomeworkAssignmentRecord).filter(
+            HomeworkAssignmentRecord.id == assignment_id,
+            HomeworkAssignmentRecord.student_id == student.id,
+        )
+    )).scalars().first()
+    if assignment is None:
+        raise not_found
+    submission = await _load_submission(db, assignment.id)
+    evaluation = await _load_evaluation(db, submission.id) if submission is not None else None
+    if evaluation is None or evaluation.status != "released":
+        raise not_found
+    try:
+        return to_student_result(evaluation, assignment, submission)
+    except SubmissionMismatch as exc:
+        raise _evaluation_error(exc)
+
+
+
+# --- Parent discovery (read-only) --------------------------------------------------------
+# Lets a parent find their linked children and those children's assignments so they can open
+# a released result without typing IDs. Authorization is the existing ParentStudentLink row
+# (the same rule as the result endpoint above). An unlinked or missing student gives the same
+# generic 404, so a parent can't probe for other students.
+
+from backend.app.models.entities import ParentStudentLink  # noqa: E402
+from backend.app.modules.differentiated_homework.schemas import (  # noqa: E402
+    ParentAssignmentSummaryOut,
+    ParentChildOut,
+)
+
+PARENT_STUDENT_NOT_FOUND = "Student not found."
+
+
+def _require_parent(user: User) -> None:
+    if user.role != "parent":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+
+@router.get("/parents/me/students", response_model=List[ParentChildOut])
+async def list_my_children(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Students linked to the logged-in parent, by name. Parents only."""
+    _require_parent(current_user)
+    rows = (await db.execute(
+        select(Student)
+        .join(ParentStudentLink, ParentStudentLink.student_id == Student.id)
+        .filter(ParentStudentLink.parent_user_id == current_user.id)
+        .order_by(Student.name, Student.id)
+    )).scalars().all()
+    return [ParentChildOut(id=s.id, name=s.name, class_name=s.class_name, school_id=s.school_id) for s in rows]
+
+
+@router.get("/parents/me/students/{student_id}/homework/assignments",
+            response_model=List[ParentAssignmentSummaryOut])
+async def list_child_homework_assignments(
+    student_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """A linked child's assignments, newest first, with submission status and whether a
+    teacher has released the result. Read-only; marks are only available via the result
+    endpoint, and only once released."""
+    _require_parent(current_user)
+    student = await db.get(Student, student_id)
+    if student is None or not await can_view_student(db, current_user, student):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PARENT_STUDENT_NOT_FOUND)
+    assignments = (await db.execute(
+        select(HomeworkAssignmentRecord)
+        .filter(HomeworkAssignmentRecord.student_id == student.id)
+        .options(selectinload(HomeworkAssignmentRecord.draft).raiseload(HomeworkDraftRecord.items))
+        .order_by(HomeworkAssignmentRecord.assigned_at.desc(), HomeworkAssignmentRecord.id)
+    )).scalars().all()
+    if not assignments:
+        return []
+    ids = [a.id for a in assignments]
+    submissions = {s.assignment_id: s for s in (await db.execute(
+        select(HomeworkSubmissionRecord).filter(HomeworkSubmissionRecord.assignment_id.in_(ids))
+    )).scalars().all()}
+    released = set((await db.execute(
+        select(HomeworkEvaluationRecord.assignment_id).filter(
+            HomeworkEvaluationRecord.assignment_id.in_(ids),
+            HomeworkEvaluationRecord.status == "released",
+        )
+    )).scalars().all())
+    names = await subject_names(db, (a.subject_id for a in assignments))
+    out = []
+    for a in assignments:
+        submission = submissions.get(a.id)
+        out.append(ParentAssignmentSummaryOut(
+            **to_student_summary(a, names).model_dump(),
+            submission_status=submission.status if submission is not None else "not_started",
+            result_released=a.id in released,
+        ))
+    return out
