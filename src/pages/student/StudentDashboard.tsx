@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useData } from '../../context/DataContext';
-import { useAuth } from '../../context/AuthContext';
+import { demoMode, useAuth } from '../../context/AuthContext';
+import { ApiError, apiClient } from '../../lib/apiClient';
+import type { Student } from '../../types';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -19,11 +22,37 @@ import {
 } from 'lucide-react';
 
 export const StudentDashboard: React.FC = () => {
-  const { students, homeworkRemediations, submitStudentHomework } = useData();
   const { currentUser } = useAuth();
+  if (currentUser?.role !== 'student') return <UnauthorizedPage />;
+  return <StudentProfile key={currentUser.id} showDemo={(demoMode || !!currentUser.demoRoot) && currentUser.id === 'user-student-1'} />;
+};
 
-  // Active student: Aarav Patel
-  const student = students.find((s) => s.id === 'user-student-1') || students[0];
+function StudentProfile({ showDemo }: { showDemo: boolean }) {
+  const { students } = useData();
+  const [student, setStudent] = useState<Student | null>(null);
+  const [error, setError] = useState('');
+  const [unlinked, setUnlinked] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiClient.student.profile().then((profile) => {
+      if (active) setStudent(profile);
+    }).catch((err) => {
+      if (!active) return;
+      if (err instanceof ApiError && err.status === 404) setUnlinked(true);
+      else setError('Could not load your student profile. Refresh the page to try again.');
+    });
+    return () => { active = false; };
+  }, []);
+
+  const profile = student || (showDemo && unlinked ? students.find((s) => s.id === 'user-student-1') : null);
+  if (profile) return <StudentDashboardContent student={profile} />;
+  if (error || unlinked) return <p role="alert">{error || 'Your login has no linked student profile. Contact your school.'}</p>;
+  return <p role="status">Loading your student profile…</p>;
+}
+
+function StudentDashboardContent({ student }: { student: Student }) {
+  const { homeworkRemediations, submitStudentHomework } = useData();
   const myHomework = homeworkRemediations.filter((h) => h.studentId === student.id);
 
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
@@ -40,7 +69,7 @@ export const StudentDashboard: React.FC = () => {
 
   const handleCompleteHomework = (hwId: string) => {
     submitStudentHomework(hwId);
-    setToast('Homework assignment submitted to Mr. Sengupta!');
+    setToast('Homework assignment submitted!');
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -62,11 +91,11 @@ export const StudentDashboard: React.FC = () => {
               Hello, {student.name}!
             </h1>
             <Badge variant="teal" size="sm">
-              Class 8-A Learner
+              {student.className}
             </Badge>
           </div>
           <p className="text-xs text-content-secondary mt-1">
-            Learning Modality: <strong className="text-navy-900">{student.learningModality}</strong> • Roll #{student.rollNo} • Sunrise Public Campus
+            Learning Modality: <strong className="text-navy-900">{student.learningModality}</strong> • Roll #{student.rollNo}
           </p>
         </div>
 

@@ -75,7 +75,7 @@ class ProcessOCRRequest(BaseModel):
 @router.get("/history", response_model=List[StudentOcrHistoryOut])
 async def get_student_ocr_history(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles("student")),
+    current_user: User = Depends(require_roles("student", authenticated=True)),
 ):
     student = await require_linked_student(db, current_user)
     result = await db.execute(
@@ -111,6 +111,7 @@ async def extract_ocr_preview(
         await db.rollback()
     elif current_user.role == "student":
         student_id = (await require_linked_student(db, current_user)).id
+        # Release the read transaction while the model processes the upload.
         await db.rollback()
 
     provider = get_ocr_provider("qwen")

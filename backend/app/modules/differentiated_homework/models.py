@@ -143,7 +143,7 @@ class StudentAccountLink(Base):
 
     Why this table exists: User and Student had no relationship. Student has no email, and
     matching IDs (User.id == Student.id) is a coincidence of the seed data, not a rule.
-    Links are created only by an admin, after checks; nothing is inferred.
+    Links are created by an admin or when a teacher provisions a new student account.
 
     Why a new table instead of a Student.user_id column: create_all() doesn't add columns to
     existing tables and no migration tool is set up, so a new column would need an unsafe

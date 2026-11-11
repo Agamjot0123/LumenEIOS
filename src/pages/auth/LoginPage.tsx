@@ -5,6 +5,7 @@ import { DEMO_MODE } from '../../lib/runtime';
 import { ApiError } from '../../lib/apiClient';
 import { Role } from '../../types';
 import { getDefaultDashboardPath } from '../../lib/permissions';
+import { ThemeMenu } from '../../components/layout/ThemeMenu';
 import {
   Shield,
   School,
@@ -18,7 +19,7 @@ import {
 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { login, loginAsRole, loginWithPassword, isLoading } = useAuth();
+  const { login, loginAsRole, loginWithPassword, isLoading, isRestoringSession } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState(DEMO_MODE ? 'teacher@lumeneios.demo' : '');
@@ -86,7 +87,7 @@ export const LoginPage: React.FC = () => {
   type AuthResult = boolean | UserLike;
 
   const signIn = async (authenticate: () => AuthResult | Promise<AuthResult>) => {
-    if (isSigningIn || isLoading) return;
+    if (isSigningIn || isLoading || isRestoringSession) return;
     setError('');
     setIsSigningIn(true);
     try {
@@ -125,12 +126,13 @@ export const LoginPage: React.FC = () => {
     void signIn(async () => loginAsRole(acc.role));
   };
 
-  if (isLoading) {
+  if (isLoading || isRestoringSession) {
     return <p role="status" className="p-6">Checking your session…</p>;
   }
 
   return (
-    <div className="min-h-screen bg-surface-bg flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 font-sans">
+    <div className="relative min-h-screen bg-surface-bg flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8 font-sans">
+      <ThemeMenu className="absolute top-4 right-4 z-20" />
       <div className="sm:mx-auto sm:w-full sm:max-w-2xl text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-teal-500 text-navy-950 font-black text-2xl shadow-card mb-4">
           L
@@ -147,12 +149,13 @@ export const LoginPage: React.FC = () => {
         <div className="bg-white py-8 px-6 sm:px-10 rounded-2xl shadow-card border border-surface-border">
           <form onSubmit={handleManualSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-content-primary mb-1">
+              <label htmlFor="login-email" className="block text-xs font-semibold text-content-primary mb-1">
                 {DEMO_MODE ? 'Demo Account Email' : 'Email or username'}
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-content-muted absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="login-email"
                   type="text"
                   aria-label="Email"
                   autoComplete="username"
@@ -166,12 +169,13 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-content-primary mb-1">
+              <label htmlFor="login-password" className="block text-xs font-semibold text-content-primary mb-1">
                 Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-content-muted absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="login-password"
                   type="password"
                   aria-label="Password"
                   autoComplete="current-password"
@@ -203,7 +207,7 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={isSigningIn}
+              disabled={isSigningIn || isRestoringSession}
               className="w-full py-2.5 px-4 bg-navy-800 hover:bg-navy-900 active:bg-navy-950 disabled:opacity-60 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors flex items-center justify-center gap-2"
             >
               <span>{isSigningIn ? 'Signing in…' : 'Sign in'}</span>
@@ -245,7 +249,7 @@ export const LoginPage: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    disabled={isSigningIn}
+                    disabled={isSigningIn || isRestoringSession}
                     onClick={() => handleQuickLogin(acc)}
                     className="px-3 py-1.5 text-xs font-semibold text-navy-800 bg-white border border-surface-border rounded-lg group-hover:bg-navy-800 group-hover:text-white transition-colors shrink-0 shadow-xs disabled:opacity-60"
                   >

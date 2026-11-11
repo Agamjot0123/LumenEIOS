@@ -17,6 +17,7 @@ export interface CompetencyScores {
 }
 
 export interface User {
+  demoRoot?: boolean;
   id: string;
   email: string;
   name: string;
@@ -89,45 +90,6 @@ export interface Student {
   /** Present on `/classes/students/me` profile responses. */
   subjectNames?: string[];
   parentNames?: string[];
-}
-
-/** Demo OCR transcript block shown beside an uploaded answer-sheet image. */
-export interface ExtractedBlock {
-  kind: 'text' | 'equation';
-  content: string;
-}
-
-/** Teacher-created sheet task that students photograph and upload (frontend demo). */
-export interface SheetAssignment {
-  id: string;
-  teacherId: string;
-  teacherName: string;
-  schoolId: string;
-  classId: string;
-  className: string;
-  subject: string;
-  title: string;
-  instructions: string;
-  dueDate: string;
-  createdAt: string;
-}
-
-/** Student-uploaded answer sheet with demo OCR extraction (frontend demo). */
-export interface AnswerSheetUpload {
-  id: string;
-  assignmentId: string;
-  assignmentTitle: string;
-  studentId: string;
-  studentName: string;
-  classId: string;
-  className: string;
-  schoolId: string;
-  subject: string;
-  fileName: string;
-  mimeType: string;
-  previewDataUrl?: string;
-  blocks: ExtractedBlock[];
-  uploadedAt: string;
 }
 
 export interface Question {
@@ -335,6 +297,42 @@ export interface CrossCurricularProposal {
   estimatedDurationHours: number;
   timeSavedHours: number;
   status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface ExtractedBlock {
+  kind: 'text' | 'equation';
+  content: string;
+}
+
+export interface SheetAssignment {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  schoolId: string;
+  classId: string;
+  className: string;
+  subject: string;
+  title: string;
+  instructions: string;
+  dueDate: string;
+  createdAt: string;
+}
+
+export interface AnswerSheetUpload {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  schoolId: string;
+  subject: string;
+  fileName: string;
+  mimeType: string;
+  previewDataUrl?: string;
+  uploadedAt: string;
+  blocks: ExtractedBlock[];
 }
 
 export interface HomeworkRemediation {

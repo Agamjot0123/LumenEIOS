@@ -272,7 +272,7 @@ export const AssessmentBuilder: React.FC = () => {
         mcqCount: q.type === 'mcq' ? 1 : 0,
         theoryCount: q.type === 'mcq' ? 0 : 1,
         bloomLevel: currentBloomLevel,
-        topicHint: (topicHint.trim() || 'Use the supplied sources') + '. Write a different question from: ' + q.text,
+        topicHint: `${topicHint.trim() || 'Use the supplied sources'}. Write a different question from: ${q.text}`,
         saveToBank: false,
       });
       const updated: Question = { ...result.questions[0], id: q.id };

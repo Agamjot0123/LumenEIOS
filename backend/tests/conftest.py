@@ -103,6 +103,7 @@ TEST_DIR = Path(tempfile.mkdtemp(prefix="lumeneios-tests-")).resolve()
 # Assigned rather than defaulted, so these also override any exported value or .env file.
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(TEST_DIR / 'test.db').as_posix()}"
 os.environ["STORAGE_LOCAL_DIR"] = str(TEST_DIR / "uploads")
+os.environ["DEMO_MODE"] = "true"  # Exercise the legacy demo paths in the isolated test app.
 
 # Guard phase 1: config.py only reads settings, so nothing has been written or connected yet.
 from backend.app.core.config import settings  # noqa: E402

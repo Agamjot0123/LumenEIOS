@@ -11,7 +11,7 @@ from backend.app.api.dependencies import get_current_user, require_roles
 from backend.app.db.session import get_db
 from backend.app.models.entities import Document, OCRRun, GradingBatchItem, User, AuditEvent, utc_now
 from backend.app.schemas.ocr import DocumentOut, BulkDocumentItemResult, BulkDocumentUploadResponse
-from backend.app.services.storage_service import storage_service
+from backend.app.services.storage_service import MAX_FILE_SIZE, storage_service
 
 router = APIRouter(prefix="/documents", tags=["Documents"], dependencies=[Depends(require_bearer_token)])
 
@@ -80,6 +80,56 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
     return doc
+
+
+@router.post("/studio-pdf-upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
+async def upload_studio_pdf(
+    file: UploadFile = File(...),
+    subject_id: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher")),
+):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are allowed.")
+
+    content = await file.read(MAX_FILE_SIZE + 1)
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="PDF exceeds the 15 MB maximum size limit.",
+        )
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The uploaded file is not a valid PDF.")
+
+    try:
+        import pymupdf
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PDF validation is unavailable. Install backend/requirements.txt.",
+        ) from exc
+    try:
+        with pymupdf.open(stream=content, filetype="pdf") as pdf:
+            if pdf.needs_pass:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Password-protected PDFs are not supported.",
+                )
+            if pdf.page_count == 0 or pdf.page_count > 25:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="PDFs must contain between 1 and 25 pages.",
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The uploaded PDF could not be opened.",
+        ) from exc
+
+    await file.seek(0)
+    return await upload_document(file, subject_id, "source_material", db, current_user)
 
 
 @router.post("/bulk-upload", response_model=BulkDocumentUploadResponse)
