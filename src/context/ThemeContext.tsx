@@ -4,14 +4,14 @@ export const THEMES = [
   {
     id: 'light',
     label: 'Light',
-    hint: 'Navy and purple',
-    swatches: ['#142A43', '#8C66D6', '#F3F6F8'],
+    hint: 'Green and blue',
+    swatches: ['#142A43', '#16A085', '#F3F6F8'],
   },
   {
     id: 'dark',
     label: 'Dark',
-    hint: 'Navy and blue',
-    swatches: ['#0C1626', '#2563EB', '#122032'],
+    hint: 'Green and blue',
+    swatches: ['#0C1626', '#16A085', '#122032'],
   },
 ] as const;
 

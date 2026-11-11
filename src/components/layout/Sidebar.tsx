@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getRoleLabel } from '../../lib/permissions';
 import {
   LayoutDashboard,
   Building2,
@@ -145,8 +146,8 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       <div className="px-5 py-3 bg-navy-900/60 border-b border-navy-700/40">
         <div className="flex items-center justify-between text-xs">
           <span className="text-gray-400">Workspace:</span>
-          <span className="capitalize font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
-            {role} Portal
+          <span className="font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
+            {getRoleLabel(role)} Portal
           </span>
         </div>
       </div>

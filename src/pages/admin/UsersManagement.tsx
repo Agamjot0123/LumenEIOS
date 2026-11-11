@@ -6,6 +6,7 @@ import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { SearchInput } from '../../components/common/SearchInput';
+import { getRoleLabel } from '../../lib/permissions';
 import { Users, Shield, BookOpen, GraduationCap, School, CheckCircle2, Code } from 'lucide-react';
 
 export const UsersManagement: React.FC = () => {
@@ -84,7 +85,7 @@ export const UsersManagement: React.FC = () => {
               className="px-3 py-1.5 bg-surface-bg border border-surface-border rounded-lg text-xs"
             >
               <option value="all">All Roles</option>
-              <option value="admin">Admin</option>
+              <option value="admin">Management</option>
               <option value="principal">Principal</option>
               <option value="teacher">Teacher</option>
               <option value="student">Student</option>
@@ -128,9 +129,9 @@ export const UsersManagement: React.FC = () => {
                         {user.designation || 'Staff Member'}
                       </td>
                       <td className="py-3 px-3">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-surface-bg border-surface-border text-navy-900 capitalize">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-surface-bg border-surface-border text-navy-900">
                           {getRoleIcon(user.role)}
-                          <span>{user.role}</span>
+                          <span>{getRoleLabel(user.role)}</span>
                         </span>
                       </td>
                       <td className="py-3 px-4 text-content-primary">
@@ -140,7 +141,7 @@ export const UsersManagement: React.FC = () => {
                         <button
                           onClick={() => {
                             loginAsRole(user.role);
-                            setToast(`Switched active context to ${user.name} (${user.role})`);
+                            setToast(`Switched active context to ${user.name} (${getRoleLabel(user.role)})`);
                           }}
                           className="px-3 py-1 bg-navy-800 hover:bg-navy-900 text-white rounded-lg text-xs font-semibold transition-colors"
                         >

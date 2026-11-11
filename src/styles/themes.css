@@ -29,26 +29,26 @@ html[data-theme='light'] {
   --ink-navy-900: 14 29 46;
   --ink-navy-950: 8 18 30;
 
-  --bg-teal-50: 245 240 255;
-  --bg-teal-100: 232 220 255;
-  --bg-teal-200: 214 196 250;
-  --bg-teal-300: 190 164 242;
-  --bg-teal-400: 167 132 230;
-  --bg-teal-500: 140 102 214;
-  --bg-teal-600: 124 86 198;
-  --bg-teal-700: 104 68 172;
-  --bg-teal-800: 84 52 142;
-  --bg-teal-900: 62 38 108;
-  --ink-teal-50: 245 240 255;
-  --ink-teal-100: 232 220 255;
-  --ink-teal-200: 214 196 250;
-  --ink-teal-300: 150 110 210;
-  --ink-teal-400: 132 90 196;
-  --ink-teal-500: 124 86 198;
-  --ink-teal-600: 110 72 180;
-  --ink-teal-700: 96 60 164;
-  --ink-teal-800: 78 46 136;
-  --ink-teal-900: 58 32 104;
+  --bg-teal-50: 230 248 245;
+  --bg-teal-100: 194 239 235;
+  --bg-teal-200: 140 224 214;
+  --bg-teal-300: 92 210 196;
+  --bg-teal-400: 46 196 182;
+  --bg-teal-500: 22 160 133;
+  --bg-teal-600: 19 141 117;
+  --bg-teal-700: 14 102 85;
+  --bg-teal-800: 12 78 66;
+  --bg-teal-900: 10 56 48;
+  --ink-teal-50: 230 248 245;
+  --ink-teal-100: 194 239 235;
+  --ink-teal-200: 140 224 214;
+  --ink-teal-300: 46 196 182;
+  --ink-teal-400: 22 160 133;
+  --ink-teal-500: 19 141 117;
+  --ink-teal-600: 14 102 85;
+  --ink-teal-700: 12 78 66;
+  --ink-teal-800: 10 56 48;
+  --ink-teal-900: 8 42 36;
 
   --surface-bg: 243 246 248;
   --surface-card: 255 255 255;
@@ -84,26 +84,26 @@ html[data-theme='dark'] {
   --ink-navy-900: 238 242 246;
   --ink-navy-950: 248 250 252;
 
-  --bg-teal-50: 16 36 64;
-  --bg-teal-100: 20 48 88;
-  --bg-teal-200: 26 64 116;
-  --bg-teal-300: 36 88 160;
-  --bg-teal-400: 59 130 246;
-  --bg-teal-500: 37 99 235;
-  --bg-teal-600: 29 78 216;
-  --bg-teal-700: 96 165 250;
-  --bg-teal-800: 147 197 253;
-  --bg-teal-900: 191 219 254;
-  --ink-teal-50: 239 246 255;
-  --ink-teal-100: 219 234 254;
-  --ink-teal-200: 191 219 254;
-  --ink-teal-300: 147 197 253;
-  --ink-teal-400: 96 165 250;
-  --ink-teal-500: 96 165 250;
-  --ink-teal-600: 147 197 253;
-  --ink-teal-700: 186 220 254;
-  --ink-teal-800: 210 230 255;
-  --ink-teal-900: 230 240 255;
+  --bg-teal-50: 12 40 36;
+  --bg-teal-100: 14 52 46;
+  --bg-teal-200: 16 68 58;
+  --bg-teal-300: 20 90 76;
+  --bg-teal-400: 46 196 182;
+  --bg-teal-500: 22 160 133;
+  --bg-teal-600: 19 141 117;
+  --bg-teal-700: 94 210 190;
+  --bg-teal-800: 150 224 210;
+  --bg-teal-900: 200 236 226;
+  --ink-teal-50: 230 248 245;
+  --ink-teal-100: 194 239 235;
+  --ink-teal-200: 160 224 214;
+  --ink-teal-300: 110 210 190;
+  --ink-teal-400: 70 196 176;
+  --ink-teal-500: 70 196 176;
+  --ink-teal-600: 110 210 190;
+  --ink-teal-700: 160 224 214;
+  --ink-teal-800: 194 239 235;
+  --ink-teal-900: 220 244 236;
 
   --surface-bg: 10 18 30;
   --surface-card: 18 32 50;
@@ -241,7 +241,7 @@ html[data-theme='dark'] .to-amber-50 {
   --tw-gradient-to: rgb(68 46 16) var(--tw-gradient-to-position);
 }
 html[data-theme='dark'] .from-teal-50 {
-  --tw-gradient-from: rgb(16 36 64) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(16 36 64 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-from: rgb(12 40 36) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(12 40 36 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
 }

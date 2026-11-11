@@ -40,7 +40,7 @@ export const LoginPage: React.FC = () => {
       role: 'admin',
       name: 'Dr. Rajesh Sharma',
       email: 'admin@lumeneios.demo',
-      title: 'Platform Administrator',
+      title: 'Management',
       description: 'State-wide governance, 5 affiliated campuses, infrastructure tier telemetry.',
       icon: <Shield className="w-5 h-5 text-indigo-600" />,
       color: 'hover:border-indigo-500 hover:bg-indigo-50/30',
@@ -170,7 +170,7 @@ export const LoginPage: React.FC = () => {
               <p className="mt-1 font-mono">Login: LEOFELIX or leofelix@lumeneios.demo</p>
               <p className="font-mono">Password: KVR</p>
               <p className="mt-1 text-content-secondary">
-                Signs in as Developer, with access to every role. After login, use the bar at the top to open Developer, Admin, Principal, Teacher, Student, or Parent.
+                Signs in as Developer, with access to every role. After login, use the bar at the top to open Developer, Management, Principal, Teacher, Student, or Parent.
               </p>
             </div>
 
