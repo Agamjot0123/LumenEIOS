@@ -231,9 +231,10 @@ async def test_same_id_shortcut_is_not_used(client, db_session, world):
 
 
 @pytest.mark.asyncio
-async def test_seeded_student_account_has_no_access_without_a_link(client, student_token):
-    # user-student-1 shares its ID with a seeded Student, which isn't a link.
-    assert (await client.get(MINE, headers={"Authorization": f"Bearer {student_token}"})).status_code == 403
+async def test_seeded_student_account_is_linked(client, student_token):
+    # sample_seed explicitly links user-student-1; same-ID alone is still not enough (see twin test).
+    response = await client.get(MINE, headers={"Authorization": f"Bearer {student_token}"})
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -312,7 +313,7 @@ async def test_missing_or_invalid_authentication(client, world, header):
 async def test_demo_mode_without_token_does_not_act_as_a_student(client, world):
     # Existing shared behaviour: no token in DEMO_MODE means admin, which these endpoints refuse.
     assert settings.DEMO_MODE is True
-    assert (await client.get(MINE)).status_code == 403
+    assert (await client.get(MINE)).status_code == 401
 
 
 # --- Admin link management ---------------------------------------------------------------------

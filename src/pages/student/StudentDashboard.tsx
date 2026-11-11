@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useData } from '../../context/DataContext';
-import { useAuth } from '../../context/AuthContext';
+import { demoMode, useAuth } from '../../context/AuthContext';
+import { ApiError, apiClient } from '../../lib/apiClient';
+import type { Student } from '../../types';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -19,11 +22,37 @@ import {
 } from 'lucide-react';
 
 export const StudentDashboard: React.FC = () => {
-  const { students, homeworkRemediations, submitStudentHomework } = useData();
   const { currentUser } = useAuth();
+  if (currentUser?.role !== 'student') return <UnauthorizedPage />;
+  return <StudentProfile key={currentUser.id} showDemo={(demoMode || !!currentUser.demoRoot) && currentUser.id === 'user-student-1'} />;
+};
 
-  // Active student: Aarav Patel
-  const student = students.find((s) => s.id === 'user-student-1') || students[0];
+function StudentProfile({ showDemo }: { showDemo: boolean }) {
+  const { students } = useData();
+  const [student, setStudent] = useState<Student | null>(null);
+  const [error, setError] = useState('');
+  const [unlinked, setUnlinked] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiClient.student.profile().then((profile) => {
+      if (active) setStudent(profile);
+    }).catch((err) => {
+      if (!active) return;
+      if (err instanceof ApiError && err.status === 404) setUnlinked(true);
+      else setError('Could not load your student profile. Refresh the page to try again.');
+    });
+    return () => { active = false; };
+  }, []);
+
+  const profile = student || (showDemo && unlinked ? students.find((s) => s.id === 'user-student-1') : null);
+  if (profile) return <StudentDashboardContent student={profile} />;
+  if (error || unlinked) return <p role="alert">{error || 'Your login has no linked student profile. Contact your school.'}</p>;
+  return <p role="status">Loading your student profile…</p>;
+}
+
+function StudentDashboardContent({ student }: { student: Student }) {
+  const { homeworkRemediations, submitStudentHomework } = useData();
   const myHomework = homeworkRemediations.filter((h) => h.studentId === student.id);
 
   const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
@@ -34,13 +63,13 @@ export const StudentDashboard: React.FC = () => {
 
   const handleQuizSubmit = () => {
     setQuizSubmitted(true);
-    setToast('Practice Quiz Submitted! You scored 100% (+4 AU Points)');
+    setToast('Demo practice completed. No score or competency update was recorded.');
     setTimeout(() => setToast(null), 4000);
   };
 
   const handleCompleteHomework = (hwId: string) => {
     submitStudentHomework(hwId);
-    setToast('Homework assignment submitted to Mr. Sengupta!');
+    setToast('Homework assignment submitted!');
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -62,11 +91,11 @@ export const StudentDashboard: React.FC = () => {
               Hello, {student.name}!
             </h1>
             <Badge variant="teal" size="sm">
-              Class 8-A Learner
+              {student.className}
             </Badge>
           </div>
           <p className="text-xs text-content-secondary mt-1">
-            Learning Modality: <strong className="text-navy-900">{student.learningModality}</strong> • Roll #{student.rollNo} • Sunrise Public Campus
+            Learning Modality: <strong className="text-navy-900">{student.learningModality}</strong> • Roll #{student.rollNo}
           </p>
         </div>
 
@@ -326,10 +355,10 @@ export const StudentDashboard: React.FC = () => {
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-1.5 animate-fade-in text-emerald-950">
               <div className="flex items-center gap-2 font-bold text-sm text-emerald-800">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Correct Answer! 4/4 Marks Awarded.</span>
+                <span>Practice explanation (demo only).</span>
               </div>
               <p className="text-[11px] leading-relaxed">
-                <strong>Pedagogical Step:</strong> Volume = 4 × 3 × 2 = 24 m³ = 24,000 L. Time = 24,000 / 60 = 400 minutes = 6 hours and 40 minutes. Your Application Understanding (AU) mastery increased!
+                <strong>Pedagogical Step:</strong> Volume = 4 × 3 × 2 = 24 m³ = 24,000 L. Time = 24,000 / 60 = 400 minutes = 6 hours and 40 minutes. No marks or competency changes are recorded by this demo.
               </p>
             </div>
           )}

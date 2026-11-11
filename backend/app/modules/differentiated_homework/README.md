@@ -2,22 +2,22 @@
 
 Backend for giving students homework matched to their learning needs, with teacher oversight.
 
-**Current state: foundation only.** This module holds the existing homework routes, moved here unchanged. The differentiated features below are planned and not implemented yet.
+**Current state:** the deterministic workflow supports gap analysis, preview, saved drafts, teacher review, single-student assignment, incremental answers, final submission, manual evaluation and released student/parent results. The inherited remediation routes below remain separate legacy functionality.
 
-## What it does today
+## Inherited remediation routes
 
 | Capability | State |
 |---|---|
-| Create a homework task for one student | Partial: inputs are barely validated |
-| List homework by class or student | Works; record-level access checks are limited |
-| Submit homework | **Mock:** accepts no answers and always records a score of 92 |
-| Recommend remediation | Partial: picks the lowest of LU, CU, AU and CT, then returns one of four fixed maths-specific texts |
+| Create a homework task for one student | Educator school access; student/request must match the target class |
+| List homework by class or student | Educator class lists; linked student/parent or authorized educator student lists |
+| Submit homework | Linked owner completion only; no answers or grading, historical scores preserved |
+| Recommend remediation | Authorized student access; picks the lowest of LU, CU, AU and CT, then returns one of four fixed maths-specific texts |
 
 ## Implemented in this module
 
 | Component | Files | What it does |
 |---|---|---|
-| **Gap Analyzer** (service only; no endpoint yet) | `gap_analyzer.py`, `schemas.py` | Ranks a student's LU, CU, AU and CT scores and reports the lowest. Ties are reported as ties, and all-equal scores mean no weakest. **No threshold is applied:** "weakest" means lowest relative to the student's own scores |
+| **Gap Analyzer** | `gap_analyzer.py`, `schemas.py` | Ranks a student's LU, CU, AU and CT scores and reports the lowest. Ties are reported as ties, and all-equal scores mean no weakest. **No threshold is applied:** "weakest" means lowest relative to the student's own scores |
 | **Competency adapter** (temporary) | `competency_adapter.py` | The only reader of competency data. Reads `Student` live and baseline scores, read-only. Rejects out-of-range values. To be replaced when the assessment engine provides diagnosis |
 
 | **Question Selector** (service only; no endpoint) | `question_selector.py`, `schemas.py` | `select_questions(analysis, candidates, request)` picks question bank items for the weaker competencies. Pure logic, deterministic |
@@ -30,9 +30,10 @@ Backend for giving students homework matched to their learning needs, with teach
 | **Saved homework drafts** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Save a draft explicitly, list it, view it, approve or reject it, reopen it, and remove a question. Stored in `homework_drafts` and `homework_draft_items` |
 | **Homework assignments** | `models.py`, `draft_service.py`, `router.py`, `access.py` | Assign an approved draft (once); list and view assignments. Stored in `homework_assignments` |
 | **Student homework access** | `models.py`, `student_access.py`, `router.py` | Admin links a student login to a Student record (`student_account_links`); the linked student lists and views their own assignments |
-| **Answer submission** | `models.py`, `schemas.py`, `submission_service.py`, `router.py` | Tables `homework_submissions` and `homework_submission_answers`, the save and final-submit rules, and the three student endpoints (Phase 2). No grading |
+| **Answer submission** | `models.py`, `schemas.py`, `submission_service.py`, `router.py` | Tables `homework_submissions` and `homework_submission_answers`, the save and final-submit rules, the three student endpoints (Phase 2), and read-only teacher views (Phase 3, `teacher_submissions.py`) |
+| **Homework grading** (manual) | `models.py`, `schemas.py`, `evaluation_service.py`, `router.py` | Tables `homework_evaluations` and `homework_evaluation_items`. The teacher marks each question, finalizes, and releases; the student then sees released results. No automatic marking and no competency changes |
 
-Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`, `test_homework_submission_api.py`.
+Tests: `backend/tests/test_homework_gap_analyzer.py`, `test_homework_gap_analysis_api.py`, `test_homework_question_selection.py`, `test_homework_assembly.py`, `test_homework_preview_api.py`, `test_homework_drafts.py`, `test_homework_assignments.py`, `test_student_homework_access.py`, `test_homework_submissions.py`, `test_homework_submission_api.py`, `test_homework_teacher_submissions.py`, `test_homework_evaluations.py`.
 
 ### Saved homework drafts
 
@@ -92,7 +93,7 @@ An integer is used instead of `updated_at`, because on Windows most consecutive 
 - **Invalid, tampered or non-Bearer tokens** get 401.
 - **Tokens for unknown users** never return draft data.
 
-Note that existing shared code (`DEMO_MODE`, on by default) treats a request **with no token** as admin.
+Shared `DEMO_MODE` code still contains a tokenless-admin shortcut, but every protected router now requires an explicit bearer token before it can be used.
 
 **Not yet:** student visibility, submission, grading, and content edits other than removing a question.
 
@@ -208,7 +209,7 @@ Creating and deleting write an audit event; listing writes nothing. Other roles 
 - **Other roles:** teachers, principals, admins and parents are refused.
 - **Someone else's assignment:** returns **404**, the same as a missing one, so a student can't tell whether another assignment exists.
 - **No token, `DEMO_MODE` off:** 401.
-- **No token, `DEMO_MODE` on:** existing shared code treats this as admin, so it's refused (403).
+- **No token, `DEMO_MODE` on:** 401; the protected router requires a real login.
 
 **Parents** keep their existing access (`GET /students/{student_id}/homework/gap-analysis`, through `ParentStudentLink`) and don't gain access through these student endpoints.
 
@@ -317,8 +318,8 @@ The class is named `HomeworkSubmissionOut`, not `SubmissionOut`, because the ass
 
 | Cause | Status | `detail` |
 |---|---|---|
-| Not logged in (`DEMO_MODE` off) or an invalid token | 401 | shared login code |
-| Role isn't exactly `student`. No token with `DEMO_MODE` on counts as admin, so it's refused too | 403 | "Access denied." |
+| Not logged in (in either demo setting) or an invalid token | 401 | explicit bearer requirement |
+| Authenticated role is not exactly `student` | 403 | "Access denied." |
 | No link, a deleted Student record, or a school mismatch | 403 | "This account isn't linked to a student record." |
 | Assignment missing or someone else's | 404 | "Assignment not found." |
 | Malformed body (null, two actions, `clear: false`, blank or too-long text, unknown field, repeated position) | 422 | FastAPI's standard list of `{loc, msg, type}` |
@@ -338,7 +339,123 @@ The response is built after the commit.
 
 **Audit:** exactly one "Homework Submitted" event (category `curriculum`) per successful final submit, saved in the same transaction as the lock, with "(late)" noted when late. Saves and failed requests aren't audited.
 
-**Not done yet:** teacher views of submissions, evaluation, and reopening a submitted submission.
+#### Teacher views (Phase 3, read-only)
+
+| Method and path (under `/api/v1/homework/assignments/{assignment_id}`) | Returns |
+|---|---|
+| `GET /submissions` | `TeacherAssignmentSubmissionsOut`: assignment details (`assignment_id`, `subject_id`, `subject_name`, `assignment_status`, `assigned_at`, `due_at`, `question_count`), `counts` (`total_students`, `not_started`, `in_progress`, `submitted`, `submitted_late`), and `students` (one row each: `student_id`, `student_name`, `status`, `started_at`, `updated_at`, `submitted_at`, `is_late`, `answered_count`, `question_count`) |
+| `GET /submissions/{student_id}` | `TeacherSubmissionDetailOut`: the same student row plus `assignment_id` and `questions`. Every question by position, with `text`, `type`, `options`, `answered`, `answer_text` and `selected_option_index` |
+
+**Access** (the same rules as `GET /homework/assignments/{assignment_id}`, using `can_access_assignment`):
+
+| Role | Can view |
+|---|---|
+| admin | Any assignment |
+| principal | Assignments in a school they can access (own school or an active membership) |
+| teacher | Only assignments of drafts they created, in a school they can access. Not other teachers' assignments in the same school |
+| student, parent | Nothing (403) |
+
+- **Order of checks:** the role is checked first, with no lookup for other roles (403). Then a missing assignment and one the user can't access (another teacher's, another school's) give the **same** 404 "Assignment not found.", so these views don't reveal whether an assignment exists. The older assignment endpoints keep their separate 404 and 403.
+- **A real login is required:** these views show student answers, so a request without a bearer token gets **401**, even with `DEMO_MODE` on. All protected routers now explicitly reject tokenless requests.
+- **Student IDs:** a `student_id` that isn't the assignment's student gives 404 "Student not found on this assignment."
+- **No student login involved:** these views never use `StudentAccountLink`, so a stale or removed link changes nothing here.
+
+**Roster:** each assignment names exactly one student (`homework_assignments.student_id`); that row is the authoritative roster, never derived from submissions. A student with no submission appears as `not_started`, so `total_students` is always 1. Homework for a whole class is several assignments, and there's no class-level view yet.
+
+**States:**
+- `not_started`: no submission; all times are null.
+- `in_progress`: saved, not submitted.
+- `submitted`: locked.
+
+`is_late` is null unless submitted, so an in-progress submission past its due time is never labelled late. A deleted Student record shows as `student_name: null`; inconsistent stored data gives 500 with no details.
+
+**Read-only:** GET only (other methods get 405). Viewing never creates a submission, and never changes answers, versions, assignment status or due dates. Nothing is audited. Each request runs a fixed number of queries (assignment with questions, access check, student, submission with answers, subject name), regardless of the number of answers. There's no pagination, because each assignment has exactly one student.
+
+**Never returned:** answer keys, rubrics, marks, scores, grades, feedback, competency or Bloom data, source question IDs, review data, the submission's version, and school IDs.
+
+**Not done yet:** a class-level progress view across assignments, and reopening a submitted submission.
+
+### Homework grading (manual)
+
+A teacher marks submitted homework question by question, finalizes the marking, and releases the results to the student.
+
+**Lifecycle:** `pending` (marks and feedback can change) -> `marked` (finalized; totals stored; read-only) -> `released` (the student can see it; read-only).
+
+**What grading never does:**
+- change the submission or its answers;
+- touch competency data (`Student` live scores, baselines, `needs_support`, `StudentCompetencySnapshot`, `AssessmentSubmission`);
+- mark anything automatically (no AI, no answer-key matching, no simulated grading);
+- compute percentages, grades or thresholds;
+- return answer keys or rubrics anywhere except the teacher's grading evaluation (see below).
+
+**Tables** (new; `create_all` adds them without changing existing tables):
+
+| Table | Key rules |
+|---|---|
+| `homework_evaluations` | One per submission (UNIQUE `submission_id`). `student_id` and `school_id` copied from the assignment. CHECK rules: `status` in pending/marked/released; `finalized_at`/`finalized_by` set exactly when not pending; `released_at`/`released_by` set exactly when released; `total_awarded` set exactly when not pending and within 0..`total_max`. `version` for optimistic locking |
+| `homework_evaluation_items` | One per frozen question, answered or not (UNIQUE per evaluation on `draft_item_id` and on `position`). `max_marks` copied from the frozen question; `awarded_marks` null until marked and, by CHECK, within 0..`max_marks`; `marked_by`/`marked_at` set together |
+
+**Marks are whole numbers,** like every marks column in the project. Strict integers reject floats, booleans and strings. `NaN`, `Infinity` and out-of-range numbers (such as `1e309`) are refused with a 422 before validation, because FastAPI's standard 422 response can't encode them.
+
+**Teacher endpoints** (under `/api/v1/homework/assignments/{assignment_id}`):
+
+| Method and path | Body | Result |
+|---|---|---|
+| `GET /evaluations` | none | Submitted homework for the assignment and its evaluation state (`not_started`, `pending`, `marked`, `released`), with `evaluation_id` and `marked_count`. Homework that isn't submitted isn't listed |
+| `POST /evaluation` | none | Start marking. **201** with a new pending evaluation (one unmarked item per question), or **200** with the existing one; never a duplicate, and no marks are assigned. **409** if the homework isn't submitted |
+| `GET /evaluation` | none | The evaluation (`TeacherEvaluationOut`): each question's text, type and options; the student's answer; `max_marks`, `awarded_marks`, `feedback`, `marked_by`, `marked_at`; the teacher-only `correct_answer` and `marking_rubric`; plus status, `version`, totals, and who finalized and released it. **404** "Evaluation not found." before it's started |
+| `PATCH /evaluation/items` | `{"expected_version": 1, "items": [{"position": 1, "awarded_marks": 2, "feedback": "..."}]}` | Set marks and/or feedback. Fields left out keep their values; `null` is rejected; `feedback: ""` clears it. All or nothing |
+| `POST /evaluation/finalize` | `{"expected_version": n}` | pending -> marked. Every question needs an explicit mark (0 included); stores `total_awarded` and `total_max` |
+| `POST /evaluation/release` | `{"expected_version": n}` | marked -> released. **Idempotent:** releasing again returns the evaluation unchanged, writes nothing and adds no audit event |
+
+**Teacher-only answer keys and rubrics.** Each question in `TeacherEvaluationOut` (`TeacherEvaluationItemOut`) includes `correct_answer` and `marking_rubric`:
+- **Source:** the question's **frozen snapshot** (`homework_draft_items`), never the live question bank, so later bank edits don't change what the teacher marks against.
+- **Format:** exactly as stored (text; for an MCQ, the key is the option text). `null` when the snapshot has none; nothing is invented.
+- **Where:** every response that returns the teacher evaluation: `POST /evaluation`, `GET /evaluation`, `PATCH /evaluation/items`, `POST /evaluation/finalize`, `POST /evaluation/release`.
+- **Never in:** the evaluation queue, the Phase 3 submission views, any student endpoint (assignment detail, submission, submit, result), parent endpoints, audit text, error messages or logs. Tests check each of these with distinctive secret values.
+- **Use:** shown to the teacher only. They aren't used to calculate marks; grading stays manual.
+
+**Access:** the same as the Phase 3 views.
+- **Who can grade:** admin, any assignment; principal, their schools; teacher, only assignments of drafts they created.
+- **Other roles:** students and parents get 403.
+- **Inaccessible or missing assignments:** the same 404 "Assignment not found.".
+- **Login:** a real bearer token is required, so a request with no token gets 401, even with `DEMO_MODE` on.
+
+**Errors:**
+
+| Cause | Status |
+|---|---|
+| Malformed body, or NaN/Infinity | 422 (FastAPI's standard format) |
+| Mark above the question's maximum, or an unknown position | 422, `[{"position": n, "reason": "..."}]`, one entry per problem |
+| Homework not submitted; editing or finalizing a finalized evaluation; finalizing with unmarked questions (the detail lists them); releasing before finalizing; stale `expected_version` | 409 |
+| Inconsistent stored data: the submission, answers or evaluation items don't match the frozen questions; a wrong student, school or assignment; an evaluation of homework that isn't submitted; a finalized evaluation with an unmarked question or a total that isn't the sum of its marks | 500 with a fixed message; details are logged. Checked before any change and before any response, including the student's |
+
+**Concurrency:** every change also updates the evaluation row, so its version always rises.
+- **Two teachers marking at once:** the second gets 409 and none of its changes are saved.
+- **Two starts at once:** the unique `submission_id` keeps one; the other request returns that evaluation.
+- **Two releases at once:** both get 200 with the released evaluation, and only one audit event is written. If the competing change wasn't a release, the request gets 409.
+- **Deleting an evaluated submission** through the ORM raises `EvaluatedSubmissionDeletionError` (like the assigned-draft guard), so an evaluation can't be orphaned. Deleting an evaluation removes its items.
+
+**Audit:** one event per start, finalize and release ("Homework Evaluation Started", "Homework Evaluation Finalized", "Homework Results Released"; category `curriculum`), each in the same transaction as its change. Marking itself isn't audited; each item records `marked_by` and `marked_at`.
+
+**Student result:** `GET /api/v1/students/me/homework/assignments/{assignment_id}/evaluation`.
+- **Identity:** `StudentAccountLink` only.
+- **Released results only:** before release (not started, pending or marked) it returns the same **404** "Evaluation not found.", so unreleased marks can't be detected. Another student's assignment gives 404 "Assignment not found.".
+- **Returns** `assignment_id`, `released_at`, `total_awarded`, `total_max`, and per question `position`, `text`, `type`, `options`, `answer_text`, `selected_option_index`, `max_marks`, `awarded_marks` and `feedback`.
+- **Never returns** answer keys, rubrics, the evaluation ID, its version, or teacher IDs and marking timestamps.
+
+**Parent result:** `GET /api/v1/parents/me/students/{student_id}/homework/assignments/{assignment_id}/evaluation`.
+- **Same as the student's result:** the same `StudentResultOut`, built by the same `to_student_result`. It never includes answer keys, rubrics, the evaluation's version, teacher identities or unreleased marks.
+- **Who:** authenticated parents only; another authenticated role gets 403; missing/invalid token gets 401 in either demo setting.
+- **The link:** the existing `ParentStudentLink`, checked through the existing `can_view_student`. There is no "verified" flag on that table and no endpoint that creates links, so a link row is the authorization, as for the gap-analysis endpoint. No new mapping, and no matching of IDs or emails.
+- **Everything else is one 404** "Result not found.": no link to that student; a link to a deleted Student (stale); a missing assignment, or one belonging to another student; a result that isn't released (not started, pending or marked). So a parent can't learn whether another student, assignment or unreleased evaluation exists. Unlike the gap-analysis endpoint, an unlinked student doesn't give a different status.
+- **Read-only:** parents still get 403 on the student submission endpoints and every teacher grading endpoint.
+
+**Not done yet:**
+- unreleasing or re-marking after release;
+- an overall feedback comment;
+- half marks;
+- connecting marks to competency scores, which needs an agreed rule and a single owner of competency updates.
 
 ### Homework preview endpoint
 
@@ -400,7 +517,7 @@ There are no answers, rubrics or options.
   - **Smallest change if independent checking becomes necessary** (proposal, not implemented): the selector copies `school_id`, `subject_id` and `include_ai_generated` from the request into `SelectionResult`, and the assembler checks they match. Checking each question would also need `school_id` and `subject_id` on `SelectedQuestion`.
 - **Competency label within a tie:** if a question is relabelled to another competency with the same rank, that can't be detected, because `SelectedQuestion` is the only source of the label.
 
-### Saving drafts (not supported; needs team approval)
+### Why drafts use dedicated tables
 
 `HomeworkRemediation` **can't safely store a draft**:
 - **No question links:** there's nowhere to store the questions except as text in `description`.
@@ -408,20 +525,11 @@ There are no answers, rubrics or options.
 - **One competency only:** `competency_target` holds a single value, but a draft can target several.
 - **Drafts would leak to students:** `status` is free text, and both list routes (`GET /classes/{class_id}/homework`, `GET /students/{student_id}/homework`) return every row with no status filter. A draft would appear to students straight away, and "draft" would be an invented status anyway.
 
-**Smallest suitable model (proposal only, not implemented):**
-
-| Table | Fields |
-|---|---|
-| `homework_drafts` | `id`, `student_id` (FK), `school_id`, `subject_id`, `created_by` (user), `status`, `requested_questions`, `max_total_marks`, `rationale` (JSON), `score_source`, `created_at`, `reviewed_by`, `reviewed_at`, and a nullable `homework_remediation_id` set on approval |
-| `homework_draft_items` | `draft_id` (FK), `position`, `question_id`, a snapshot of `text`, `marks`, `competency`, `bloom_level` and `type` at assembly time (because bank questions can be edited later), plus unique (`draft_id`, `position`) and unique (`draft_id`, `question_id`) |
-
-**Needs team approval:**
-- review statuses and who may change them
-- teacher ownership
-- whether items keep a snapshot of the question or just reference it
-- how drafts become assignments, and how the existing list routes exclude drafts
-- retention
-- how migrations are run (Alembic is in `requirements.txt` but not set up)
+Dedicated `HomeworkDraftRecord` and `HomeworkDraftItemRecord` tables implement storage,
+frozen snapshots, review and ownership. Approved drafts become separate single-student
+`HomeworkAssignmentRecord` rows, leaving legacy remediation lists separate. See the saved-draft
+and assignment sections above for the implemented fields and transitions. Retention and a
+migration framework still need team decisions.
 
 ### How question selection works
 
@@ -453,15 +561,14 @@ There are no answers, rubrics or options.
 - Pedagogical strategies
 - Question selection by topic, difficulty and cognitive level (no such data or agreed policy yet; selection currently uses subject, school and competency)
 - AI-assisted question generation for gaps in the question bank
-- Homework for students or groups
-- Teacher review and approval
-- Teacher views of submissions, then evaluation and feedback
+- Group distribution (individual homework and teacher review are implemented)
+- A class-level progress view; connecting homework marks to competency scores (needs an agreed rule)
 
 ## Responsibilities and boundaries
 
 **This module owns:** homework workflow, strategy and question selection logic, and the homework API.
 
-**This module doesn't own:** OCR, grading, assessment and diagnosis, the question generation pipeline, the time-aware engine, shared backend infrastructure, or the frontend.
+**This module doesn't own:** OCR, formal assessment grading, assessment and diagnosis, the question generation pipeline, the time-aware engine, shared backend infrastructure, or the frontend.
 
 **Code outside this folder that it relies on:**
 
@@ -513,11 +620,11 @@ All paths are under `/api/v1`.
 
 | Method and path | Role check in code | State |
 |---|---|---|
-| `GET /classes/{class_id}/homework` | Any logged-in user | Works |
-| `POST /classes/{class_id}/homework` | admin, principal, teacher | Partial |
-| `GET /students/{student_id}/homework` | Logged-in user; students limited to their own ID | Partial |
-| `POST /homework/{homework_id}/submissions` | Any logged-in user | **Mock** |
-| `GET /students/{student_id}/remediation/recommendation` | Any logged-in user | Partial |
+| `GET /classes/{class_id}/homework` | Real login; admin or school-authorized educator | Works |
+| `POST /classes/{class_id}/homework` | Real login; admin or school-authorized educator; student/class match | Works |
+| `GET /students/{student_id}/homework` | Real login; student/parent link or authorized educator/admin | Works |
+| `POST /homework/{homework_id}/submissions` | Real login; linked student owning the task | Completion only; no fabricated grade |
+| `GET /students/{student_id}/remediation/recommendation` | Real login; student/parent link or authorized educator/admin | Existing recommendation logic |
 | `GET /students/{student_id}/homework/gap-analysis` | admin; principal or teacher (school or active membership); linked parent | Works; read-only |
 | `POST /students/{student_id}/homework/preview` | admin; principal or teacher (school or active membership) | Works; saves nothing |
 | `POST /students/{student_id}/homework/drafts` | admin; principal or teacher (school or active membership) | Works; saves a draft |
@@ -528,8 +635,122 @@ All paths are under `/api/v1`.
 | `GET /homework/assignments`, `GET /homework/assignments/{assignment_id}` | admin; principal (their schools); teacher (own drafts' assignments) | Works; teacher-facing |
 | `POST /student-account-links`, `DELETE /student-account-links/{link_id}` | admin only | Works |
 | `GET`/`PUT /students/me/homework/assignments/{assignment_id}/submission`, `POST .../submission/submit` | linked student only, own assignments | Works; no grading |
+| `GET /homework/assignments/{assignment_id}/submissions`, `GET .../submissions/{student_id}` | Same as viewing the assignment; a bearer token is required (no `DEMO_MODE` stand-in) | Works; read-only |
+| `GET .../evaluations`, `POST`/`GET .../evaluation`, `PATCH .../evaluation/items`, `POST .../evaluation/finalize`, `POST .../evaluation/release` (under `/homework/assignments/{assignment_id}`) | Same as viewing the assignment; a bearer token is required | Works; manual marking only |
+| `GET /students/me/homework/assignments/{assignment_id}/evaluation` | linked student only, own assignments | Works; released results only |
+| `GET /parents/me/students/{student_id}/homework/assignments/{assignment_id}/evaluation` | parent linked through `ParentStudentLink` | Works; released results only, the same content as the student sees |
 | `GET /students/me/homework/assignments`, `GET /students/me/homework/assignments/{assignment_id}` | linked student only | Works; read-only |
 
 ## Integration with other modules
 
 See [the API contract](../../../../../../docs/api-contracts/differentiated-homework.md). **Those interfaces are proposed and haven't been agreed with the owning teammates.**
+
+
+## Reliability audit and deployment limitations
+
+Student answer-save and final-submit requests, like marking and evaluation transitions,
+reject numeric NaN, positive/negative Infinity and overflowing exponents with JSON-safe 422
+responses. The guard runs before business logic; rejected requests create no submission or
+audit event. Literal words such as "Infinity" in text answers remain valid text.
+
+The concurrency tests interleave competing requests after a read to verify unique constraints,
+version checks, rollback and audit atomicity. They do not prove behavior under every database
+load pattern; SQLite can still report lock contention. No row-lock guarantee is assumed.
+
+SQLite foreign keys are not enabled by the shared engine. ORM deletion guards do not protect
+bulk or raw SQL deletes; maintenance scripts must explicitly preserve references. There is no
+Alembic migration workflow. The evaluation tables are new tables created by existing
+`create_all`; this does not migrate or repair existing table definitions or orphaned data.
+
+Deployment/team issues outside this workflow:
+- Shared `DEMO_MODE` remains a development setting. All protected routers now explicitly
+  require real access tokens; production configuration refuses demo mode. Disable it for live data.
+- The question-bank and legacy remediation access defects identified in the first audit are
+  remediated below. Formal assessment routes retain separate inherited access concerns;
+  this patch does not change formal assessment scoring or competency updates.
+- Parent links authorize access by row existence; independent verification is unavailable.
+- Each assignment has one student; queue counts describe that single student. Group rosters,
+  AI generation, automatic grading, competency updates and post-release edits are not added.
+
+
+## Question-bank and legacy remediation security remediation
+
+### Question-bank access
+
+`GET /api/v1/assessments/question-bank` requires a real bearer token (401 without one, even
+in DEMO_MODE) and admin, principal or teacher role (403 otherwise). It is an authoring endpoint.
+Ordinary question content would include text, type, options and marks; keys, rubrics and source
+document references are teaching-only. There is no existing student bank reader requirement,
+so no new public/student endpoint is introduced. Students use key-free homework snapshots.
+
+The full authoring response is preserved for authorized educators. Results are scoped to the
+authorized `X-School-Id` through existing school-context rules: admin can select any school;
+other educators need their own school or active membership. Subject filtering is preserved.
+The legacy demo fallback is restricted to its original school-1/math context after login/role
+checks; an empty unrelated bank returns an empty list.
+
+Update, regenerate, delete and generation endpoints also require real login. Updates and
+regeneration use scoped lookup and generic 404 for missing/inaccessible questions, closing
+key retrieval via an empty update. Regeneration requires a persisted bank question rather than
+an arbitrary absent ID. Delete retains an idempotent response without deleting foreign rows.
+Generation requires every source document to exist in the selected school (generic 404
+otherwise) and saves bank questions under that school. No provider or grading logic changed.
+
+### Legacy remediation
+
+All five legacy operations require real login. Student-specific reads/recommendations use
+StudentAccountLink for students, ParentStudentLink for parents, and existing school access
+for educators/admin. Missing and inaccessible students return the same 404. Class lists and
+creation are educator-only and school-scoped. Creation requires the request class and student
+class/school to match the path; stored mismatches are excluded from lists and submission.
+
+Only the linked student owner can submit a legacy task. Submission changes assigned to
+submitted, never invents a grade, and preserves historical score and reviewed status on
+repetition. Its response retains `message` and nullable `score`. It accepts no answers and
+never writes formal assessment submissions, competency snapshots, live scores or baselines.
+The complete differentiated assignment/submission/evaluation workflow is unchanged.
+
+### Callers and compatibility
+
+`src/lib/apiClient.ts` calls the bank through getQuestionBank and already sends bearer and
+X-School-Id headers. DataContext loads it for teacher/AssessmentBuilder.tsx; authorized teacher
+key/rubric fields retain their names and shape. DataContext also attempts loading for other
+logged-in roles and catches errors; those requests now receive 403.
+
+DataContext persists bank data in browser local storage and uses bundled demo fallback data.
+The integrated frontend clears known legacy teaching caches, isolates demo browser storage and
+excludes demo chunks from live builds. Copies exported before the fix cannot be erased remotely.
+
+Legacy creation/completion in DataContext, teacher/MyClasses.tsx, teacher/RemediationManager.tsx
+and student views operate on local state, not these backend routes. The local completion
+demonstration no longer invents score 92; real workflows use server-evaluated results. External clients relying on
+anonymous bank access, student/parent bank access, all-school results, arbitrary-ID regeneration,
+class-wide student lists or fabricated backend scores must adopt these restricted contracts.
+
+Regression coverage is in `tests/test_homework_legacy_security.py`: roles, school memberships,
+keys/rubrics, cross-student access, explicit identity, revoked links, mismatched records,
+creation validation and unchanged competency/formal-assessment records.
+
+
+## Live integration and final audit
+
+The default frontend now uses the real authenticated homework API, explicit identities,
+versioned saves and released results. Student/parent demo identities are never used by the
+live workspace. The offline demonstration is opt-in, isolated from backend writes, and uses
+separate browser storage. The live bank no longer falls back to cached/bundled teaching keys.
+See [deployment readiness](../../../../../../docs/deployment-readiness.md) for the complete
+assessment security matrix, frontend compatibility, environment checklist, migration gates,
+remaining platform risks and required team decisions. Earlier caller/cache observations above
+describe the pre-integration audit; this section and the deployment checklist describe current behavior.
+
+The API lifecycle from gap analysis through parent result access is exercised in
+`backend/tests/test_homework_end_to_end.py`; it verifies that homework never writes formal
+assessment submissions, competency snapshots or student scores. Formal assessment routes are
+now real-login educator-only and school/class scoped; their existing authorized grading logic
+is preserved. No new grading algorithm is used in either frontend or homework services.
+
+
+The full platform stabilization audit is recorded in [release readiness](../../../../../../docs/release-readiness.md).
+All protected API operations require a real bearer token, and non-finite JSON is rejected by the
+shared API dependency. Database faults return a redacted 500 without exposing SQL parameters;
+rollback/audit assertions remain tested. No homework academic rules or snapshots changed.

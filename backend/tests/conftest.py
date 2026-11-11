@@ -103,6 +103,7 @@ TEST_DIR = Path(tempfile.mkdtemp(prefix="lumeneios-tests-")).resolve()
 # Assigned rather than defaulted, so these also override any exported value or .env file.
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(TEST_DIR / 'test.db').as_posix()}"
 os.environ["STORAGE_LOCAL_DIR"] = str(TEST_DIR / "uploads")
+os.environ["DEMO_MODE"] = "true"  # Exercise the legacy demo paths in the isolated test app.
 
 # Guard phase 1: config.py only reads settings, so nothing has been written or connected yet.
 from backend.app.core.config import settings  # noqa: E402
@@ -112,7 +113,7 @@ _assert_isolated(settings.DATABASE_URL, settings.STORAGE_LOCAL_DIR)
 from backend.app.main import app  # noqa: E402
 from backend.app.core.security import create_access_token  # noqa: E402
 from backend.app.db.session import engine, init_db, AsyncSessionLocal  # noqa: E402
-from backend.app.seed.seed_data import seed_database_if_empty  # noqa: E402
+from backend.tests.sample_seed import seed_database_if_empty  # noqa: E402
 from backend.app.services.storage_service import storage_service  # noqa: E402
 
 # Guard phase 2: check the live objects. The engine connects lazily, so it hasn't connected yet.

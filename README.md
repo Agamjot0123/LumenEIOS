@@ -1,5 +1,12 @@
 # LumenEIOS — Adaptive EdTech Ecosystem (NEP 2020)
 
+**Current integration:** the default frontend is the live, authenticated homework workspace.
+The historical multi-role dashboards described below are available only with explicit
+`VITE_DEMO_MODE=true` and are offline demonstrations. They cannot write to the live backend.
+See [deployment readiness](../../docs/deployment-readiness.md) for production configuration,
+security boundaries, provisioning/migration gates and verification limitations.
+
+
 > **Complete Multi-Role Adaptive Learning & School Management Platform**  
 > Aligned with India's National Education Policy (NEP 2020) Competency-Based Education framework.
 
@@ -85,11 +92,9 @@ Follow this workflow to demonstrate the complete power of LumenEIOS:
      - Inspect the before-and-after schedule.
      - Note that 100% of Core Competencies are strictly protected.
      - Click **"Accept Proposed Plan"**: Recovers 14 days, restores a safe calendar buffer, and records an audit log entry!
-4. **Handwritten Optical Scan Review** (`/teacher/scan-review`):
-   - Open the scan review tab for offline low-tech schools.
-   - Inspect the simulated handwritten worksheet for Aarav Patel.
-   - Review the AI OCR confidence (98.4%) and adjust awarded marks.
-   - Click **"Approve & Recalibrate Baseline"** to update Aarav's competency scores.
+4. **Handwritten document upload** (`/upload`):
+   - Open **Upload** as a teacher or student and run OCR on a photo or PDF.
+   - Sign in as a student to see saved extracts under **History** and class, subjects, and linked parents under **Profile**.
 5. **Differentiated Remediation** (`/teacher/remediation`):
    - View personalized assignments. A student weak in LU receives bilingual word problem scaffolding; a student weak in AU receives hands-on measurement tasks.
 6. **Student Learning Mission** (`/student/dashboard`):
@@ -122,8 +127,10 @@ Follow this workflow to demonstrate the complete power of LumenEIOS:
 - `/teacher/classes` — Student Roster & Classroom Heatmap Matrix
 - `/teacher/time-aware` — **Signature Feature**: Time-Aware Pedagogical Engine
 - `/teacher/curriculum-180` — 180-Day Daily Micro-Curriculum (VARK & Bloom's)
-- `/teacher/assessments` — Competency Assessment Builder & Question Bank
-- `/teacher/scan-review` — Offline OCR Optical Worksheet Grading
+- `/teacher/assessments-beta` — AI Question Studio Beta
+- `/upload` — OCR text extraction for teachers and students
+- `/student/history` — Saved OCR extracts for the signed-in student
+- `/student/profile` — Student details, class, subjects, and linked parents
 - `/teacher/remediation` — Differentiated Homework Manager
 - `/student/dashboard` — Student Missions, Practice Lab & Achievements
 - `/parent/dashboard` — Family Holistic Card & Plain-Language Growth
@@ -175,7 +182,7 @@ The OCR preview runs in the FastAPI backend, not in the browser. The model loads
    python -m pip install -r backend/requirements-ocr.txt
    ```
 3. Start the backend as above. The default model is `Qwen/Qwen2.5-VL-3B-Instruct-AWQ`; override `QWEN_VL_MODEL_ID` in `.env` if needed.
-4. Click **Teacher** under **Switch Persona**, open **Scan Review** in the sidebar, upload one or more JPG, PNG, or PDF files, and click **Run OCR**. The optional checkbox waits five seconds before each image/page.
+4. Click **Teacher** under **Switch Persona**, open **Upload** in the sidebar, upload one or more JPG, PNG, or PDF files, and click **Run OCR**. The optional checkbox waits five seconds before each image/page.
 
 The preview displays extracted text only; it does not grade or publish marks. OCR files are removed from temporary backend storage after each request. If CUDA or model dependencies are unavailable, the endpoint reports an error instead of returning simulated text.
 

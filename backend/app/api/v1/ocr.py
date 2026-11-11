@@ -20,7 +20,9 @@ from backend.app.models.entities import (
     GradingBatchItem,
     Assessment,
     AssessmentSubmission,
+    AssignmentOcrUpload,
     Student,
+    StudentOcrHistory,
     StudentCompetencySnapshot,
     DatasetExample,
     User,
@@ -31,6 +33,7 @@ from backend.app.schemas.ocr import (
     OCRRunOut,
     OCRPreviewOut,
     OCRAnswerRegion,
+    StudentOcrHistoryOut,
     HumanReviewRequest,
     HumanReviewOut,
     BatchItemOut,
@@ -43,7 +46,10 @@ from backend.app.services.ocr_service import (
     QwenOCRUnavailableError,
     get_ocr_provider,
 )
+from backend.app.services.progress import report_progress, stream_job
 from backend.app.services.storage_service import storage_service
+from backend.app.services.assessment_audience import upload_assignments
+from backend.app.modules.differentiated_homework.student_access import require_linked_student
 from backend.app.services.batch_grading_service import (
     match_student_from_filename_or_text,
     run_grading_batch_job,
@@ -65,20 +71,59 @@ class ProcessOCRRequest(BaseModel):
     provider: str = "simulated"
 
 
+
+@router.get("/history", response_model=List[StudentOcrHistoryOut])
+async def get_student_ocr_history(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("student", authenticated=True)),
+):
+    student = await require_linked_student(db, current_user)
+    result = await db.execute(
+        select(StudentOcrHistory, Assessment.title)
+        .outerjoin(AssignmentOcrUpload, AssignmentOcrUpload.history_id == StudentOcrHistory.id)
+        .outerjoin(Assessment, Assessment.id == AssignmentOcrUpload.assessment_id)
+        .where(StudentOcrHistory.student_id == student.id)
+        .order_by(StudentOcrHistory.created_at.desc(), StudentOcrHistory.id.desc())
+    )
+    return [
+        StudentOcrHistoryOut.model_validate(entry).model_copy(update={"assignment_title": title})
+        for entry, title in result
+    ]
+
+
 @router.post("/extract-preview", response_model=OCRPreviewOut)
 async def extract_ocr_preview(
     files: List[UploadFile] = File(...),
     wait_before_each_image: bool = Form(False),
-    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
+    db: AsyncSession = Depends(get_db),
+    assessment_id: str | None = Form(None),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="Please select at least one image or PDF.")
     if len(files) > 50:
         raise HTTPException(status_code=400, detail="Maximum upload size is 50 files at a time.")
 
+    student_id = None
+    if assessment_id is not None:
+        student, _ = await upload_assignments(db, current_user, assessment_id)
+        student_id = student.id if student else None
+        await db.rollback()
+    elif current_user.role == "student":
+        student_id = (await require_linked_student(db, current_user)).id
+        # Release the read transaction while the model processes the upload.
+        await db.rollback()
+
     provider = get_ocr_provider("qwen")
     results = []
-    for file in files:
+    total_files = len(files)
+    for index, file in enumerate(files, start=1):
+        report_progress(
+            "file",
+            f"Opening {file.filename or 'file'} ({index} of {total_files})",
+            index - 1,
+            total_files,
+        )
         extension = os.path.splitext((file.filename or "").lower())[1]
         if (
             extension not in OCR_PREVIEW_EXTENSIONS
@@ -102,7 +147,10 @@ async def extract_ocr_preview(
 
             extraction = await provider.extract_document(
                 detail["storage_path"],
-                {"buffer_seconds": 5 if wait_before_each_image else 0},
+                {
+                    "buffer_seconds": 5 if wait_before_each_image else 0,
+                    "file_name": detail["file_name"],
+                },
             )
             results.append(
                 {
@@ -110,6 +158,12 @@ async def extract_ocr_preview(
                     "extracted_text": extraction["extracted_text"],
                     "pages_processed": extraction["pages_processed"],
                 }
+            )
+            report_progress(
+                "file",
+                f"Finished {detail['file_name']} ({index} of {total_files})",
+                index,
+                total_files,
             )
         except QwenOCRUnavailableError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -129,11 +183,32 @@ async def extract_ocr_preview(
         finally:
             Path(detail["storage_path"]).unlink(missing_ok=True)
 
+    if student_id:
+        history_rows = [StudentOcrHistory(student_id=student_id, **item) for item in results]
+        db.add_all(history_rows)
+        if assessment_id is not None:
+            await db.flush()
+            db.add_all(
+                AssignmentOcrUpload(history_id=entry.id, assessment_id=assessment_id) for entry in history_rows
+            )
+        await db.commit()
+
     return {
         "provider": "qwen2.5-vl",
         "model_version": settings.QWEN_VL_MODEL_ID,
         "results": results,
     }
+
+
+@router.post("/extract-preview/stream")
+async def stream_extract_ocr_preview(
+    files: List[UploadFile] = File(...),
+    wait_before_each_image: bool = Form(False),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
+    db: AsyncSession = Depends(get_db),
+    assessment_id: str | None = Form(None),
+):
+    return stream_job(lambda: extract_ocr_preview(files, wait_before_each_image, current_user, db, assessment_id))
 
 
 @router.post("/process", response_model=OCRRunOut)

@@ -1,11 +1,131 @@
-import React, { useState } from 'react';
-import { AlertCircle, FileText, Loader2, ScanLine, Trash2, UploadCloud } from 'lucide-react';
-import { ApiError, apiClient } from '../../lib/apiClient';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, FileText, Loader2, Printer, ScanLine, Trash2, UploadCloud } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { ProcessProgress } from '../../components/common/ProcessProgress';
+import { ApiError, apiClient, ProcessStep, UploadAssignment } from '../../lib/apiClient';
+import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
+import { UnauthorizedPage } from '../shared/UnauthorizedPage';
+
+const OFFLINE_DEMO_BANNER = 'OFFLINE DEMO - synthetic data, not official student results.';
+
+function printOcrExtract(
+  items: Array<{ fileName: string; extractedText: string; pagesProcessed: number }>,
+  provider: string,
+  modelVersion: string,
+) {
+  const printWin = window.open('', '_blank', 'width=900,height=700');
+  if (!printWin) return;
+  const demoBanner = DEMO_MODE
+    ? `<p style="background:#FEF3C7;border:1px solid #F59E0B;padding:8px 12px;font-size:12px;">${escapeHtml(OFFLINE_DEMO_BANNER)}</p>`
+    : '';
+  const cards = items
+    .map((item) => `
+      <section style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #E1E7ED;">
+        <h2 style="font-size:14px;margin:0 0 6px 0;">${escapeHtml(item.fileName)}</h2>
+        <p style="font-size:11px;color:#667085;margin:0 0 8px 0;">${escapeHtml(item.pagesProcessed)} page(s)</p>
+        <pre style="white-space:pre-wrap;font-size:12px;background:#F3F6F8;padding:12px;">${escapeHtml(item.extractedText || '[No text extracted]')}</pre>
+      </section>`)
+    .join('');
+  printWin.document.write(`
+    <html>
+      <head>
+        <title>OCR extract — LumenEIOS</title>
+        <style>body{font-family:Inter,Arial,sans-serif;color:#182230;padding:32px;line-height:1.5}</style>
+      </head>
+      <body>
+        ${demoBanner}
+        <h1>LumenEIOS OCR extract</h1>
+        <p style="font-size:12px;color:#667085;">${escapeHtml(provider)} · ${escapeHtml(modelVersion)}</p>
+        ${cards}
+      </body>
+    </html>
+  `);
+  printWin.document.close();
+  printWin.focus();
+  setTimeout(() => printWin.print(), 250);
+}
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES = 50;
 
-export const ScanReview: React.FC = () => {
+export function ScanReview({ beta = false }: { beta?: boolean }) {
+  const { currentUser } = useAuth();
+  if (!currentUser || !['student', 'teacher'].includes(currentUser.role)) return <UnauthorizedPage />;
+  const key = `${currentUser.id}:${currentUser.schoolId}`;
+  return beta ? <UploadBeta key={key} /> : <UploadPage key={key} />;
+}
+
+function UploadBeta() {
+  const { currentUser } = useAuth();
+  const isStudent = currentUser?.role === 'student';
+  const [assignments, setAssignments] = useState<UploadAssignment[]>();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    apiClient.assessments.uploadAssignments()
+      .then((papers) => { if (active) setAssignments(papers); })
+      .catch((err) => { if (active) setError(err instanceof Error ? err.message : 'Could not load assignments.'); });
+    return () => { active = false; };
+  }, []);
+
+  const selected = assignments?.find((assignment) => assignment.id === selectedId);
+  if (selected) {
+    return (
+      <UploadPage
+        key={selected.id}
+        assignment={selected}
+        onBack={() => setSelectedId(null)}
+        onProcessed={isStudent ? () => {
+          setAssignments((papers) => papers?.map((paper) =>
+            paper.id === selected.id ? { ...paper, uploaded: true } : paper
+          ));
+        } : undefined}
+      />
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
+        <h1 className="text-xl font-bold text-navy-900">Upload Beta</h1>
+        <p className="mt-2 text-sm text-content-secondary">
+          {isStudent ? 'Open an assignment for your class and subject.' : 'Open an assignment in your school to preview OCR.'}
+        </p>
+      </header>
+      {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
+      {!assignments && !error && <p role="status">Loading assignments…</p>}
+      {assignments?.length === 0 && <p className="text-sm text-content-secondary">No open assignments.</p>}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {assignments?.map((assignment) => (
+          <button
+            key={assignment.id}
+            type="button"
+            onClick={() => setSelectedId(assignment.id)}
+            className="rounded-xl border border-surface-border bg-white p-4 text-left shadow-subtle hover:border-teal-500 focus-visible:outline-teal-500"
+          >
+            <span className="block font-semibold text-teal-700">{assignment.subject_name}</span>
+            <span className="mt-1 block font-bold text-navy-900">{assignment.title}</span>
+            <span className="mt-1 block text-xs text-content-secondary">
+              {assignment.class_name} · {assignment.date} · {assignment.total_marks} marks
+              {isStudent && (assignment.uploaded ? ' · Uploaded' : ' · Awaiting upload')}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function UploadPage({ assignment, onBack, onProcessed }: {
+  assignment?: UploadAssignment;
+  onBack?: () => void;
+  onProcessed?: () => void;
+}) {
+  const { currentUser } = useAuth();
+  const isStudent = currentUser?.role === 'student';
   const [files, setFiles] = useState<File[]>([]);
   const [results, setResults] = useState<Awaited<ReturnType<typeof apiClient.ocr.extractPreview>> | null>(
     null
@@ -13,7 +133,18 @@ export const ScanReview: React.FC = () => {
   const [waitBeforeEachImage, setWaitBeforeEachImage] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
   const [error, setError] = useState('');
+
+  const recordOcrStep = (step: ProcessStep) => {
+    setOcrSteps((current) => {
+      const index = current.findIndex((item) => item.step === step.step);
+      if (index < 0) return [...current, step];
+      const next = current.slice();
+      next[index] = step;
+      return next;
+    });
+  };
 
   const addFiles = (selected: FileList | File[]) => {
     const additions: File[] = [];
@@ -52,8 +183,10 @@ export const ScanReview: React.FC = () => {
     setIsProcessing(true);
     setError('');
     setResults(null);
+    setOcrSteps([]);
     try {
-      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage));
+      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage, recordOcrStep, assignment?.id));
+      onProcessed?.();
     } catch (requestError) {
       setError(
         requestError instanceof ApiError
@@ -68,6 +201,7 @@ export const ScanReview: React.FC = () => {
   const clearFiles = () => {
     setFiles([]);
     setResults(null);
+    setOcrSteps([]);
     setError('');
   };
 
@@ -76,16 +210,47 @@ export const ScanReview: React.FC = () => {
       <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
         <div className="flex items-center gap-2">
           <ScanLine className="h-5 w-5 text-teal-600" />
-          <h1 className="text-xl font-bold tracking-tight text-navy-900">OCR Extraction Preview</h1>
+          <h1 className="text-xl font-bold tracking-tight text-navy-900">{assignment ? 'Upload Beta' : 'Upload'}</h1>
           <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700">
             Qwen2.5-VL
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          The FastAPI backend runs Qwen on its CUDA GPU. This developer preview extracts text only;
-          it does not grade or publish marks.
+          Upload a photo or PDF to extract text. OCR does not grade the work.
+          {isStudent && !assignment && (
+            <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
+          )}
         </p>
+        {isStudent && (
+          <p className="mt-2 text-sm text-content-secondary">
+            Successful extracts are saved to your <Link to="/student/history" className="text-teal-700 underline">History</Link>.
+          </p>
+        )}
       </header>
+
+      {assignment && (
+        <article className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">
+          <button type="button" onClick={onBack} disabled={isProcessing} className="mb-3 text-sm font-semibold text-teal-700 underline disabled:opacity-50">
+            Back to assignments
+          </button>
+          <h2 className="font-semibold text-navy-900">{assignment.title}</h2>
+          <p className="text-xs text-content-secondary">
+            {assignment.class_name} · {assignment.subject_name} · {assignment.date} · {assignment.total_marks} marks
+          </p>
+          <ol className="mt-3 space-y-3">
+            {assignment.questions.map((question, index) => (
+              <li key={index} className="text-sm text-navy-900">
+                <p><strong>Q{index + 1}.</strong> {question.text} ({question.marks} marks)</p>
+                {!!question.options?.length && (
+                  <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
+                    {question.options.map((option, optionIndex) => <li key={optionIndex}>{option}</li>)}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ol>
+        </article>
+      )}
 
       <section className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
         <label
@@ -189,6 +354,12 @@ export const ScanReview: React.FC = () => {
           </div>
         )}
 
+        {ocrSteps.length > 0 && (
+          <div className="mt-4">
+            <ProcessProgress steps={ocrSteps} />
+          </div>
+        )}
+
         <button
           type="button"
           onClick={processFiles}
@@ -210,7 +381,18 @@ export const ScanReview: React.FC = () => {
           </p>
         </div>
         {results ? (
-          results.results.map((result) => (
+          <>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => printOcrExtract(results.results, results.provider, results.modelVersion)}
+                className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-white px-3 py-1.5 text-xs font-semibold text-navy-900 hover:bg-surface-bg"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Print extract
+              </button>
+            </div>
+            {results.results.map((result) => (
             <div
               key={result.fileName}
               className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle"
@@ -225,7 +407,8 @@ export const ScanReview: React.FC = () => {
                 {result.extractedText || '[No text extracted]'}
               </pre>
             </div>
-          ))
+            ))}
+          </>
         ) : (
           <div className="rounded-xl border border-surface-border bg-white p-4 text-sm text-content-secondary shadow-subtle">
             {isProcessing ? 'Waiting for OCR extraction…' : 'Extracted text will be shown in this panel.'}
@@ -234,4 +417,4 @@ export const ScanReview: React.FC = () => {
       </section>
     </div>
   );
-};
+}

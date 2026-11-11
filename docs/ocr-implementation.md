@@ -8,7 +8,7 @@ LumenEIOS OCR today only previews text. A teacher uploads JPG, PNG or PDF answer
 
 ```mermaid
 flowchart LR
-    T[Teacher: Scan Review page] -->|"POST /api/v1/ocr/extract-preview<br/>(multipart: files, wait_before_each_image)"| API[FastAPI ocr.py]
+    T[Teacher: Upload page] -->|"POST /api/v1/ocr/extract-preview<br/>(multipart: files, wait_before_each_image)"| API[FastAPI ocr.py]
     API -->|type + size checks| ST[StorageService<br/>UUID temp file]
     ST --> Q[QwenVisionOCRProvider]
     Q -->|image| IMG[PIL → RGB]
@@ -61,7 +61,7 @@ All routes are in `backend/app/api/v1/ocr.py` under `/api/v1/ocr`. Only `admin`,
 
 ## Frontend
 
-The **OCR Extraction Preview** screen is at `/teacher/scan-review` (`src/pages/teacher/ScanReview.tsx`).
+The **Upload** screen is at `/upload` (`src/pages/teacher/ScanReview.tsx`). Successful student uploads store recognized text, filename, page count, and timestamp under the linked student ID. The **History** page loads those records from `GET /api/v1/ocr/history`. Uploaded files remain temporary.
 
 - Teachers drag and drop or pick up to 50 files: PDF, JPG, JPEG or PNG, 15 MB each.
 - The page rejects bad types, oversize files and duplicates before sending anything.

@@ -377,6 +377,27 @@ class StudentAssignmentOut(StudentAssignmentSummaryOut):
     items: List[StudentAssignmentItemOut]
 
 
+# --- Parent discovery (read-only) ------------------------------------------------------
+
+
+class ParentChildOut(BaseModel):
+    """A student linked to the logged-in parent through ParentStudentLink. Name and class
+    only; no scores, rosters or other students."""
+
+    id: str
+    name: str
+    class_name: str
+    school_id: str
+
+
+class ParentAssignmentSummaryOut(StudentAssignmentSummaryOut):
+    """A linked child's assignment as the child sees it in their list, plus progress flags.
+    Never includes questions, answers, keys, rubrics or unreleased marks."""
+
+    submission_status: Literal["not_started", "in_progress", "submitted"]
+    result_released: bool
+
+
 # --- Student answer submissions ---------------------------------------------------------
 
 SubmissionStatus = Literal["in_progress", "submitted"]
@@ -493,3 +514,321 @@ class HomeworkSubmissionOut(BaseModel):
     answered_count: int
     question_count: int
     answers: List[SubmissionAnswerOut]  # answered questions only, by position
+
+
+# --- Teacher-facing, read-only submission views ---------------------------------------------
+# Separate from the student schemas. Never included: answer keys, rubrics, marks, scores,
+# grades, feedback, competency or Bloom data, source question IDs, and the submission's
+# internal version.
+
+
+class TeacherSubmissionCountsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    total_students: int
+    not_started: int
+    in_progress: int
+    submitted: int
+    submitted_late: int
+
+
+class TeacherStudentSubmissionOut(BaseModel):
+    """One student's progress on the assignment. is_late is null until submitted."""
+
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    student_name: Optional[str]  # null only if the Student record no longer exists
+    status: SubmissionViewStatus
+    started_at: Optional[datetime]
+    updated_at: Optional[datetime]
+    submitted_at: Optional[datetime]
+    is_late: Optional[bool]
+    answered_count: int
+    question_count: int
+
+
+class TeacherAssignmentSubmissionsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    assignment_id: str
+    subject_id: str
+    subject_name: Optional[str]
+    assignment_status: AssignmentStatus
+    assigned_at: datetime
+    due_at: Optional[datetime]
+    question_count: int
+    counts: TeacherSubmissionCountsOut
+    students: List[TeacherStudentSubmissionOut]
+
+
+class TeacherQuestionAnswerOut(BaseModel):
+    """A frozen question (text, type and options only) with the student's answer, if any."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    answered: bool
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+
+
+class TeacherSubmissionDetailOut(TeacherStudentSubmissionOut):
+    assignment_id: str
+    questions: List[TeacherQuestionAnswerOut]  # every question, by position
+
+
+# --- Homework evaluations (manual grading) ---------------------------------------------------
+# Marks are whole numbers, like every other marks column in the project (the frozen question's
+# `marks`, AssessmentSubmission.marks_obtained). StrictInt rejects floats, NaN, infinity,
+# booleans and strings. No percentages, grades or thresholds are computed anywhere.
+
+EvaluationStatus = Literal["pending", "marked", "released"]
+MAX_FEEDBACK_LENGTH = 2000  # the same limit as a draft review note
+MAX_MARK_UPDATES = 500
+
+
+class EvaluationMarkUpdate(BaseModel):
+    """A change to one question's mark and/or feedback, by its 1-based position.
+
+    Give awarded_marks, feedback, or both. Fields left out keep their values. null is rejected
+    (as in the answer-save request); send feedback "" to clear it. A mark can be changed while
+    the evaluation is pending, but not removed."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    position: StrictInt = Field(ge=1)
+    awarded_marks: Optional[StrictInt] = Field(default=None, ge=0)
+    feedback: Optional[str] = Field(default=None, max_length=MAX_FEEDBACK_LENGTH)
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> "EvaluationMarkUpdate":
+        given = {"awarded_marks", "feedback"} & self.model_fields_set
+        if not given:
+            raise ValueError("give awarded_marks, feedback, or both")
+        for name in given:
+            if getattr(self, name) is None:
+                raise ValueError(f"{name} can't be null")
+        return self
+
+
+class EvaluationMarksUpdate(BaseModel):
+    """Several question updates applied together (all or nothing), against the current version."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: StrictInt = Field(ge=1)
+    items: List[EvaluationMarkUpdate] = Field(min_length=1, max_length=MAX_MARK_UPDATES)
+
+    @model_validator(mode="after")
+    def _unique_positions(self) -> "EvaluationMarksUpdate":
+        positions = [i.position for i in self.items]
+        repeated = sorted({p for p in positions if positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class EvaluationTransitionRequest(BaseModel):
+    """Body of finalize and release."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    expected_version: StrictInt = Field(ge=1)
+
+
+class TeacherEvaluationItemOut(BaseModel):
+    """One question for the marking teacher: the frozen question, its frozen answer key and
+    rubric, the student's answer, and the mark.
+
+    TEACHER-ONLY: correct_answer and marking_rubric come from the question's frozen snapshot
+    (HomeworkDraftItemRecord), not the live question bank, exactly as stored (text; for an MCQ
+    the key is the option text). null when the snapshot has none. This schema must only be used
+    by the authorized grading endpoints, never in a student or parent response."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    max_marks: int
+    answered: bool
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+    awarded_marks: Optional[int]  # null until marked
+    feedback: Optional[str]
+    marked_by: Optional[str]
+    marked_at: Optional[datetime]
+    correct_answer: Optional[str]  # teacher-only, from the frozen snapshot
+    marking_rubric: Optional[str]  # teacher-only, from the frozen snapshot
+
+
+class TeacherEvaluationOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    assignment_id: str
+    student_id: str
+    student_name: Optional[str]
+    status: EvaluationStatus
+    version: int  # send back as expected_version
+    submitted_at: datetime
+    is_late: bool
+    total_max: int
+    total_awarded: Optional[int]  # set when finalized
+    marked_count: int
+    question_count: int
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    finalized_by: Optional[str]
+    finalized_at: Optional[datetime]
+    released_by: Optional[str]
+    released_at: Optional[datetime]
+    items: List[TeacherEvaluationItemOut]
+
+
+class TeacherEvaluationQueueItemOut(BaseModel):
+    """A submitted homework and how far its evaluation has got."""
+
+    model_config = ConfigDict(frozen=True)
+
+    student_id: str
+    student_name: Optional[str]
+    submitted_at: datetime
+    is_late: bool
+    evaluation_status: Literal["not_started", "pending", "marked", "released"]
+    evaluation_id: Optional[str]
+    marked_count: int
+    question_count: int
+
+
+class StudentResultItemOut(BaseModel):
+    """A released mark as the student sees it. No answer key, rubric or marking metadata."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    text: str
+    type: str
+    options: List[object]
+    answer_text: Optional[str]
+    selected_option_index: Optional[int]
+    max_marks: int
+    awarded_marks: int
+    feedback: Optional[str]
+
+
+class StudentResultOut(BaseModel):
+    """Released results only. No evaluation ID, version, teacher IDs or internal timestamps."""
+
+    model_config = ConfigDict(frozen=True)
+
+    assignment_id: str
+    released_at: datetime
+    total_awarded: int
+    total_max: int
+    items: List[StudentResultItemOut]
+
+
+# --- AI-assisted evaluation suggestions (teacher-only; never student/parent) -----------------
+# Suggestions never finalize, release, or write awarded_marks. Teachers apply marks via PATCH.
+
+SuggestionCorrectness = Literal["correct", "partially_correct", "incorrect", "undetermined"]
+# Ordinal heuristic only — not a calibrated probability.
+SuggestionConfidence = Literal["high", "medium", "low"]
+SuggestionSource = Literal["deterministic_mcq", "gemini", "teacher_required"]
+MAX_SUGGESTION_POSITIONS = 500
+MAX_EXPLANATION_LENGTH = 4000
+MAX_RUBRIC_CRITERIA = 20
+
+
+class RubricCriterionSuggestion(BaseModel):
+    """One rubric criterion with suggested marks. Teacher-only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    criterion: str = Field(min_length=1, max_length=500)
+    max_marks: StrictInt = Field(ge=0)
+    awarded_marks: StrictInt = Field(ge=0)
+    comment: Optional[str] = Field(default=None, max_length=1000)
+
+
+class AIEvaluationSuggestRequest(BaseModel):
+    """Generate suggestions for some or all questions of a pending evaluation.
+
+    With replace=false (default), the request fails if suggestions already exist for any
+    requested position. Re-run uses replace=true (or the dedicated re-run endpoint)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
+    replace: StrictBool = False
+
+    @model_validator(mode="after")
+    def _positions_ok(self) -> "AIEvaluationSuggestRequest":
+        if self.positions is None:
+            return self
+        if not self.positions:
+            raise ValueError("positions, when given, must not be empty")
+        if any(p < 1 for p in self.positions):
+            raise ValueError("positions must be integers >= 1")
+        repeated = sorted({p for p in self.positions if self.positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class AIEvaluationRerunRequest(BaseModel):
+    """Replace stored suggestions for some or all positions of a pending evaluation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
+
+    @model_validator(mode="after")
+    def _positions_ok(self) -> "AIEvaluationRerunRequest":
+        if self.positions is None:
+            return self
+        if not self.positions:
+            raise ValueError("positions, when given, must not be empty")
+        if any(p < 1 for p in self.positions):
+            raise ValueError("positions must be integers >= 1")
+        repeated = sorted({p for p in self.positions if self.positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class AIEvaluationSuggestionItemOut(BaseModel):
+    """One teacher-only suggestion. explanation is internal reasoning; feedback is student-facing
+    text the teacher may adopt. Never returned on student/parent result endpoints."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    suggested_marks: int
+    max_marks: int
+    correctness: SuggestionCorrectness
+    explanation: str
+    feedback: str
+    rubric_criteria: Optional[List[RubricCriterionSuggestion]]
+    confidence: SuggestionConfidence
+    needs_teacher_attention: bool
+    source: SuggestionSource
+    model: Optional[str]
+    updated_at: datetime
+
+
+class AIEvaluationSuggestionsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    evaluation_id: str
+    assignment_id: str
+    evaluation_status: EvaluationStatus
+    evaluation_version: int  # unchanged by suggestion generate/re-run
+    items: List[AIEvaluationSuggestionItemOut]

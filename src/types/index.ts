@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
+export type Role = 'developer' | 'admin' | 'principal' | 'teacher' | 'student' | 'parent';
 
 export type InfrastructureTier = 'high-tech' | 'standard' | 'low-tech';
 
@@ -27,6 +27,8 @@ export interface User {
   assignedSubjectIds?: string[];
   linkedChildIds?: string[];
   designation?: string;
+  /** True when signed in via the development demo-root login (LEOFELIX / KVR). */
+  demoRoot?: boolean;
 }
 
 export interface School {
@@ -82,6 +84,11 @@ export interface Student {
   homeworkCompletionRate: number;
   needsSupport: boolean;
   supportArea?: string;
+  /** Optional admission year used by school performance charts. */
+  joinedYear?: number;
+  /** Present on `/classes/students/me` profile responses. */
+  subjectNames?: string[];
+  parentNames?: string[];
 }
 
 export interface Question {
@@ -289,6 +296,42 @@ export interface CrossCurricularProposal {
   estimatedDurationHours: number;
   timeSavedHours: number;
   status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface ExtractedBlock {
+  kind: 'text' | 'equation';
+  content: string;
+}
+
+export interface SheetAssignment {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  schoolId: string;
+  classId: string;
+  className: string;
+  subject: string;
+  title: string;
+  instructions: string;
+  dueDate: string;
+  createdAt: string;
+}
+
+export interface AnswerSheetUpload {
+  id: string;
+  assignmentId: string;
+  assignmentTitle: string;
+  studentId: string;
+  studentName: string;
+  classId: string;
+  className: string;
+  schoolId: string;
+  subject: string;
+  fileName: string;
+  mimeType: string;
+  previewDataUrl?: string;
+  uploadedAt: string;
+  blocks: ExtractedBlock[];
 }
 
 export interface HomeworkRemediation {

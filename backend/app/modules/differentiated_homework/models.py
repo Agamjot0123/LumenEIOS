@@ -143,7 +143,7 @@ class StudentAccountLink(Base):
 
     Why this table exists: User and Student had no relationship. Student has no email, and
     matching IDs (User.id == Student.id) is a coincidence of the seed data, not a rule.
-    Links are created only by an admin, after checks; nothing is inferred.
+    Links are created by an admin or when a teacher provisions a new student account.
 
     Why a new table instead of a Student.user_id column: create_all() doesn't add columns to
     existing tables and no migration tool is set up, so a new column would need an unsafe
@@ -278,3 +278,190 @@ class HomeworkSubmissionAnswerRecord(Base):
     updated_at = Column(DateTime, default=utc_now, nullable=False)
 
     submission = relationship("HomeworkSubmissionRecord", back_populates="answers")
+
+
+# --- Homework evaluations (manual grading) ------------------------------------------------------
+
+EVALUATION_STATUSES = ("pending", "marked", "released")
+
+
+class HomeworkEvaluationRecord(Base):
+    """A teacher's marking of one submitted homework. One per submission (unique submission_id).
+
+    pending: marks and feedback can change. marked: finalized; totals stored; read-only.
+    released: the student can see it; read-only. Grading never changes the submission or its
+    answers, and never touches competency scores.
+
+    Database rules (written to work on SQLite and PostgreSQL):
+    - status is one of EVALUATION_STATUSES;
+    - finalized_at/finalized_by are set exactly when no longer pending;
+    - released_at/released_by are set exactly when released;
+    - total_awarded is set exactly when no longer pending, and lies within 0..total_max.
+
+    version: optimistic locking. Every change to an item also updates this row, so concurrent
+    marking of the same evaluation is detected.
+    """
+
+    __tablename__ = "homework_evaluations"
+    __table_args__ = (
+        UniqueConstraint("submission_id", name="uq_homework_evaluations_submission"),
+        CheckConstraint(
+            "status IN ('" + "', '".join(EVALUATION_STATUSES) + "')",
+            name="ck_homework_evaluations_status",
+        ),
+        CheckConstraint("(status = 'pending') = (finalized_at IS NULL)", name="ck_homework_evaluations_finalized"),
+        CheckConstraint("(finalized_at IS NULL) = (finalized_by IS NULL)", name="ck_homework_evaluations_finalized_by"),
+        CheckConstraint("(status = 'released') = (released_at IS NOT NULL)", name="ck_homework_evaluations_released"),
+        CheckConstraint("(released_at IS NULL) = (released_by IS NULL)", name="ck_homework_evaluations_released_by"),
+        CheckConstraint("(status = 'pending') = (total_awarded IS NULL)", name="ck_homework_evaluations_total_set"),
+        CheckConstraint(
+            "total_max >= 0 AND (total_awarded IS NULL OR (total_awarded >= 0 AND total_awarded <= total_max))",
+            name="ck_homework_evaluations_totals",
+        ),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    submission_id = Column(String(64), ForeignKey("homework_submissions.id"), nullable=False)
+    assignment_id = Column(String(64), ForeignKey("homework_assignments.id"), nullable=False, index=True)
+    # Copied from the assignment, never from the client.
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    school_id = Column(String(64), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    total_max = Column(Integer, nullable=False)
+    total_awarded = Column(Integer, nullable=True)
+    created_by = Column(String(64), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
+    finalized_by = Column(String(64), ForeignKey("users.id"), nullable=True)
+    finalized_at = Column(DateTime, nullable=True)
+    released_by = Column(String(64), ForeignKey("users.id"), nullable=True)
+    released_at = Column(DateTime, nullable=True)
+    version = Column(Integer, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
+
+    items = relationship(
+        "HomeworkEvaluationItemRecord",
+        back_populates="evaluation",
+        cascade="all, delete-orphan",
+        order_by="HomeworkEvaluationItemRecord.position",
+        lazy="selectin",
+    )
+    ai_suggestions = relationship(
+        "HomeworkEvaluationSuggestionRecord",
+        back_populates="evaluation",
+        cascade="all, delete-orphan",
+        order_by="HomeworkEvaluationSuggestionRecord.position",
+        lazy="selectin",
+    )
+
+
+class HomeworkEvaluationItemRecord(Base):
+    """The mark for one frozen question. Every question of the homework has an item, answered or
+    not. max_marks is copied from the frozen question; awarded_marks is null until marked."""
+
+    __tablename__ = "homework_evaluation_items"
+    __table_args__ = (
+        UniqueConstraint("evaluation_id", "draft_item_id", name="uq_homework_evaluation_items_item"),
+        UniqueConstraint("evaluation_id", "position", name="uq_homework_evaluation_items_position"),
+        CheckConstraint("position >= 1", name="ck_homework_evaluation_items_position"),
+        CheckConstraint("max_marks >= 0", name="ck_homework_evaluation_items_max"),
+        CheckConstraint(
+            "awarded_marks IS NULL OR (awarded_marks >= 0 AND awarded_marks <= max_marks)",
+            name="ck_homework_evaluation_items_awarded",
+        ),
+        CheckConstraint("(marked_at IS NULL) = (marked_by IS NULL)", name="ck_homework_evaluation_items_marked_by"),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    evaluation_id = Column(
+        String(64), ForeignKey("homework_evaluations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    draft_item_id = Column(String(64), ForeignKey("homework_draft_items.id"), nullable=False)
+    position = Column(Integer, nullable=False)
+    max_marks = Column(Integer, nullable=False)
+    awarded_marks = Column(Integer, nullable=True)
+    feedback = Column(Text, nullable=True)
+    marked_by = Column(String(64), ForeignKey("users.id"), nullable=True)
+    marked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+    evaluation = relationship("HomeworkEvaluationRecord", back_populates="items")
+
+
+SUGGESTION_SOURCES = ("deterministic_mcq", "gemini", "teacher_required")
+SUGGESTION_CORRECTNESS = ("correct", "partially_correct", "incorrect", "undetermined")
+# Ordinal heuristic labels only — not calibrated probabilities.
+SUGGESTION_CONFIDENCE = ("high", "medium", "low")
+
+
+class HomeworkEvaluationSuggestionRecord(Base):
+    """AI/deterministic marking *suggestion* for one evaluation item.
+
+    Never becomes the official mark by itself: awarded_marks on homework_evaluation_items stay
+    null until a teacher PATCHes them. Suggestions do not bump evaluation.version, do not touch
+    submission answers, and are deleted with the evaluation. One row per (evaluation, position);
+    a re-run replaces the row for that position.
+    """
+
+    __tablename__ = "homework_evaluation_ai_suggestions"
+    __table_args__ = (
+        UniqueConstraint("evaluation_id", "position", name="uq_homework_eval_ai_suggestions_position"),
+        UniqueConstraint("evaluation_id", "draft_item_id", name="uq_homework_eval_ai_suggestions_item"),
+        CheckConstraint("position >= 1", name="ck_homework_eval_ai_suggestions_position"),
+        CheckConstraint("max_marks >= 0", name="ck_homework_eval_ai_suggestions_max"),
+        CheckConstraint(
+            "suggested_marks >= 0 AND suggested_marks <= max_marks",
+            name="ck_homework_eval_ai_suggestions_marks",
+        ),
+        CheckConstraint(
+            "correctness IN ('" + "', '".join(SUGGESTION_CORRECTNESS) + "')",
+            name="ck_homework_eval_ai_suggestions_correctness",
+        ),
+        CheckConstraint(
+            "confidence IN ('" + "', '".join(SUGGESTION_CONFIDENCE) + "')",
+            name="ck_homework_eval_ai_suggestions_confidence",
+        ),
+        CheckConstraint(
+            "source IN ('" + "', '".join(SUGGESTION_SOURCES) + "')",
+            name="ck_homework_eval_ai_suggestions_source",
+        ),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    evaluation_id = Column(
+        String(64), ForeignKey("homework_evaluations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    draft_item_id = Column(String(64), ForeignKey("homework_draft_items.id"), nullable=False)
+    position = Column(Integer, nullable=False)
+    suggested_marks = Column(Integer, nullable=False)
+    max_marks = Column(Integer, nullable=False)
+    correctness = Column(String(32), nullable=False)
+    explanation = Column(Text, nullable=False)
+    feedback = Column(Text, nullable=False)
+    rubric_criteria_json = Column(JSON, nullable=True)
+    confidence = Column(String(16), nullable=False)
+    needs_teacher_attention = Column(Boolean, nullable=False, default=False)
+    source = Column(String(32), nullable=False)
+    model = Column(String(128), nullable=True)
+    created_by = Column(String(64), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
+
+    evaluation = relationship("HomeworkEvaluationRecord", back_populates="ai_suggestions")
+
+
+class EvaluatedSubmissionDeletionError(Exception):
+    """Raised when something tries to delete a submission that has an evaluation."""
+
+
+@event.listens_for(HomeworkSubmissionRecord, "before_delete")
+def _refuse_deleting_evaluated_submissions(mapper, connection, target):
+    """An evaluation (and its marks) depends on the submission. No endpoint deletes submissions,
+    but ORM scripts could; with SQLite foreign keys off nothing else would stop it, leaving an
+    orphaned evaluation. The same approach as the assigned-draft guard above."""
+    evaluated = connection.execute(
+        select(HomeworkEvaluationRecord.id).where(HomeworkEvaluationRecord.submission_id == target.id).limit(1)
+    ).first()
+    if evaluated is not None:
+        raise EvaluatedSubmissionDeletionError(f"Submission {target.id} has been evaluated and can't be deleted.")

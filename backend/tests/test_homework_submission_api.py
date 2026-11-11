@@ -284,7 +284,7 @@ async def test_school_mismatch_is_refused(client, db_session, world, table, key)
 @pytest.mark.asyncio
 async def test_demo_mode_cannot_bypass_the_student_role(client, world):
     assert settings.DEMO_MODE is True  # no token -> treated as admin by shared code -> refused here
-    await assert_all_three_refused(client, world, {}, 403, "Access denied.")
+    await assert_all_three_refused(client, world, {}, 401)
     previous = settings.DEMO_MODE
     settings.DEMO_MODE = False
     try:
@@ -648,8 +648,9 @@ async def test_audit_and_lock_are_atomic(client, db_session, world, frozen_clock
         return event
 
     monkeypatch.setattr(homework_router, "_audit", broken_audit)
-    with pytest.raises(IntegrityError):
-        await submit(client, world, "a_alice", version=1)
+    failed = await submit(client, world, "a_alice", version=1)
+    assert failed.status_code == 500
+    assert failed.json() == {"detail": "Database operation failed."}
     monkeypatch.undo()
     after = await client.get(SUB.format(world["a_alice"]), headers=alice(world))
     assert after.json()["status"] == "in_progress" and after.json()["version"] == 1
@@ -819,3 +820,27 @@ async def test_only_a_real_duplicate_first_save_becomes_409(message, created, wi
         with pytest.raises(IntegrityError):
             await homework_router._commit_submission(session, "a1", created)
     assert session.rolled_back
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["NaN", "Infinity", "-Infinity", "1e309", "-1e309"])
+@pytest.mark.parametrize("field", ["version_save", "version_submit", "index", "position"])
+async def test_non_finite_submission_numbers_are_clean_422(client, world, db_session, raw, field):
+    headers = {**bearer(world["u_alice"]), "Content-Type": "application/json"}
+    path = SUB.format(world["a_alice"])
+    if field.startswith("version"):
+        body = '{"expected_version":' + raw + '}'
+    elif field == "index":
+        body = '{"answers":[{"position":1,"selected_option_index":' + raw + '}]}'
+    else:
+        body = '{"answers":[{"position":' + raw + ',"answer_text":"hello"}]}'
+    if field == "version_submit":
+        response = await client.post(path + "/submit", headers=headers, content=body)
+    else:
+        response = await client.put(path, headers=headers, content=body)
+    assert response.status_code == 422, response.text
+    assert isinstance(response.json()["detail"], list)
+    state = await client.get(path, headers=headers)
+    assert state.json()["status"] == "not_started"
+    assert state.json()["version"] is None
+    assert await audits(db_session, world["u_alice"]) == 0
