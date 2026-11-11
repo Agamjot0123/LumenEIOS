@@ -250,8 +250,11 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                     "PDF OCR requires PyMuPDF. Install backend/requirements-ocr.txt."
                 ) from exc
 
+            # Open from bytes: a failed open by path can leave the file locked on Windows,
+            # which then blocks deleting the temporary upload.
             try:
-                pdf_document = pymupdf.open(document_path)
+                with open(document_path, "rb") as handle:
+                    pdf_document = pymupdf.open(stream=handle.read(), filetype="pdf")
             except Exception as exc:
                 raise QwenOCRInputError("The uploaded PDF could not be opened.") from exc
 

@@ -3,13 +3,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_roles
+from backend.app.api.dependencies import get_current_user, require_roles, require_school_access
 from backend.app.db.session import get_db
 from backend.app.lib.class_names import parse_class_name, class_identity
-from backend.app.models.entities import ClassSection, School, Student, User, AuditEvent, utc_now
+from backend.app.models.entities import ClassSection, ParentStudentLink, School, Student, User, AuditEvent, utc_now
 from backend.app.schemas.schools import ClassCreate, ClassSectionOut, TeacherAssignmentRequest
-from backend.app.schemas.competencies import StudentOut, CompetencyScoresSchema
-from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
+from backend.app.schemas.competencies import StudentOut, StudentProfileOut, CompetencyScoresSchema
+from backend.app.modules.differentiated_homework.student_access import (
+    require_linked_student,
+    resolve_linked_student,
+    subject_names,
+)
 
 router = APIRouter(prefix="/classes", tags=["Classes"])
 
@@ -28,6 +32,7 @@ async def create_class(
     school = (await db.execute(select(School).filter(School.id == body.school_id))).scalars().first()
     if not school:
         raise HTTPException(status_code=404, detail="School not found.")
+    await require_school_access(db, principal, body.school_id)
 
     existing = (await db.execute(select(ClassSection).filter(ClassSection.school_id == body.school_id))).scalars().all()
     if any(class_identity(item.name) == identity for item in existing):
@@ -66,6 +71,7 @@ async def get_class(class_id: str, db: AsyncSession = Depends(get_db), current_u
     cls = result.scalars().first()
     if not cls:
         raise HTTPException(status_code=404, detail="Class not found.")
+    await require_school_access(db, current_user, cls.school_id)
     return cls
 
 
@@ -122,15 +128,28 @@ def student_out(s: Student) -> StudentOut:
     )
 
 
-@router.get("/students/me", response_model=StudentOut)
+@router.get("/students/me", response_model=StudentProfileOut)
 async def my_student_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("student", authenticated=True)),
 ):
-    student = await resolve_linked_student(db, current_user)
-    if not student:
-        raise HTTPException(status_code=404, detail="Your login is not linked to a student profile.")
-    return student_out(student)
+    student = await require_linked_student(db, current_user)
+    section = await db.get(ClassSection, student.class_id)
+    section = section if section and section.school_id == student.school_id else None
+    subjects = await subject_names(db, section.subject_ids_json if section else [])
+    parents = await db.scalars(
+        select(User.name)
+        .join(ParentStudentLink, ParentStudentLink.parent_user_id == User.id)
+        .where(ParentStudentLink.student_id == student.id, User.role == "parent")
+        .distinct()
+        .order_by(User.name)
+    )
+    profile = student_out(student)
+    if section:
+        profile.class_name = section.name
+    return StudentProfileOut(
+        **profile.model_dump(), subject_names=sorted(set(subjects.values())), parent_names=list(parents),
+    )
 
 
 @router.get("/{class_id}/students", response_model=List[StudentOut])
@@ -139,5 +158,9 @@ async def list_class_students(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    section = await db.get(ClassSection, class_id)
+    if not section:
+        raise HTTPException(status_code=404, detail="Class not found.")
+    await require_school_access(db, current_user, section.school_id)
     result = await db.execute(select(Student).filter(Student.class_id == class_id).order_by(Student.roll_no))
     return [student_out(student) for student in result.scalars()]

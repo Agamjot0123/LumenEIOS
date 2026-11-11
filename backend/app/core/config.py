@@ -72,9 +72,8 @@ class Settings(BaseSettings):
 
     # Legacy demo mode allows anonymous requests to use the seeded admin.
     DEMO_MODE: bool = False
-    # Development-only root login: LEOFELIX or leofelix@lumeneios.demo / KVR.
-    # Ignored unless APP_ENV is development. Set empty to disable.
-    DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")
+    # Enable the team root login explicitly in a development environment.
+    DEMO_ROOT_PASSWORD: SecretStr | None = None
 
     @property
     def demo_root_enabled(self) -> bool:

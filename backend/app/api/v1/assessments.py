@@ -10,10 +10,14 @@ from backend.app.db.session import get_db
 from backend.app.models.entities import (
     Assessment,
     AssessmentSubmission,
+    AssignmentOcrUpload,
+    ClassSection,
     QuestionBankItem,
     Document,
     Student,
+    StudentOcrHistory,
     StudentCompetencySnapshot,
+    Subject,
     User,
     AuditEvent,
     Notification,
@@ -22,20 +26,22 @@ from backend.app.models.entities import (
 from backend.app.schemas.assessments import (
     AssessmentCreate,
     AssessmentOut,
+    AssignmentTarget,
+    UploadAssignment,
     SubmissionCreate,
     SubmissionOut,
     GenerateQuestionsRequest,
-    RegenerateQuestionRequest,
     QuestionUpdateRequest,
 )
 from backend.app.services.llm_service import (
     QwenQuestionStudioInferenceError,
     QwenQuestionStudioInputError,
     QwenQuestionStudioUnavailable,
-    llm_service,
     qwen_question_studio,
 )
 from backend.app.services.progress import report_progress, stream_job
+from backend.app.services.web_source import WebSourceError, fetch_web_source, normalize_urls
+from backend.app.services.assessment_audience import upload_assignments, validate_assignment_target
 from backend.app.services.storage_service import storage_service
 
 router = APIRouter(tags=["Assessments"])
@@ -48,9 +54,11 @@ async def list_all_assessments(
     school_id: Optional[str] = None,
     subject_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
     query = select(Assessment)
+    if current_user.role != "admin":
+        query = query.where(Assessment.school_id == current_user.school_id)
     if class_id:
         query = query.filter(Assessment.class_id == class_id)
     if school_id:
@@ -66,13 +74,63 @@ async def list_class_assessments(
     class_id: str,
     subject_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
     query = select(Assessment).filter(Assessment.class_id == class_id)
+    if current_user.role != "admin":
+        query = query.where(Assessment.school_id == current_user.school_id)
     if subject_id:
         query = query.filter(Assessment.subject_id == subject_id)
     res = await db.execute(query.order_by(Assessment.cycle_number))
     return res.scalars().all()
+
+
+@router.get("/assessments/targets", response_model=List[AssignmentTarget])
+async def get_assignment_targets(
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    sections = (await db.scalars(
+        select(ClassSection).where(ClassSection.school_id == educator.school_id).order_by(ClassSection.name)
+    )).all()
+    subject_ids = {subject_id for section in sections for subject_id in section.subject_ids_json}
+    subjects = {subject.id: subject.name for subject in (await db.scalars(
+        select(Subject).where(Subject.id.in_(subject_ids))
+    )).all()}
+    return [
+        {"id": section.id, "name": section.name, "subjects": [
+            {"id": subject_id, "name": subjects[subject_id]}
+            for subject_id in section.subject_ids_json if subject_id in subjects
+        ]}
+        for section in sections
+    ]
+
+
+@router.get("/assessments/upload-assignments", response_model=List[UploadAssignment])
+async def list_upload_assignments(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("teacher", "student", authenticated=True)),
+):
+    student, rows = await upload_assignments(db, current_user)
+    uploaded = set()
+    if student and rows:
+        uploaded = set((await db.scalars(
+            select(AssignmentOcrUpload.assessment_id)
+            .join(StudentOcrHistory, StudentOcrHistory.id == AssignmentOcrUpload.history_id)
+            .where(
+                StudentOcrHistory.student_id == student.id,
+                AssignmentOcrUpload.assessment_id.in_([assessment.id for assessment, _, _ in rows]),
+            )
+            .distinct()
+        )).all())
+    return [
+        UploadAssignment(
+            id=assessment.id, title=assessment.title, date=assessment.date,
+            class_name=section.name, subject_name=subject.name, total_marks=assessment.total_marks,
+            uploaded=assessment.id in uploaded, questions=assessment.questions_json,
+        )
+        for assessment, section, subject in rows
+    ]
 
 
 @router.post("/classes/{class_id}/assessments", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
@@ -80,10 +138,13 @@ async def create_assessment(
     class_id: str,
     req: AssessmentCreate,
     db: AsyncSession = Depends(get_db),
-    educator: User = Depends(require_roles("admin", "principal", "teacher"))
+    educator: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
+    if req.class_id is not None and req.class_id != class_id:
+        raise HTTPException(status_code=422, detail="The requested class does not match the target class.")
+    section = await validate_assignment_target(db, educator.school_id, class_id, req.subject_id)
     asm = Assessment(
-        school_id=educator.school_id or "school-1",
+        school_id=section.school_id,
         class_id=class_id,
         subject_id=req.subject_id,
         title=req.title,
@@ -133,8 +194,11 @@ def _serialize_qb_item(item: QuestionBankItem) -> Dict[str, Any]:
 async def get_question_bank(
     subject_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
     query = select(QuestionBankItem)
+    if educator.role != "admin":
+        query = query.where(QuestionBankItem.school_id == educator.school_id)
     if subject_id:
         query = query.filter(QuestionBankItem.subject_id == subject_id)
     res = await db.execute(query.order_by(QuestionBankItem.created_at.desc()))
@@ -162,92 +226,6 @@ async def get_question_bank(
     ]
 
 
-@router.post("/assessments/generate-questions")
-async def generate_questions_ai(
-    req: GenerateQuestionsRequest,
-    db: AsyncSession = Depends(get_db),
-    educator: User = Depends(require_roles("admin", "principal", "teacher")),
-):
-    """
-    Generates MCQ and Theory questions grounded in one or multiple source documents.
-    Saves generated items to the Question Bank and retains source document references.
-    """
-    if req.mcq_count < 0 or req.theory_count < 0 or (req.mcq_count + req.theory_count) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please request at least 1 MCQ or 1 Theory question.",
-        )
-
-    source_docs_data: List[Dict[str, Any]] = []
-    if req.source_document_ids:
-        doc_res = await db.execute(
-            select(Document).filter(Document.id.in_(req.source_document_ids))
-        )
-        for doc in doc_res.scalars().all():
-            source_docs_data.append(
-                {
-                    "id": doc.id,
-                    "file_name": doc.file_name,
-                    "extracted_text": doc.extracted_text or "",
-                }
-            )
-
-    generated_items = await llm_service.generate_questions_from_sources(
-        subject_id=req.subject_id,
-        mcq_count=req.mcq_count,
-        theory_count=req.theory_count,
-        bloom_level=req.bloom_level,
-        source_documents=source_docs_data,
-        focus_topic=req.focus_topic,
-    )
-
-    saved_out = []
-    for g in generated_items:
-        qb_item = QuestionBankItem(
-            id=g["id"],
-            school_id=educator.school_id or "school-1",
-            subject_id=req.subject_id,
-            text=g["text"],
-            type=g["type"],
-            options_json=g.get("options", []),
-            correct_answer=g.get("correct_answer"),
-            marking_rubric=g.get("marking_rubric"),
-            marks=g.get("marks", 2),
-            competency=g.get("competency", "CU"),
-            bloom_level=g.get("bloom_level", req.bloom_level),
-            source_document_ids_json=g.get("source_document_ids", []),
-            source_document_names_json=g.get("source_document_names", []),
-            is_ai_generated=True,
-            created_by=educator.id,
-        )
-        if req.save_to_bank:
-            db.add(qb_item)
-        saved_out.append(_serialize_qb_item(qb_item))
-
-    audit = AuditEvent(
-        timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
-        user_id=educator.id,
-        user_name=educator.name,
-        action="AI Generated Competency Questions",
-        details=(
-            f"Generated {req.mcq_count} MCQs and {req.theory_count} Theory items "
-            f"(Bloom: {req.bloom_level}) from {len(source_docs_data) or 1} source document(s)."
-        ),
-        category="assessment",
-    )
-    db.add(audit)
-    await db.commit()
-    report_progress("save", f"Saved {len(saved_out)} questions", len(saved_out), len(saved_out))
-
-    return {
-        "generated_count": len(saved_out),
-        "subject_id": req.subject_id,
-        "bloom_level": req.bloom_level,
-        "source_documents": source_docs_data,
-        "questions": saved_out,
-    }
-
-
 @router.post("/assessments/generate-questions-beta")
 async def generate_questions_beta(
     req: GenerateQuestionsRequest,
@@ -267,32 +245,55 @@ async def generate_questions_beta(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Bloom's Taxonomy level.")
 
     document_ids = list(dict.fromkeys(req.source_document_ids))
-    if len(document_ids) != 1:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload one chapter PDF to generate questions.")
-    doc_result = await db.execute(
-        select(Document).filter(
-            Document.id == document_ids[0],
-            Document.school_id == (educator.school_id or "school-1"),
+    if len(document_ids) > 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use one chapter PDF per generation.")
+    try:
+        source_urls = normalize_urls(req.source_urls)
+    except WebSourceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not document_ids and not source_urls:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upload a chapter PDF or paste a learning-resource link to generate questions.",
         )
-    )
-    document = doc_result.scalars().first()
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded PDF not found.")
-    if document.mime_type != "application/pdf" or not document.file_name.lower().endswith(".pdf"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF source documents are supported.")
+
+    document = None
+    if document_ids:
+        doc_result = await db.execute(
+            select(Document).filter(
+                Document.id == document_ids[0],
+                Document.school_id == (educator.school_id or "school-1"),
+            )
+        )
+        document = doc_result.scalars().first()
+        if not document:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploaded PDF not found.")
+        if document.mime_type != "application/pdf" or not document.file_name.lower().endswith(".pdf"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF source documents are supported.")
+
+    web_sources = []
+    for index, url in enumerate(source_urls, start=1):
+        report_progress("links", f"Reading link {index} of {len(source_urls)}", index - 1, len(source_urls))
+        try:
+            web_sources.append(await fetch_web_source(url))
+        except WebSourceError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        report_progress("links", f"Read link {index} of {len(source_urls)}", index, len(source_urls))
+    source_names = ([document.file_name] if document else []) + [source.url for source in web_sources]
 
     try:
-        pdf_path = storage_service.get_file_path(document.storage_path)
+        pdf_path = storage_service.get_file_path(document.storage_path) if document else None
         generated_items = await qwen_question_studio.generate_questions(
             pdf_path=pdf_path,
             subject_id=req.subject_id,
             subject_name=req.subject_name or req.subject_id,
-            source_document_id=document.id,
-            source_document_name=document.file_name,
+            source_document_id=document.id if document else None,
+            source_document_name=document.file_name if document else None,
             mcq_count=req.mcq_count,
             theory_count=req.theory_count,
             bloom_level=req.bloom_level,
             focus_topic=req.focus_topic,
+            web_sources=web_sources,
         )
     except QwenQuestionStudioInputError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -326,8 +327,8 @@ async def generate_questions_beta(
             marks=item["marks"],
             competency=item["competency"],
             bloom_level=req.bloom_level,
-            source_document_ids_json=[document.id],
-            source_document_names_json=[document.file_name],
+            source_document_ids_json=[document.id] if document else [],
+            source_document_names_json=source_names,
             is_ai_generated=True,
             created_by=educator.id,
         )
@@ -343,7 +344,7 @@ async def generate_questions_beta(
             action="AI Question Studio Beta Generated Questions",
             details=(
                 f"Generated {req.mcq_count} MCQs and {req.theory_count} Theory items "
-                f"(Bloom: {req.bloom_level}) from {document.file_name} using "
+                f"(Bloom: {req.bloom_level}) from {', '.join(source_names)} using "
                 f"{settings.QWEN_QUESTION_STUDIO_MODEL_ID}."
             ),
             category="assessment",
@@ -355,19 +356,10 @@ async def generate_questions_beta(
         "generated_count": len(saved_out),
         "subject_id": req.subject_id,
         "bloom_level": req.bloom_level,
-        "source_documents_used": [document.file_name],
+        "source_documents_used": source_names,
         "model": settings.QWEN_QUESTION_STUDIO_MODEL_ID,
         "questions": saved_out,
     }
-
-
-@router.post("/assessments/generate-questions/stream")
-async def stream_generate_questions_ai(
-    req: GenerateQuestionsRequest,
-    db: AsyncSession = Depends(get_db),
-    educator: User = Depends(require_roles("admin", "principal", "teacher")),
-):
-    return stream_job(lambda: generate_questions_ai(req, db, educator))
 
 
 @router.post("/assessments/generate-questions-beta/stream")
@@ -377,40 +369,6 @@ async def stream_generate_questions_beta(
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
     return stream_job(lambda: generate_questions_beta(req, db, educator))
-
-
-@router.post("/assessments/questions/{question_id}/regenerate")
-async def regenerate_question_endpoint(
-    question_id: str,
-    req: RegenerateQuestionRequest,
-    db: AsyncSession = Depends(get_db),
-    educator: User = Depends(require_roles("admin", "principal", "teacher")),
-):
-    new_q = await llm_service.regenerate_single_question(
-        subject_id=req.subject_id,
-        question_type=req.question_type,
-        bloom_level=req.bloom_level,
-        competency=req.competency,
-        source_document_ids=req.source_document_ids,
-        source_document_names=req.source_document_names,
-        current_text=req.current_text,
-    )
-
-    existing_res = await db.execute(select(QuestionBankItem).filter(QuestionBankItem.id == question_id))
-    existing = existing_res.scalars().first()
-    if existing:
-        existing.text = new_q["text"]
-        existing.options_json = new_q.get("options", [])
-        existing.correct_answer = new_q.get("correct_answer")
-        existing.marking_rubric = new_q.get("marking_rubric")
-        existing.marks = new_q.get("marks", existing.marks)
-        existing.bloom_level = new_q.get("bloom_level", existing.bloom_level)
-        await db.commit()
-        await db.refresh(existing)
-        return _serialize_qb_item(existing)
-
-    new_q["id"] = question_id
-    return new_q
 
 
 @router.put("/assessments/questions/{question_id}")

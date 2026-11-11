@@ -191,7 +191,8 @@ async def test_qwen_ocr_preview_accepts_multiple_files_and_passes_buffer(client,
     result = response.json()
     assert [item["file_name"] for item in result["results"]] == ["first.png", "second.jpg"]
     assert all(item["extracted_text"] == "Recognized answer" for item in result["results"])
-    assert options_seen == [{"buffer_seconds": 5}, {"buffer_seconds": 5}]
+    assert [options["buffer_seconds"] for options in options_seen] == [5, 5]
+    assert [options["file_name"] for options in options_seen] == ["first.png", "second.jpg"]
     assert all(not path.exists() for path in paths)
 
 

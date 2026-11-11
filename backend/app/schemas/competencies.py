@@ -29,6 +29,11 @@ class StudentOut(BaseSchema):
     support_area: Optional[str] = None
 
 
+class StudentProfileOut(StudentOut):
+    subject_names: List[str]
+    parent_names: List[str]
+
+
 class ClassCompetencyAnalyticsOut(BaseSchema):
     class_id: str
     average_competencies: CompetencyScoresSchema

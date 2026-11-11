@@ -11,6 +11,7 @@ resolve_linked_student fails closed. It returns None unless all of these hold:
 """
 from typing import Dict, Iterable, List, Optional
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +38,13 @@ async def resolve_linked_student(db: AsyncSession, user: User) -> Optional[Stude
     if not user.school_id or user.school_id != row.school_id:
         return None
     return row
+
+
+async def require_linked_student(db: AsyncSession, user: User) -> Student:
+    student = await resolve_linked_student(db, user)
+    if not student:
+        raise HTTPException(status_code=404, detail="Your login is not linked to a student profile.")
+    return student
 
 
 async def subject_names(db: AsyncSession, subject_ids: Iterable[str]) -> Dict[str, str]:

@@ -64,6 +64,23 @@ def require_roles(*allowed_roles: str, authenticated: bool = False):
     return role_checker
 
 
+async def user_school_ids(db: AsyncSession, user: User) -> set[str]:
+    """Schools a non-admin user belongs to: their home school plus active memberships."""
+    rows = await db.execute(
+        select(SchoolMembership.school_id).where(
+            SchoolMembership.user_id == user.id, SchoolMembership.is_active == True  # noqa: E712
+        )
+    )
+    return {school_id for school_id in rows.scalars()} | ({user.school_id} if user.school_id else set())
+
+
+async def require_school_access(db: AsyncSession, user: User, school_id: str) -> None:
+    """Admins reach every school; everyone else only the schools they belong to."""
+    if user.role == "admin" or school_id in await user_school_ids(db, user):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have access to this school.")
+
+
 async def get_current_school_context(
     x_school_id: Optional[str] = Header(None),
     current_user: User = Depends(get_current_user),

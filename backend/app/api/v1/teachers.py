@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import require_roles
+from backend.app.api.dependencies import require_roles, require_school_access
 from backend.app.core.security import get_password_hash
 from backend.app.db.session import get_db
 from backend.app.models.entities import AuditEvent, School, User, utc_now
@@ -26,6 +26,7 @@ async def create_teacher(
     school = (await db.execute(select(School).filter(School.id == body.school_id))).scalars().first()
     if not school:
         raise HTTPException(status_code=404, detail="School not found.")
+    await require_school_access(db, principal, body.school_id)
 
     existing = (await db.execute(select(User).filter(User.email == email))).scalars().first()
     if existing:

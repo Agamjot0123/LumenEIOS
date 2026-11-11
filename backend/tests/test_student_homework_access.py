@@ -231,9 +231,10 @@ async def test_same_id_shortcut_is_not_used(client, db_session, world):
 
 
 @pytest.mark.asyncio
-async def test_seeded_student_account_has_no_access_without_a_link(client, student_token):
-    # user-student-1 shares its ID with a seeded Student, which isn't a link.
-    assert (await client.get(MINE, headers={"Authorization": f"Bearer {student_token}"})).status_code == 403
+async def test_seeded_student_account_is_linked(client, student_token):
+    response = await client.get(MINE, headers={"Authorization": f"Bearer {student_token}"})
+    assert response.status_code == 200
+
 
 
 @pytest.mark.asyncio

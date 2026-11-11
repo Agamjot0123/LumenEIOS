@@ -38,45 +38,52 @@ export const LoginPage: React.FC = () => {
   }> = [
     {
       role: 'admin',
+<<<<<<< HEAD
       name: 'Dr. Rajesh Sharma',
       email: 'admin@lumeneios.demo',
       title: 'Management',
       description: 'State-wide governance, 5 affiliated campuses, infrastructure tier telemetry.',
+=======
+      name: 'IIT Mandi',
+      email: 'iitmandi@lumeneios.demo',
+      title: 'Administrator',
+      description: 'Controls JNV Bengaluru and Dakshana Kottayam.',
+>>>>>>> 0c3b628307a554c8d1a8dd8cbdd288231176a42b
       icon: <Shield className="w-5 h-5 text-indigo-600" />,
       color: 'hover:border-indigo-500 hover:bg-indigo-50/30',
     },
     {
       role: 'principal',
-      name: 'Dr. Sunita Deshmukh',
-      email: 'principal@lumeneios.demo',
-      title: 'School Principal (Sunrise Public)',
-      description: 'Campus benchmark oversight, faculty assignments, and lost teaching-day audits.',
+      name: 'JNV Bengaluru',
+      email: 'principal.jnv@lumeneios.demo',
+      title: 'Principal, JNV Bengaluru',
+      description: 'Oversees Arvind and Garima and their students. Dakshana Kottayam: principal.dakshana@lumeneios.demo.',
       icon: <School className="w-5 h-5 text-teal-600" />,
       color: 'hover:border-teal-500 hover:bg-teal-50/30',
     },
     {
       role: 'teacher',
-      name: 'Vikram Sengupta',
-      email: 'teacher@lumeneios.demo',
-      title: 'Lead Educator (Grade 8 Math & Science)',
-      description: '180-day micro-curriculum, Time-Aware compacting, VARK lessons & OCR scan grading.',
+      name: 'Garima',
+      email: 'garima@lumeneios.demo',
+      title: 'Science Teacher, JNV Bengaluru (Classes 6-9)',
+      description: 'Teaches Gurleen, Agam and Pranay. Lessons, assessments and OCR scan grading.',
       icon: <BookOpen className="w-5 h-5 text-emerald-600" />,
       color: 'hover:border-emerald-500 hover:bg-emerald-50/30 ring-2 ring-emerald-500/20 border-emerald-400',
     },
     {
       role: 'student',
-      name: 'Aarav Patel',
-      email: 'student@lumeneios.demo',
-      title: 'Student (Class 8-A)',
-      description: 'Personalized learning mission, interactive practice quizzes, and LU/CU/AU/CT mastery.',
+      name: 'Gurleen',
+      email: 'gurleen@lumeneios.demo',
+      title: 'Student, JNV Bengaluru (Class 6)',
+      description: 'Personalized learning mission, practice quizzes, and LU/CU/AU/CT mastery.',
       icon: <GraduationCap className="w-5 h-5 text-sky-600" />,
       color: 'hover:border-sky-500 hover:bg-sky-50/30',
     },
     {
       role: 'parent',
-      name: 'Meera Patel',
-      email: 'parent@lumeneios.demo',
-      title: 'Parent (Linked to Aarav & Ananya)',
+      name: 'Gurleen ki Mummy',
+      email: 'gurleen.mummy@lumeneios.demo',
+      title: 'Parent (Linked to Gurleen)',
       description: 'Transparent competency growth, teacher feedback, and supportive home guidance.',
       icon: <Users className="w-5 h-5 text-amber-600" />,
       color: 'hover:border-amber-500 hover:bg-amber-50/30',
@@ -165,6 +172,7 @@ export const LoginPage: React.FC = () => {
               </p>
             )}
 
+<<<<<<< HEAD
             <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 text-xs text-navy-900">
               <p className="font-semibold">Team root login</p>
               <p className="mt-1 font-mono">Login: LEOFELIX or leofelix@lumeneios.demo</p>
@@ -174,6 +182,8 @@ export const LoginPage: React.FC = () => {
               </p>
             </div>
 
+=======
+>>>>>>> 0c3b628307a554c8d1a8dd8cbdd288231176a42b
             <button
               type="submit"
               disabled={isSigningIn || isRestoringSession}

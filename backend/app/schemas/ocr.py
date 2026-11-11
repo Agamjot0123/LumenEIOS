@@ -1,5 +1,6 @@
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from backend.app.schemas.common import BaseSchema
 
 
@@ -65,6 +66,17 @@ class OCRPreviewOut(BaseModel):
     provider: str
     model_version: str
     results: List[OCRPreviewItem]
+
+
+class StudentOcrHistoryOut(OCRPreviewItem, BaseSchema):
+    id: str
+    created_at: datetime
+    assignment_title: str | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def use_utc_for_naive_timestamp(cls, value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 class VerifiedItemRequest(BaseModel):
