@@ -17,7 +17,6 @@ export interface CompetencyScores {
 }
 
 export interface User {
-  demoRoot?: boolean;
   id: string;
   email: string;
   name: string;
