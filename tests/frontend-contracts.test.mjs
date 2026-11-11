@@ -73,6 +73,42 @@ test('parent result uses explicit IDs; student result uses the me route',async()
   assert.match(calls[1].url,/students\/me\/homework/);
 });
 
+test('teacher AI evaluation suggestions use generate, get and rerun contracts',async()=>{
+  const {apiClient}=await client();
+  globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({
+    evaluation_id:'ev',items:[{position:1,suggested_marks:2,max_marks:3}],
+  }),{status:200});};
+  await apiClient.homework.generateAiSuggestions('asg/1',{replace:false});
+  await apiClient.homework.aiSuggestions('asg/1');
+  await apiClient.homework.rerunAiSuggestions('asg/1',{positions:[2]});
+  assert.match(calls[0].url,/homework\/assignments\/asg%2F1\/evaluation\/ai-suggestions$/);
+  assert.equal(calls[0].options.method,'POST');
+  assert.deepEqual(JSON.parse(calls[0].options.body),{replace:false});
+  assert.equal(calls[0].options.headers.Authorization,'Bearer access-token');
+  assert.match(calls[1].url,/evaluation\/ai-suggestions$/);
+  assert.equal(calls[1].options.method || 'GET','GET');
+  assert.match(calls[2].url,/evaluation\/ai-suggestions\/rerun$/);
+  assert.equal(calls[2].options.method,'POST');
+  assert.deepEqual(JSON.parse(calls[2].options.body),{positions:[2]});
+});
+
+test('teacher marking workspace keeps AI suggestions optional and non-finalizing',()=>{
+  const source=readFileSync(new URL('../src/pages/homework/TeacherWorkspace.tsx',import.meta.url),'utf8');
+  assert.ok(source.includes('Evaluate with AI'));
+  assert.ok(source.includes('Accept suggestion'));
+  assert.ok(source.includes('Regenerate suggestions'));
+  assert.ok(source.includes('Needs attention') || source.includes('needs_teacher_attention'));
+  assert.ok(source.includes('Certainty (heuristic)'));
+  assert.ok(source.includes('not a calibrated probability'));
+  assert.ok(source.includes('Your marks'));
+  assert.ok(source.includes('Save and finalize'));
+  assert.ok(source.includes('Release results'));
+  // Suggestions must not silently finalize or release.
+  assert.ok(!/generateAiSuggestions[\s\S]{0,200}finalize/.test(source));
+  assert.ok(!/rerunAiSuggestions[\s\S]{0,200}release/.test(source));
+  assert.ok(source.includes('never finalize or release') || source.includes('are not saved marks'));
+});
+
 for(const status of [401,403,404,409,422]) test(`HTTP ${status} remains an error, without demo fallback`,async()=>{
   const {apiClient,ApiError}=await client();
   localStorage.setItem('lumeneios_questionBank','SECRET-CACHE');

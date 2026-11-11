@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../lib/apiClient';
+import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { AiQuestionGenerator } from './AiQuestionGenerator';
 import {
   COMPETENCY_NAMES, CompetencyTag, Empty, Messages, ReleasedResult, Section, StatusBadge, Tabs,
-  answerText, enc, formatDate, inputClass, labelClass, useRunner,
+  answerText, enc, errorText, formatDate, inputClass, labelClass, useRunner,
 } from './ui';
 
 const hw = apiClient.homework;
@@ -274,22 +275,91 @@ function AssignmentDetail({ assignment }: { assignment: any }) {
       <p className="font-medium">{q.position}. {q.text}</p><p className="mt-1 text-content-secondary">Answer: {answerText(q)}</p></li>)}</ol>}
     {row?.status === 'submitted' && !evaluation &&
       <Button variant="teal" disabled={busy} onClick={() => run(async () => setEvaluation(await hw.call(`${base}/evaluation`, 'POST')))}>Start marking</Button>}
-    {evaluation && <Evaluation base={base} evaluation={evaluation} setEvaluation={setEvaluation} />}
+    {evaluation && <Evaluation assignmentId={assignment.id} base={base} evaluation={evaluation} setEvaluation={setEvaluation} />}
   </Section>;
 }
 
-function Evaluation({ base, evaluation, setEvaluation }: { base: string; evaluation: any; setEvaluation: (e: any) => void }) {
-  const { busy, error, notice, run } = useRunner();
+type SuggestionDecision = 'accepted' | 'rejected' | null;
+
+function suggestionMap(payload: any | null): Record<number, any> {
+  if (!payload?.items) return {};
+  return Object.fromEntries(payload.items.map((item: any) => [item.position, item]));
+}
+
+function Evaluation({
+  assignmentId, base, evaluation, setEvaluation,
+}: {
+  assignmentId: string; base: string; evaluation: any; setEvaluation: (e: any) => void;
+}) {
+  const { busy, error, notice, run, setError, setNotice } = useRunner();
   const fromEvaluation = (e: any) => ({
     marks: Object.fromEntries(e.items.map((q: any) => [q.position, q.awarded_marks == null ? '' : String(q.awarded_marks)])) as Record<number, string>,
     feedback: Object.fromEntries(e.items.map((q: any) => [q.position, q.feedback ?? ''])) as Record<number, string>,
   });
   const [form, setForm] = useState(() => fromEvaluation(evaluation));
+  const [suggestions, setSuggestions] = useState<Record<number, any>>({});
+  const [decisions, setDecisions] = useState<Record<number, SuggestionDecision>>({});
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiNotice, setAiNotice] = useState('');
   const update = (e: any) => { setEvaluation(e); setForm(fromEvaluation(e)); };
   const editable = evaluation.status === 'pending';
   const runningTotal = useMemo(() => Object.values(form.marks).reduce((sum, v) => sum + (v === '' ? 0 : Number(v) || 0), 0), [form]);
   const dirty = evaluation.items.some((q: any) => (form.marks[q.position] ?? '') !== (q.awarded_marks == null ? '' : String(q.awarded_marks))
     || (form.feedback[q.position] ?? '') !== (q.feedback ?? ''));
+  const hasSuggestions = Object.keys(suggestions).length > 0;
+  const attentionCount = Object.values(suggestions).filter((s: any) => s.needs_teacher_attention || s.confidence === 'low').length;
+
+  useEffect(() => {
+    if (!editable) return;
+    let active = true;
+    hw.aiSuggestions(assignmentId).then(payload => {
+      if (!active) return;
+      setSuggestions(suggestionMap(payload));
+      setDecisions({});
+    }).catch(() => { /* no stored suggestions yet — manual marking still works */ });
+    return () => { active = false; };
+  }, [assignmentId, editable, evaluation.id]);
+
+  const setMarkField = (position: number, marks: string, feedback: string) => {
+    setForm(prev => ({
+      marks: { ...prev.marks, [position]: marks },
+      feedback: { ...prev.feedback, [position]: feedback },
+    }));
+  };
+
+  const acceptSuggestion = (position: number) => {
+    const suggestion = suggestions[position];
+    if (!suggestion) return;
+    setMarkField(position, String(suggestion.suggested_marks), suggestion.feedback ?? '');
+    setDecisions(prev => ({ ...prev, [position]: 'accepted' }));
+    setAiNotice(`Accepted AI suggestion for question ${position}. Review and save when ready.`);
+    setAiError('');
+  };
+
+  const rejectSuggestion = (position: number) => {
+    setDecisions(prev => ({ ...prev, [position]: 'rejected' }));
+    setAiNotice(`Rejected AI suggestion for question ${position}. Enter marks manually.`);
+    setAiError('');
+  };
+
+  const runAi = async (mode: 'generate' | 'rerun') => {
+    setAiBusy(true); setAiError(''); setAiNotice('');
+    try {
+      const payload = mode === 'rerun'
+        ? await hw.rerunAiSuggestions(assignmentId)
+        : await hw.generateAiSuggestions(assignmentId, hasSuggestions ? { replace: true } : {});
+      setSuggestions(suggestionMap(payload));
+      setDecisions({});
+      setAiNotice(mode === 'rerun'
+        ? 'AI suggestions regenerated. Accept, edit or reject each one before saving.'
+        : 'AI suggestions ready. They are not saved marks until you accept and save.');
+    } catch (ex) {
+      setAiError(errorText(ex));
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const save = async () => {
     const items = evaluation.items.map((q: any) => {
@@ -304,30 +374,112 @@ function Evaluation({ base, evaluation, setEvaluation }: { base: string; evaluat
 
   return <div className="space-y-3 border-t border-surface-border pt-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="flex items-center gap-2 font-semibold">Manual evaluation <StatusBadge status={evaluation.status} /></h3>
+      <h3 className="flex items-center gap-2 font-semibold">Evaluation <StatusBadge status={evaluation.status} /></h3>
       <p className="text-sm">{evaluation.marked_count} / {evaluation.question_count} marked - {evaluation.total_awarded ?? runningTotal} / {evaluation.total_max} marks</p>
     </div>
-    <Messages error={error} notice={notice} />
-    {evaluation.items.map((q: any) => <article key={q.position} className="rounded-lg border border-surface-border p-3">
-      <p className="text-sm font-medium">{q.position}. {q.text} <span className="text-content-secondary">({q.max_marks} marks)</span></p>
-      <p className="mt-1 rounded bg-gray-50 px-2 py-1 text-sm">Student answer: {answerText(q)}</p>
-      <div className="mt-1 grid gap-1 text-xs text-content-secondary sm:grid-cols-2">
-        <p>Answer key (teacher only): {q.correct_answer ?? 'Unavailable'}</p><p>Rubric (teacher only): {q.marking_rubric ?? 'Unavailable'}</p></div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-[8rem_1fr]">
-        <label className="block"><span className={labelClass}>Marks / {q.max_marks}</span>
-          <input aria-label={`Marks for question ${q.position}`} className={inputClass} type="number" min={0} max={q.max_marks} step={1}
-            value={form.marks[q.position] ?? ''} disabled={busy || !editable}
-            onChange={e => setForm({ ...form, marks: { ...form.marks, [q.position]: e.target.value } })} /></label>
-        <label className="block"><span className={labelClass}>Feedback</span>
-          <textarea aria-label={`Feedback for question ${q.position}`} className={inputClass} rows={2} maxLength={2000}
-            value={form.feedback[q.position] ?? ''} disabled={busy || !editable}
-            onChange={e => setForm({ ...form, feedback: { ...form.feedback, [q.position]: e.target.value } })} /></label>
+
+    {editable && <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-sky-950">AI-assisted suggestions</p>
+          <p className="text-xs text-sky-900/80">Optional. Suggestions never finalize or release results. You keep full control of marks and feedback.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {!hasSuggestions && <Button variant="teal" size="sm" loading={aiBusy} disabled={busy || aiBusy}
+            onClick={() => runAi('generate')}>Evaluate with AI</Button>}
+          {hasSuggestions && <Button variant="outline" size="sm" loading={aiBusy} disabled={busy || aiBusy}
+            onClick={() => runAi('rerun')}>Regenerate suggestions</Button>}
+        </div>
       </div>
-    </article>)}
+      {aiBusy && <p role="status" className="text-sm text-sky-900">Evaluating answers against keys and rubrics…</p>}
+      {hasSuggestions && !aiBusy && <p className="text-xs text-content-secondary">
+        {Object.keys(suggestions).length} suggestion{Object.keys(suggestions).length === 1 ? '' : 's'} loaded
+        {attentionCount > 0 ? ` · ${attentionCount} need teacher attention` : ''}.
+        Purple panels are AI proposals; the mark fields below are your working marks.
+      </p>}
+      <Messages error={aiError} notice={aiNotice} />
+    </div>}
+
+    <Messages error={error} notice={notice} />
+    {evaluation.items.map((q: any) => {
+      const suggestion = suggestions[q.position];
+      const decision = decisions[q.position] ?? null;
+      const showSuggestion = Boolean(suggestion) && decision !== 'rejected';
+      const uncertain = Boolean(suggestion?.needs_teacher_attention || suggestion?.confidence === 'low');
+      const formMatchesSuggestion = suggestion
+        && (form.marks[q.position] ?? '') === String(suggestion.suggested_marks)
+        && (form.feedback[q.position] ?? '') === (suggestion.feedback ?? '');
+      const editedAfterAccept = decision === 'accepted' && suggestion && !formMatchesSuggestion;
+
+      return <article key={q.position}
+        className={'rounded-lg border p-3 ' + (uncertain && showSuggestion ? 'border-amber-300 bg-amber-50/30' : 'border-surface-border')}>
+        <p className="text-sm font-medium">{q.position}. {q.text} <span className="text-content-secondary">({q.max_marks} marks)</span></p>
+        <p className="mt-1 rounded bg-gray-50 px-2 py-1 text-sm">Student answer: {answerText(q)}</p>
+        <div className="mt-1 grid gap-1 text-xs text-content-secondary sm:grid-cols-2">
+          <p>Answer key (teacher only): {q.correct_answer ?? 'Unavailable'}</p>
+          <p>Rubric (teacher only): {q.marking_rubric ?? 'Unavailable'}</p>
+        </div>
+
+        {showSuggestion && <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/70 p-3 space-y-2" data-testid={`ai-suggestion-${q.position}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="info" size="sm">AI suggestion</Badge>
+            <span title="Heuristic certainty label from the model or scorer — not a calibrated probability">
+              <Badge variant={suggestion.confidence === 'high' ? 'success' : suggestion.confidence === 'low' ? 'warning' : 'default'} size="sm">
+                Certainty (heuristic): {suggestion.confidence}
+              </Badge>
+            </span>
+            {suggestion.needs_teacher_attention && <Badge variant="warning" size="sm">Needs attention</Badge>}
+            <Badge variant="outline" size="sm">{
+              suggestion.source === 'deterministic_mcq' ? 'Answer-key match'
+                : suggestion.source === 'teacher_required' ? 'Teacher review required'
+                  : 'Gemini'}</Badge>
+            {decision === 'accepted' && !editedAfterAccept && <Badge variant="teal" size="sm">Accepted into form</Badge>}
+            {editedAfterAccept && <Badge variant="warning" size="sm">Edited after accept</Badge>}
+          </div>
+          <p className="text-sm"><span className="font-medium">Suggested marks:</span> {suggestion.suggested_marks} / {suggestion.max_marks}
+            {' · '}<span className="font-medium">Assessment:</span> {String(suggestion.correctness).replace(/_/g, ' ')}</p>
+          <p className="text-xs text-content-secondary"><span className="font-medium text-content-primary">Why (teacher only):</span> {suggestion.explanation}</p>
+          <p className="text-xs"><span className="font-medium">Proposed student feedback:</span> {suggestion.feedback}</p>
+          {Array.isArray(suggestion.rubric_criteria) && suggestion.rubric_criteria.length > 0 && (
+            <ul className="text-xs text-content-secondary space-y-1 border-t border-violet-100 pt-2">
+              {suggestion.rubric_criteria.map((c: any, idx: number) => (
+                <li key={idx}><span className="font-medium text-content-primary">{c.criterion}</span>
+                  {' — '}{c.awarded_marks}/{c.max_marks}{c.comment ? `: ${c.comment}` : ''}</li>
+              ))}
+            </ul>
+          )}
+          {editable && <div className="flex flex-wrap gap-2 pt-1">
+            <Button size="sm" variant="teal" disabled={busy || aiBusy} onClick={() => acceptSuggestion(q.position)}>Accept suggestion</Button>
+            <Button size="sm" variant="outline" disabled={busy || aiBusy} onClick={() => rejectSuggestion(q.position)}>Reject</Button>
+          </div>}
+        </div>}
+
+        {decision === 'rejected' && editable && suggestion && (
+          <p className="mt-2 text-xs text-content-secondary">AI suggestion rejected for this question.
+            <button type="button" className="ml-1 text-teal-700 underline" onClick={() => setDecisions(prev => ({ ...prev, [q.position]: null }))}>Show again</button>
+          </p>
+        )}
+
+        <div className="mt-2 grid gap-2 sm:grid-cols-[8rem_1fr]">
+          <label className="block"><span className={labelClass}>Your marks / {q.max_marks}</span>
+            <input aria-label={`Marks for question ${q.position}`} className={inputClass} type="number" min={0} max={q.max_marks} step={1}
+              value={form.marks[q.position] ?? ''} disabled={busy || !editable}
+              onChange={e => {
+                setForm({ ...form, marks: { ...form.marks, [q.position]: e.target.value } });
+                if (decisions[q.position] === 'accepted') setDecisions(prev => ({ ...prev, [q.position]: 'accepted' }));
+              }} /></label>
+          <label className="block"><span className={labelClass}>Your feedback</span>
+            <textarea aria-label={`Feedback for question ${q.position}`} className={inputClass} rows={2} maxLength={2000}
+              value={form.feedback[q.position] ?? ''} disabled={busy || !editable}
+              onChange={e => setForm({ ...form, feedback: { ...form.feedback, [q.position]: e.target.value } })} /></label>
+        </div>
+      </article>;
+    })}
     <div className="flex flex-wrap gap-2">
       {editable && <>
-        <Button variant="outline" disabled={busy || !dirty} onClick={() => run(async () => { await save(); return 'Marks and feedback saved.'; })}>Save marking</Button>
-        <Button variant="primary" disabled={busy} onClick={() => run(async () => {
+        <Button variant="outline" disabled={busy || aiBusy || !dirty} onClick={() => run(async () => { await save(); return 'Marks and feedback saved.'; })}>Save marking</Button>
+        <Button variant="primary" disabled={busy || aiBusy} onClick={() => run(async () => {
+          setError(''); setNotice('');
           let current = evaluation; if (dirty) current = await save();
           if (current.marked_count < current.question_count) throw new Error('Mark every question (0 is allowed) before finalizing.');
           update(await hw.call(`${base}/evaluation/finalize`, 'POST', { expected_version: current.version }));

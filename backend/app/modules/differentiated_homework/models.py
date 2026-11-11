@@ -347,6 +347,13 @@ class HomeworkEvaluationRecord(Base):
         order_by="HomeworkEvaluationItemRecord.position",
         lazy="selectin",
     )
+    ai_suggestions = relationship(
+        "HomeworkEvaluationSuggestionRecord",
+        back_populates="evaluation",
+        cascade="all, delete-orphan",
+        order_by="HomeworkEvaluationSuggestionRecord.position",
+        lazy="selectin",
+    )
 
 
 class HomeworkEvaluationItemRecord(Base):
@@ -380,6 +387,68 @@ class HomeworkEvaluationItemRecord(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     evaluation = relationship("HomeworkEvaluationRecord", back_populates="items")
+
+
+SUGGESTION_SOURCES = ("deterministic_mcq", "gemini", "teacher_required")
+SUGGESTION_CORRECTNESS = ("correct", "partially_correct", "incorrect", "undetermined")
+# Ordinal heuristic labels only — not calibrated probabilities.
+SUGGESTION_CONFIDENCE = ("high", "medium", "low")
+
+
+class HomeworkEvaluationSuggestionRecord(Base):
+    """AI/deterministic marking *suggestion* for one evaluation item.
+
+    Never becomes the official mark by itself: awarded_marks on homework_evaluation_items stay
+    null until a teacher PATCHes them. Suggestions do not bump evaluation.version, do not touch
+    submission answers, and are deleted with the evaluation. One row per (evaluation, position);
+    a re-run replaces the row for that position.
+    """
+
+    __tablename__ = "homework_evaluation_ai_suggestions"
+    __table_args__ = (
+        UniqueConstraint("evaluation_id", "position", name="uq_homework_eval_ai_suggestions_position"),
+        UniqueConstraint("evaluation_id", "draft_item_id", name="uq_homework_eval_ai_suggestions_item"),
+        CheckConstraint("position >= 1", name="ck_homework_eval_ai_suggestions_position"),
+        CheckConstraint("max_marks >= 0", name="ck_homework_eval_ai_suggestions_max"),
+        CheckConstraint(
+            "suggested_marks >= 0 AND suggested_marks <= max_marks",
+            name="ck_homework_eval_ai_suggestions_marks",
+        ),
+        CheckConstraint(
+            "correctness IN ('" + "', '".join(SUGGESTION_CORRECTNESS) + "')",
+            name="ck_homework_eval_ai_suggestions_correctness",
+        ),
+        CheckConstraint(
+            "confidence IN ('" + "', '".join(SUGGESTION_CONFIDENCE) + "')",
+            name="ck_homework_eval_ai_suggestions_confidence",
+        ),
+        CheckConstraint(
+            "source IN ('" + "', '".join(SUGGESTION_SOURCES) + "')",
+            name="ck_homework_eval_ai_suggestions_source",
+        ),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    evaluation_id = Column(
+        String(64), ForeignKey("homework_evaluations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    draft_item_id = Column(String(64), ForeignKey("homework_draft_items.id"), nullable=False)
+    position = Column(Integer, nullable=False)
+    suggested_marks = Column(Integer, nullable=False)
+    max_marks = Column(Integer, nullable=False)
+    correctness = Column(String(32), nullable=False)
+    explanation = Column(Text, nullable=False)
+    feedback = Column(Text, nullable=False)
+    rubric_criteria_json = Column(JSON, nullable=True)
+    confidence = Column(String(16), nullable=False)
+    needs_teacher_attention = Column(Boolean, nullable=False, default=False)
+    source = Column(String(32), nullable=False)
+    model = Column(String(128), nullable=True)
+    created_by = Column(String(64), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, nullable=False)
+
+    evaluation = relationship("HomeworkEvaluationRecord", back_populates="ai_suggestions")
 
 
 class EvaluatedSubmissionDeletionError(Exception):

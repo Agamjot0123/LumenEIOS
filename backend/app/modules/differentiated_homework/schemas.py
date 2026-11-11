@@ -733,3 +733,102 @@ class StudentResultOut(BaseModel):
     total_awarded: int
     total_max: int
     items: List[StudentResultItemOut]
+
+
+# --- AI-assisted evaluation suggestions (teacher-only; never student/parent) -----------------
+# Suggestions never finalize, release, or write awarded_marks. Teachers apply marks via PATCH.
+
+SuggestionCorrectness = Literal["correct", "partially_correct", "incorrect", "undetermined"]
+# Ordinal heuristic only — not a calibrated probability.
+SuggestionConfidence = Literal["high", "medium", "low"]
+SuggestionSource = Literal["deterministic_mcq", "gemini", "teacher_required"]
+MAX_SUGGESTION_POSITIONS = 500
+MAX_EXPLANATION_LENGTH = 4000
+MAX_RUBRIC_CRITERIA = 20
+
+
+class RubricCriterionSuggestion(BaseModel):
+    """One rubric criterion with suggested marks. Teacher-only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    criterion: str = Field(min_length=1, max_length=500)
+    max_marks: StrictInt = Field(ge=0)
+    awarded_marks: StrictInt = Field(ge=0)
+    comment: Optional[str] = Field(default=None, max_length=1000)
+
+
+class AIEvaluationSuggestRequest(BaseModel):
+    """Generate suggestions for some or all questions of a pending evaluation.
+
+    With replace=false (default), the request fails if suggestions already exist for any
+    requested position. Re-run uses replace=true (or the dedicated re-run endpoint)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
+    replace: StrictBool = False
+
+    @model_validator(mode="after")
+    def _positions_ok(self) -> "AIEvaluationSuggestRequest":
+        if self.positions is None:
+            return self
+        if not self.positions:
+            raise ValueError("positions, when given, must not be empty")
+        if any(p < 1 for p in self.positions):
+            raise ValueError("positions must be integers >= 1")
+        repeated = sorted({p for p in self.positions if self.positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class AIEvaluationRerunRequest(BaseModel):
+    """Replace stored suggestions for some or all positions of a pending evaluation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
+
+    @model_validator(mode="after")
+    def _positions_ok(self) -> "AIEvaluationRerunRequest":
+        if self.positions is None:
+            return self
+        if not self.positions:
+            raise ValueError("positions, when given, must not be empty")
+        if any(p < 1 for p in self.positions):
+            raise ValueError("positions must be integers >= 1")
+        repeated = sorted({p for p in self.positions if self.positions.count(p) > 1})
+        if repeated:
+            raise ValueError(f"each position may appear only once; repeated: {repeated}")
+        return self
+
+
+class AIEvaluationSuggestionItemOut(BaseModel):
+    """One teacher-only suggestion. explanation is internal reasoning; feedback is student-facing
+    text the teacher may adopt. Never returned on student/parent result endpoints."""
+
+    model_config = ConfigDict(frozen=True)
+
+    position: int
+    suggested_marks: int
+    max_marks: int
+    correctness: SuggestionCorrectness
+    explanation: str
+    feedback: str
+    rubric_criteria: Optional[List[RubricCriterionSuggestion]]
+    confidence: SuggestionConfidence
+    needs_teacher_attention: bool
+    source: SuggestionSource
+    model: Optional[str]
+    updated_at: datetime
+
+
+class AIEvaluationSuggestionsOut(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    evaluation_id: str
+    assignment_id: str
+    evaluation_status: EvaluationStatus
+    evaluation_version: int  # unchanged by suggestion generate/re-run
+    items: List[AIEvaluationSuggestionItemOut]

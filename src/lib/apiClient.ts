@@ -278,6 +278,22 @@ export const apiClient = {
     parentResult(student: string, id: string) {
       return request<any>(`/parents/me/students/${encodeURIComponent(student)}/homework/assignments/${encodeURIComponent(id)}/evaluation`);
     },
+    /** Teacher-only AI mark suggestions. Never finalizes, releases, or writes awarded_marks. */
+    aiSuggestions(assignmentId: string) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`);
+    },
+    generateAiSuggestions(assignmentId: string, body: { positions?: number[]; replace?: boolean } = {}) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    rerunAiSuggestions(assignmentId: string, body: { positions?: number[] } = {}) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions/rerun`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
   },
 
   // Authentication

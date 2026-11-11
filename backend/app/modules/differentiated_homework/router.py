@@ -102,6 +102,9 @@ from backend.app.modules.differentiated_homework.teacher_submissions import (
 )
 from backend.app.modules.differentiated_homework.models import HomeworkEvaluationRecord
 from backend.app.modules.differentiated_homework.schemas import (
+    AIEvaluationRerunRequest,
+    AIEvaluationSuggestRequest,
+    AIEvaluationSuggestionsOut,
     EvaluationMarksUpdate,
     EvaluationTransitionRequest,
     StudentResultOut,
@@ -120,6 +123,15 @@ from backend.app.modules.differentiated_homework.evaluation_service import (
     to_student_result,
     to_teacher_evaluation,
 )
+from backend.app.modules.differentiated_homework.ai_evaluation_service import (
+    InvalidSuggestionRequest,
+    SuggestionConflict,
+    SuggestionUnavailable,
+    build_suggestions,
+    persist_suggestions,
+    to_suggestions_out,
+)
+from backend.app.services.ai_gateway import AIGatewayError, AINotConfigured, AIProviderTimeout
 from backend.app.modules.differentiated_homework.schemas import (
     AssignmentOut,
     AssignmentStatus,
@@ -1350,6 +1362,127 @@ async def release_homework_evaluation(
             await db.rollback()
             raise
     return _render_evaluation(evaluation, assignment, submission, student)
+
+
+# --- AI-assisted evaluation suggestions (teacher-only) -----------------------------------------
+# Suggestions never write awarded_marks, never finalize/release, never change submission answers,
+# never bump evaluation.version, and never update competency scores. Teacher-only; keys and
+# explanations stay off student/parent result endpoints.
+
+
+def _ai_suggestion_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, SuggestionConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, SuggestionUnavailable):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, InvalidSuggestionRequest):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if isinstance(exc, AIGatewayError):
+        code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502
+        return HTTPException(status_code=code, detail=exc.public_message)
+    return _evaluation_error(exc)
+
+
+async def _run_ai_suggestions(
+    *,
+    db: AsyncSession,
+    current_user: User,
+    assignment_id: str,
+    positions: Optional[List[int]],
+    replace: bool,
+) -> AIEvaluationSuggestionsOut:
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    version_before = evaluation.version
+    try:
+        built = await build_suggestions(
+            evaluation=evaluation,
+            assignment=assignment,
+            submission=submission,
+            positions=positions,
+            replace=replace,
+            teacher_id=current_user.id,
+            now=utc_now(),
+        )
+        persist_suggestions(evaluation, built, current_user.id, utc_now())
+    except Exception as exc:
+        raise _ai_suggestion_http_error(exc)
+    await _commit_evaluation(db)
+    # Suggestions must not advance optimistic locking on the evaluation itself.
+    if evaluation.version != version_before:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI suggestions must not change the evaluation version.",
+        )
+    try:
+        return to_suggestions_out(evaluation, assignment, submission)
+    except Exception as exc:
+        raise _ai_suggestion_http_error(exc)
+
+
+@router.post(
+    "/homework/assignments/{assignment_id}/evaluation/ai-suggestions",
+    response_model=AIEvaluationSuggestionsOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_bearer_token)],
+)
+async def generate_ai_evaluation_suggestions(
+    assignment_id: str,
+    body: AIEvaluationSuggestRequest = AIEvaluationSuggestRequest(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate AI/deterministic mark suggestions for a pending evaluation.
+
+    Does not apply marks. Fails with 409 if suggestions already exist unless replace=true.
+    MCQs with a usable frozen key are scored without calling Gemini."""
+    return await _run_ai_suggestions(
+        db=db,
+        current_user=current_user,
+        assignment_id=assignment_id,
+        positions=body.positions,
+        replace=body.replace,
+    )
+
+
+@router.get(
+    "/homework/assignments/{assignment_id}/evaluation/ai-suggestions",
+    response_model=AIEvaluationSuggestionsOut,
+    dependencies=[Depends(_require_bearer_token)],
+)
+async def get_ai_evaluation_suggestions(
+    assignment_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the latest stored suggestions for this evaluation. Teacher-only."""
+    assignment, student, submission = await _grading_context(db, current_user, assignment_id)
+    evaluation = await _existing_evaluation(db, assignment, submission)
+    try:
+        return to_suggestions_out(evaluation, assignment, submission)
+    except Exception as exc:
+        raise _ai_suggestion_http_error(exc)
+
+
+@router.post(
+    "/homework/assignments/{assignment_id}/evaluation/ai-suggestions/rerun",
+    response_model=AIEvaluationSuggestionsOut,
+    dependencies=[Depends(_require_bearer_token)],
+)
+async def rerun_ai_evaluation_suggestions(
+    assignment_id: str,
+    body: AIEvaluationRerunRequest = AIEvaluationRerunRequest(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Replace stored suggestions for the given positions (default: all). Pending evaluations only."""
+    return await _run_ai_suggestions(
+        db=db,
+        current_user=current_user,
+        assignment_id=assignment_id,
+        positions=body.positions,
+        replace=True,
+    )
 
 
 @router.get("/students/me/homework/assignments/{assignment_id}/evaluation", response_model=StudentResultOut)

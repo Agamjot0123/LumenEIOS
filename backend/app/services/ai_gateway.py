@@ -28,7 +28,7 @@ class AIGatewayError(Exception):
 
 
 class AINotConfigured(AIGatewayError):
-    public_message = "AI question generation is not configured on this server (GEMINI_API_KEY is not set)."
+    public_message = "AI features are not configured on this server (GEMINI_API_KEY is not set)."
 
 
 class AIProviderTimeout(AIGatewayError):
