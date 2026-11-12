@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../lib/apiClient';
 import { Badge } from '../../components/common/Badge';
@@ -32,6 +33,7 @@ export const TeacherWorkspace: React.FC = () => {
 
 function CreateHomework({ onSaved }: { onSaved: (draftId: string) => void }) {
   const { currentSchoolId, currentUser } = useAuth();
+  const [searchParams] = useSearchParams();
   const { busy, error, notice, run } = useRunner();
   const [classes, setClasses] = useState<any[]>([]); const [classId, setClassId] = useState('');
   const [rosterLoaded, setRosterLoaded] = useState(false);
@@ -45,11 +47,42 @@ function CreateHomework({ onSaved }: { onSaved: (draftId: string) => void }) {
   const [count, setCount] = useState(5); const [maxMarks, setMaxMarks] = useState('');
   const [includeAI, setIncludeAI] = useState(false);
   const [preview, setPreview] = useState<any>(null);
+  const [prefillDone, setPrefillDone] = useState(false);
 
   useEffect(() => { let active = true;
     hw.call<any[]>(`/schools/${enc(currentSchoolId)}/classes`).then(rows => { if (active) setClasses(rows); })
       .catch(() => { if (active) setClasses([]); });
     return () => { active = false; }; }, [currentSchoolId]);
+
+  // Deep-link from My Classes: /teacher/homework?classId=…&studentId=…
+  useEffect(() => {
+    if (prefillDone || classes.length === 0) return;
+    const wantedClass = searchParams.get('classId') || '';
+    const wantedStudent = searchParams.get('studentId') || '';
+    if (!wantedClass && !wantedStudent) { setPrefillDone(true); return; }
+    const targetClass = wantedClass || classes.find(c => (c.subject_ids_json || []).length)?.id || classes[0]?.id || '';
+    if (!targetClass) { setPrefillDone(true); return; }
+    let active = true;
+    run(async () => {
+      setClassId(targetClass);
+      setStudentId('');
+      setStudents([]);
+      setGap(null);
+      setPreview(null);
+      setRosterLoaded(false);
+      setSubjectId(classes.find(c => c.id === targetClass)?.subject_ids_json?.[0] ?? '');
+      const roster = await hw.call<any[]>(`/classes/${enc(targetClass)}/students`);
+      if (!active) return;
+      setStudents(roster);
+      setRosterLoaded(true);
+      if (wantedStudent && roster.some((s: any) => s.id === wantedStudent)) {
+        setStudentId(wantedStudent);
+        setGap(await hw.call(`/students/${enc(wantedStudent)}/homework/gap-analysis`));
+      }
+      setPrefillDone(true);
+    });
+    return () => { active = false; };
+  }, [classes, searchParams, prefillDone, run]);
 
   const selectedClass = classes.find(c => c.id === classId);
   const chooseClass = (id: string) => run(async () => {
@@ -555,7 +588,7 @@ function QuestionBank() {
         <label><span className={labelClass}>Bloom level for new question</span>
           <select aria-label="Generation Bloom level" className={inputClass} value={genBloom} onChange={e => setGenBloom(e.target.value)}>{BLOOM.map(b => <option key={b}>{b}</option>)}</select></label>
         <Button variant="outline" disabled={busy || !subject} onClick={() => run(async () => {
-          await apiClient.assessments.generateQuestions({ subjectId: subject, sourceDocumentIds: [], mcqCount: 1, theoryCount: 0, bloomLevel: genBloom, saveToBank: true });
+          await apiClient.assessments.createTemplateQuestion({ subjectId: subject, bloomLevel: genBloom, competency: 'CU' });
           await reload(); return 'Template question (no AI) added to the bank. Review and edit it before use.';
         })}>Add template question (no AI)</Button>
       </div>

@@ -547,6 +547,23 @@ export const apiClient = {
       const list = await request<any[]>(`/assessments/question-bank?${params.toString()}`);
       return list.map(mapQuestionOut);
     },
+    async createTemplateQuestion(data: {
+      subjectId: string;
+      bloomLevel?: string;
+      competency?: string;
+    }) {
+      const params = new URLSearchParams({ subject_id: data.subjectId });
+      if (data.bloomLevel) params.append('bloom_level', data.bloomLevel);
+      if (data.competency) params.append('competency', data.competency);
+      const res = await request<any>(`/assessments/question-bank/template?${params.toString()}`, {
+        method: 'POST',
+      });
+      return {
+        subjectId: res.subject_id,
+        generatedCount: res.generated_count,
+        questions: (res.questions || []).map(mapQuestionOut),
+      };
+    },
     async generateQuestions(data: {
       subjectId: string;
       sourceDocumentIds: string[];
