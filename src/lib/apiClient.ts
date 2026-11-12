@@ -252,6 +252,13 @@ function mapBatchOut(b: any) {
   };
 }
 
+export type AssistantTurn = { role: 'user' | 'assistant'; content: string };
+export type AssistantReply = {
+  answer: string;
+  links: { label: string; path: string }[];
+  model_available: boolean;
+};
+
 export const apiClient = {
   homework: {
     call<T = any>(path: string, method = 'GET', body?: unknown) {
@@ -296,6 +303,12 @@ export const apiClient = {
     },
   },
 
+  assistant: {
+    chat: (message: string, history: AssistantTurn[], signal: AbortSignal) =>
+      request<AssistantReply>('/assistant/chat', {
+        method: 'POST', body: JSON.stringify({ message, history }), signal,
+      }),
+  },
   // Authentication
   auth: {
     async login(email: string, password: string) {
