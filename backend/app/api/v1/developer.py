@@ -157,7 +157,7 @@ async def platform_health(
         },
         "question_model": {
             "provider": settings.LLM_PROVIDER,
-            "model": settings.QWEN_QUESTION_STUDIO_MODEL_ID,
+            "model": settings.QWEN_VL_MODEL_ID,
             "workshop_runs": runs,
         },
     }

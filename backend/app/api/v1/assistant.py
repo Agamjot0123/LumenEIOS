@@ -1,20 +1,20 @@
 """Read-only, authenticated assistant with server-scoped context and navigation."""
+import asyncio
 import json
 from collections import defaultdict
 from typing import Literal
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import require_roles, user_school_ids
-from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.entities import ClassSection, CurriculumDay, ParentStudentLink, School, Student, User
 from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
 from backend.app.services.competency_service import aggregate_student_competencies
+from backend.app.services.ocr_service import QwenOCRInferenceError, QwenOCRUnavailableError, qwen_model
 
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
 
@@ -166,26 +166,22 @@ async def chat(
         "Use history only to understand follow-up questions. You cannot modify records. "
         "For navigation choose exactly one page label from the provided pages, or null. "
         "For data answers choose the closest supporting page. "
-        "Return JSON with answer (plain text) and page.\n"
+        "Return only one JSON object with answer (a string) and page (a page label or null).\n"
         + json.dumps({"pages": list(pages), "records": context})
     )
+    messages = (
+        [{"role": "system", "content": prompt}]
+        + [turn.model_dump() for turn in body.history]
+        + [{"role": "user", "content": body.message}]
+    )
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(90, connect=5)) as client:
-            result = await client.post(
-                settings.OLLAMA_BASE_URL.rstrip("/") + "/api/chat",
-                json={"model": settings.ASSISTANT_MODEL, "stream": False,
-                      "format": ModelAnswer.model_json_schema(),
-                      "options": {"temperature": 0, "num_predict": 700, "num_ctx": 16384},
-                      "messages": [{"role": "system", "content": prompt}]
-                      + [turn.model_dump() for turn in body.history]
-                      + [{"role": "user", "content": body.message}]},
-            )
-            result.raise_for_status()
-            answer = ModelAnswer.model_validate_json(result.json()["message"]["content"])
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        raw = await asyncio.to_thread(qwen_model.generate, messages, 700)
+        # A model may wrap the JSON object in a Markdown fence.
+        answer = ModelAnswer.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1])
+    except (QwenOCRUnavailableError, QwenOCRInferenceError, ValueError):
         return ChatResponse(
-            answer="The local language model is unavailable. You can still open these pages. "
-                   "Please retry your question after Ollama is running.",
+            answer="Qwen couldn't answer this request. You can still open these pages. "
+                   "Try again or check the backend's Qwen GPU setup.",
             links=[Link(label=label, path=path) for label, path in pages.items()],
             model_available=False,
         )

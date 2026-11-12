@@ -371,7 +371,7 @@ async def generate_questions_beta(
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
     school_id: str = Depends(get_current_school_context),
 ):
-    """Teammate AI Question Studio Beta — Qwen/Ollama grounded on one chapter PDF."""
+    """Teammate AI Question Studio Beta — shared Qwen model grounded on one chapter PDF."""
     if (
         not 0 <= req.mcq_count <= 15
         or not 0 <= req.theory_count <= 10
@@ -482,7 +482,7 @@ async def generate_questions_beta(
             details=(
                 f"Generated {req.mcq_count} MCQs and {req.theory_count} Theory items "
                 f"(Bloom: {req.bloom_level}) from {', '.join(source_names)} using "
-                f"{settings.QWEN_QUESTION_STUDIO_MODEL_ID}."
+                f"{settings.QWEN_VL_MODEL_ID}."
             ),
             category="assessment",
         )
@@ -494,7 +494,7 @@ async def generate_questions_beta(
         "subject_id": req.subject_id,
         "bloom_level": req.bloom_level,
         "source_documents_used": source_names,
-        "model": settings.QWEN_QUESTION_STUDIO_MODEL_ID,
+        "model": settings.QWEN_VL_MODEL_ID,
         "questions": saved_out,
     }
 
