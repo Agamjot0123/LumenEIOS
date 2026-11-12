@@ -38,17 +38,10 @@ export const LoginPage: React.FC = () => {
   }> = [
     {
       role: 'admin',
-<<<<<<< HEAD
-      name: 'Dr. Rajesh Sharma',
-      email: 'admin@lumeneios.demo',
-      title: 'Management',
-      description: 'State-wide governance, 5 affiliated campuses, infrastructure tier telemetry.',
-=======
       name: 'IIT Mandi',
       email: 'iitmandi@lumeneios.demo',
-      title: 'Administrator',
+      title: 'Management',
       description: 'Controls JNV Bengaluru and Dakshana Kottayam.',
->>>>>>> 0c3b628307a554c8d1a8dd8cbdd288231176a42b
       icon: <Shield className="w-5 h-5 text-indigo-600" />,
       color: 'hover:border-indigo-500 hover:bg-indigo-50/30',
     },
@@ -172,7 +165,6 @@ export const LoginPage: React.FC = () => {
               </p>
             )}
 
-<<<<<<< HEAD
             <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 text-xs text-navy-900">
               <p className="font-semibold">Team root login</p>
               <p className="mt-1 font-mono">Login: LEOFELIX or leofelix@lumeneios.demo</p>
@@ -182,8 +174,6 @@ export const LoginPage: React.FC = () => {
               </p>
             </div>
 
-=======
->>>>>>> 0c3b628307a554c8d1a8dd8cbdd288231176a42b
             <button
               type="submit"
               disabled={isSigningIn || isRestoringSession}
