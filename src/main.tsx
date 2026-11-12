@@ -9,6 +9,7 @@ import { App } from './App';
 import { DEMO_MODE } from './lib/runtime';
 import './styles/themes.css';
 import './styles/presentation-ui.css';
+import './styles/analytics-ui.css';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

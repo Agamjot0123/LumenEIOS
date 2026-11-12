@@ -24,6 +24,7 @@ export const THEMES = [
 export const UI_MODES = [
   { id: 'classic', label: 'Current interface', hint: 'The existing LumenEIOS screens' },
   { id: 'presentation', label: 'Presentation interface', hint: 'Serif headlines and rounded rooms' },
+  { id: 'analytics', label: 'Analytics platform', hint: 'Navy, slate, and print-ready reports' },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]['id'];
@@ -37,7 +38,7 @@ export function isThemeId(value: string | null): value is ThemeId {
 }
 
 export function isUiMode(value: string | null): value is UiMode {
-  return value === 'classic' || value === 'presentation';
+  return value === 'classic' || value === 'presentation' || value === 'analytics';
 }
 
 export function readStoredTheme(): ThemeId {
@@ -133,17 +134,18 @@ function channel(style: CSSStyleDeclaration, name: string, fallback: string) {
 }
 
 export function useChartPalette(): ChartPalette {
-  const { theme } = useTheme();
+  const { theme, uiMode } = useTheme();
 
   return useMemo(() => {
     const style = getComputedStyle(document.documentElement);
+    const analytics = uiMode === 'analytics';
     return {
-      border: channel(style, '--surface-border', '#E1E7ED'),
+      border: analytics ? '#E2E8F0' : channel(style, '--surface-border', '#E1E7ED'),
       card: channel(style, '--surface-card', '#FFFFFF'),
-      secondary: channel(style, '--content-secondary', '#667085'),
-      ink: channel(style, '--ink-navy-800', '#142A43'),
-      accent: channel(style, '--bg-teal-500', '#16A085'),
-      muted: channel(style, '--content-muted', '#98A2B3'),
+      secondary: analytics ? '#475569' : channel(style, '--content-secondary', '#667085'),
+      ink: analytics ? '#0F172A' : channel(style, '--ink-navy-800', '#142A43'),
+      accent: analytics ? '#1E3A8A' : channel(style, '--bg-teal-500', '#16A085'),
+      muted: analytics ? '#93C5FD' : channel(style, '--content-muted', '#98A2B3'),
     };
-  }, [theme]);
+  }, [theme, uiMode]);
 }

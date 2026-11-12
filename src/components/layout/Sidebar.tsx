@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useFeatureFlags } from '../../context/FeatureFlagContext';
+import { useTheme } from '../../context/ThemeContext';
 import { getRoleLabel } from '../../lib/permissions';
 import {
   LayoutDashboard,
@@ -30,12 +31,19 @@ import {
   FlaskConical,
   ShieldAlert,
   Megaphone,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
   const { currentUser } = useAuth();
   const flags = useFeatureFlags();
+  const { uiMode } = useTheme();
+  const analytics = uiMode === 'analytics';
+  const [collapsed, setCollapsed] = React.useState(
+    () => localStorage.getItem('lumeneios_nav_collapsed') === '1'
+  );
   const location = useLocation();
   const role = currentUser?.role || 'admin';
 
@@ -181,33 +189,55 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     return true;
   });
 
+  const navCollapsed = analytics && collapsed && !mobile;
+
   return (
     <aside
+      data-collapsed={navCollapsed ? 'true' : 'false'}
       className={cn(
-        'w-64 bg-navy-800 text-white shrink-0 flex-col border-r border-navy-700',
+        'bg-navy-800 text-white shrink-0 flex-col border-r border-navy-700',
+        navCollapsed ? 'w-[72px]' : analytics ? 'w-[240px]' : 'w-64',
         mobile ? 'flex h-full' : 'hidden md:flex min-h-[calc(100vh-4rem)]',
       )}
     >
       <div className="p-5 border-b border-navy-700/60 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-teal-500 text-navy-950 flex items-center justify-center font-black text-lg shadow-sm">
+        <div className="w-9 h-9 rounded-xl bg-teal-500 text-navy-950 flex items-center justify-center font-black text-lg shadow-sm shrink-0">
           L
         </div>
-        <div>
-          <h1 className="font-bold text-base tracking-tight text-white leading-none">
-            Lumen<span className="text-teal-400">EIOS</span>
-          </h1>
-          <p className="text-[11px] text-gray-400 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
-        </div>
+        {!navCollapsed && (
+          <div className="min-w-0">
+            <h1 className="font-bold text-base tracking-tight text-white leading-none">
+              Lumen<span className="text-teal-400">EIOS</span>
+            </h1>
+            <p className="text-[11px] text-gray-400 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
+          </div>
+        )}
+        {analytics && !mobile && (
+          <button
+            type="button"
+            className="ml-auto p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-navy-700"
+            aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+            onClick={() => {
+              const next = !collapsed;
+              setCollapsed(next);
+              localStorage.setItem('lumeneios_nav_collapsed', next ? '1' : '0');
+            }}
+          >
+            {navCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
+        )}
       </div>
 
-      <div className="px-5 py-3 bg-navy-900/60 border-b border-navy-700/40">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-gray-400">Workspace:</span>
-          <span className="font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
-            {getRoleLabel(role)} Portal
-          </span>
+      {!navCollapsed && (
+        <div className="px-5 py-3 bg-navy-900/60 border-b border-navy-700/40">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-400">Workspace:</span>
+            <span className="font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
+              {getRoleLabel(role)} Portal
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
@@ -217,8 +247,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
               key={`${item.label}:${item.path}`}
               to={item.path}
               end
+              title={item.label}
               className={cn(
                 'flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors group',
+                navCollapsed && 'justify-center px-2',
                 isActive
                   ? 'bg-teal-500 text-white shadow-sm'
                   : item.highlight
@@ -230,9 +262,9 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
                 <span className={cn('shrink-0', isActive ? 'text-white' : 'text-gray-400 group-hover:text-white')}>
                   {item.icon}
                 </span>
-                <span>{item.label}</span>
+                {!navCollapsed && <span>{item.label}</span>}
               </div>
-              {item.badge && (
+              {item.badge && !navCollapsed && (
                 <span
                   className={cn(
                     'text-[10px] px-1.5 py-0.5 rounded font-semibold',
@@ -251,12 +283,14 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         })}
       </nav>
 
-      <div className="p-4 m-3 rounded-xl bg-navy-900/80 border border-navy-700 text-xs">
-        <p className="font-semibold text-teal-300">Pedagogical Guardrail</p>
-        <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
-          Protects 60% Core Competencies when calendar disruptions occur.
-        </p>
-      </div>
+      {!navCollapsed && (
+        <div className="p-4 m-3 rounded-xl bg-navy-900/80 border border-navy-700 text-xs">
+          <p className="font-semibold text-teal-300">Pedagogical Guardrail</p>
+          <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+            Protects 60% Core Competencies when calendar disruptions occur.
+          </p>
+        </div>
+      )}
     </aside>
   );
 };

@@ -8,7 +8,7 @@ export const ThemeMenu: React.FC<{ className?: string }> = ({ className }) => {
   const { theme, setTheme, uiMode, setUiMode } = useTheme();
   const flags = useFeatureFlags();
   const themes = flags.presentationUi ? THEMES : THEMES.filter((item) => item.id !== 'presentation');
-  const uiModes = flags.presentationUi ? UI_MODES : UI_MODES.filter((item) => item.id !== 'presentation');
+  const uiModes = (flags.presentationUi ? UI_MODES : UI_MODES.filter((item) => item.id !== 'presentation'));
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const active = THEMES.find((item) => item.id === theme) ?? THEMES[0];

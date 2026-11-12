@@ -17,12 +17,14 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { getRoleLabel } from '../../lib/permissions';
+import { useTheme } from '../../context/ThemeContext';
 import { Badge } from '../common/Badge';
 import { ThemeMenu } from './ThemeMenu';
 import { FontSizeControl } from './FontSizeControl';
 
 export const Topbar: React.FC = () => {
   const { currentUser, currentSchoolId, switchSchool, logout } = useAuth();
+  const { uiMode } = useTheme();
   const { schools, notifications, markNotificationAsRead, resetDemoData } = useData();
   const navigate = useNavigate();
 
@@ -121,10 +123,20 @@ export const Topbar: React.FC = () => {
           )}
         </div>
 
-        {/* NEP 2020 Compliance Indicator */}
-        <Badge variant="teal" size="sm" className="hidden lg:inline-flex">
-          NEP 2020 Pedagogical Engine
-        </Badge>
+        {uiMode === 'analytics' ? (
+          <>
+            <span className="hidden md:inline-flex items-center px-2.5 py-1 rounded-full border border-surface-border bg-white text-[11px] font-medium text-navy-800">
+              {getRoleLabel(currentUser?.role)} view
+            </span>
+            <span className="hidden lg:inline-flex items-center px-2.5 py-1 rounded-md border border-surface-border text-[11px] font-medium text-content-secondary">
+              Term {localSchool?.academicYear || '2026–2027'}
+            </span>
+          </>
+        ) : (
+          <Badge variant="teal" size="sm" className="hidden lg:inline-flex">
+            NEP 2020 Pedagogical Engine
+          </Badge>
+        )}
       </div>
 
       {/* Right Controls: Notifications, Reset Demo Data, User Profile */}

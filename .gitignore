@@ -6,6 +6,7 @@ node_modules
 !.env.example
 lumeneios.db.backup-*
 .venv/
+.venv-gpu/
 __pycache__/
 *.pyc
 .pytest_cache/

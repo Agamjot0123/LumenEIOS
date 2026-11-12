@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useTheme } from '../../context/ThemeContext';
 
 interface ModalProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   maxWidth = 'lg',
 }) => {
+  const { uiMode } = useTheme();
+  const drawer = uiMode === 'analytics';
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) onClose();
@@ -48,7 +51,13 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
+    <div
+      data-analytics-drawer={drawer ? 'true' : 'false'}
+      className={cn(
+        'fixed inset-0 z-50 flex p-4 bg-navy-950/60 backdrop-blur-sm animate-fade-in overflow-y-auto',
+        drawer ? 'items-stretch justify-end' : 'items-center justify-center'
+      )}
+    >
       <div
         className={cn(
           'w-full bg-white rounded-2xl shadow-modal border border-surface-border overflow-hidden my-8',

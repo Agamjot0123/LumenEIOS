@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useData } from '../../context/DataContext';
 import { CompetencyScores, Student, AssessmentResult } from '../../types';
 import { LineChart as LineChartIcon } from 'lucide-react';
@@ -212,6 +213,8 @@ interface SchoolPerformanceProps {
 export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, onBack }) => {
   const { schools, classes, students, addedTeachers, assessmentResults } = useData();
   const { availableUsers } = useAuth();
+  const { uiMode } = useTheme();
+  const analytics = uiMode === 'analytics';
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [chartYear, setChartYear] = useState(CURRENT_YEAR);
 
@@ -342,16 +345,16 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" interval={0} tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
+                <CartesianGrid stroke={analytics ? '#E2E8F0' : '#E1E7ED'} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" interval={0} tick={{ fontSize: 12, fill: analytics ? '#64748B' : '#667085' }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: analytics ? '#64748B' : '#667085' }} />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="LU" name="Language" stroke="#3B82F6" strokeWidth={2} dot />
-                <Line type="monotone" dataKey="CU" name="Concept" stroke="#10B981" strokeWidth={2} dot />
-                <Line type="monotone" dataKey="AU" name="Application" stroke="#F59E0B" strokeWidth={2} dot />
-                <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke="#8B5CF6" strokeWidth={2} dot />
-                <Line type="monotone" dataKey="overall" name="Overall" stroke="#142A43" strokeWidth={2} dot />
+                <Line type="monotone" dataKey="LU" name="Language" stroke={analytics ? '#1E3A8A' : '#3B82F6'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="CU" name="Concept" stroke={analytics ? '#3B82F6' : '#10B981'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="AU" name="Application" stroke={analytics ? '#93C5FD' : '#F59E0B'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke={analytics ? '#BFDBFE' : '#8B5CF6'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="overall" name="Overall" stroke={analytics ? '#0F172A' : '#142A43'} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -1,5 +1,6 @@
 import abc
 import asyncio
+import importlib.util
 import io
 import logging
 import os
@@ -150,32 +151,69 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                 "with a CUDA-enabled PyTorch build."
             ) from exc
 
-        if not torch.cuda.is_available():
-            raise QwenOCRUnavailableError(
-                "Qwen OCR requires an available NVIDIA CUDA GPU in the backend environment."
-            )
-
+        use_cuda = torch.cuda.is_available()
         model_id = settings.QWEN_VL_MODEL_ID
+        full_model = os.path.join(
+            os.path.expanduser("~"),
+            ".cache", "huggingface", "lumeneios-ocr", "Qwen2.5-VL-3B-Instruct",
+        )
+        if not os.path.isfile(os.path.join(full_model, "config.json")):
+            full_model = "Qwen/Qwen2.5-VL-3B-Instruct"
+        # AutoAWQ is Linux-only. On a Windows CUDA build, quantize the full checkpoint
+        # to 4-bit so the 3B model fits an 8 GB GPU. The stub torch used in tests has
+        # no torch.version, so those tests keep the AWQ load path.
+        windows_gpu = (
+            use_cuda
+            and hasattr(torch, "version")
+            and "awq" in model_id.lower()
+            and importlib.util.find_spec("awq") is None
+        )
+        if windows_gpu:
+            model_id = full_model
+        elif not use_cuda and "awq" in model_id.lower():
+            model_id = full_model
         try:
             processor = AutoProcessor.from_pretrained(
                 model_id,
                 min_pixels=512 * 28 * 28,
                 max_pixels=2048 * 28 * 28,
             )
-            config = AutoConfig.from_pretrained(model_id)
-            # lm_head has no quantized weights in these AWQ checkpoints (it is tied to
-            # embed_tokens or stored as plain float16). Converting it would replace it
-            # with randomly initialized AWQ weights and break inference.
-            quantization_config = getattr(config, "quantization_config", None)
-            if quantization_config:
-                excluded = quantization_config.get("modules_to_not_convert") or []
-                quantization_config["modules_to_not_convert"] = [*excluded, "lm_head"]
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                model_id,
-                config=config,
-                torch_dtype=torch.float16,
-                device_map="auto",
-            )
+            if windows_gpu:
+                from transformers import BitsAndBytesConfig
+
+                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    model_id,
+                    quantization_config=BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_use_double_quant=True,
+                    ),
+                    torch_dtype=torch.float16,
+                    device_map={"": 0},
+                )
+            else:
+                config = AutoConfig.from_pretrained(model_id)
+                # lm_head has no quantized weights in these AWQ checkpoints (it is tied to
+                # embed_tokens or stored as plain float16). Converting it would replace it
+                # with randomly initialized AWQ weights and break inference.
+                quantization_config = getattr(config, "quantization_config", None)
+                if quantization_config and not use_cuda:
+                    raise QwenOCRUnavailableError(
+                        f"Checkpoint '{model_id}' is quantized and cannot run on CPU. "
+                        "Use Qwen/Qwen2.5-VL-3B-Instruct."
+                    )
+                if quantization_config:
+                    excluded = quantization_config.get("modules_to_not_convert") or []
+                    quantization_config["modules_to_not_convert"] = [*excluded, "lm_head"]
+                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    model_id,
+                    config=config,
+                    torch_dtype=torch.float16 if use_cuda else torch.bfloat16,
+                    device_map="auto" if use_cuda else "cpu",
+                )
+        except QwenOCRUnavailableError:
+            raise
         except Exception as exc:
             logger.exception("Could not load Qwen OCR model %s", model_id)
             raise QwenOCRUnavailableError(
@@ -185,6 +223,8 @@ class QwenVisionOCRProvider(BaseOCRProvider):
         self._torch = torch
         self._processor = processor
         self._model = model
+        self._model_id = model_id
+        self._device = "cuda" if use_cuda else "cpu"
         self._process_vision_info = process_vision_info
         report_progress("model", "Loaded the OCR model", 1, 1)
 
@@ -209,7 +249,7 @@ class QwenVisionOCRProvider(BaseOCRProvider):
                 videos=video_inputs,
                 padding=True,
                 return_tensors="pt",
-            ).to("cuda")
+            ).to(self._device)
 
             with self._torch.inference_mode():
                 generated_ids = self._model.generate(
@@ -313,7 +353,7 @@ class QwenVisionOCRProvider(BaseOCRProvider):
 
         return {
             "provider": "qwen2.5-vl",
-            "model_version": settings.QWEN_VL_MODEL_ID,
+            "model_version": getattr(self, "_model_id", settings.QWEN_VL_MODEL_ID),
             "extracted_text": "\n\n".join(text for text in page_texts if text),
             "pages_processed": len(page_texts),
         }
