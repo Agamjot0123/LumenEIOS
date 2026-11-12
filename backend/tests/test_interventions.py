@@ -209,9 +209,19 @@ async def test_generate_approve_assign_flow(
     assert assigned["status"] == "assigned"
     assert assigned["assigned_homework_id"]
 
-    hw = await client.get(f"{API}/students/{sid}/homework", headers=headers)
-    assert hw.status_code == 200
-    assert any(h["id"] == assigned["assigned_homework_id"] for h in hw.json())
+    # Must create a full Differentiated Homework assignment (not legacy remediation).
+    dh = await client.get(
+        f"{API}/homework/assignments/{assigned['assigned_homework_id']}",
+        headers=headers,
+    )
+    assert dh.status_code == 200, dh.text
+    assert dh.json()["student_id"] == sid
+    assert dh.json()["subject_id"] == "sub-math"
+    assert dh.json()["question_count"] >= 1
+
+    legacy = await client.get(f"{API}/students/{sid}/homework", headers=headers)
+    assert legacy.status_code == 200
+    assert all(h["id"] != assigned["assigned_homework_id"] for h in legacy.json())
 
 
 @pytest.mark.asyncio

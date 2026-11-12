@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import require_bearer_token, require_roles
 from backend.app.db.session import get_db
 from backend.app.models.entities import User
+from backend.app.modules.differentiated_homework.intervention_assign import (
+    InterventionHomeworkAssignError,
+)
 from backend.app.modules.interventions import generation, service, state
 from backend.app.modules.interventions.schemas import (
     GenerateInterventionRequest,
@@ -185,7 +188,7 @@ async def assign_intervention(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    """Assign only after approval — creates Differentiated Homework remediation."""
+    """Assign only after approval — creates a full Differentiated Homework assignment."""
     try:
         student = await access.require_educator_student(db, current_user, student_id)
     except access.ProgressAccessError as exc:
@@ -195,6 +198,8 @@ async def assign_intervention(
         raise HTTPException(status_code=404, detail="Intervention not found.")
     try:
         row = await service.assign_via_homework(db, row, student, current_user, body)
+    except InterventionHomeworkAssignError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except state.InterventionStateError as exc:
         raise _state_http(exc) from exc
     await db.commit()

@@ -7,7 +7,11 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models.entities import HomeworkRemediation, LearningIntervention, Student, User, utc_now
+from backend.app.models.entities import LearningIntervention, Student, User, utc_now
+from backend.app.modules.differentiated_homework.intervention_assign import (
+    InterventionHomeworkAssignError,
+    assign_intervention_via_dh,
+)
 from backend.app.modules.interventions import state as state_mod
 from backend.app.modules.interventions.schemas import (
     InterventionAssignRequest,
@@ -174,39 +178,31 @@ async def assign_via_homework(
     teacher: User,
     payload: InterventionAssignRequest,
 ) -> LearningIntervention:
-    """Create a Differentiated Homework remediation using the existing table/API shape."""
+    """Assign via the full Differentiated Homework workflow (draft → approve → assign).
+
+    Does not create legacy HomeworkRemediation rows. AI bank items are not required;
+    selection uses include_ai_generated=False so Gemini is never a prerequisite.
+    """
     if row.status not in state_mod.ASSIGNABLE_STATUSES:
         raise state_mod.InterventionStateError(
             f"Only approved interventions can be assigned (current: '{row.status}')."
         )
     state_mod.assert_transition(row.status, "assigned")
 
-    activities = row.recommended_activities_json or []
-    practice = row.practice_recommendation_json or {}
-    description = payload.description or (
-        f"{row.learning_objective}\n\n"
-        + "\n".join(f"- {a}" for a in activities)
-        + f"\n\nPractice: {practice.get('outline') or ''}\n"
-        + f"Success criteria: {row.reassessment_criteria}"
-    )
-    title = payload.title or f"Intervention practice · {row.competency}"
-    hw = HomeworkRemediation(
-        student_id=student.id,
-        student_name=student.name,
-        class_id=student.class_id,
-        subject_id=row.subject_id,
-        title=title[:255],
-        competency_target=row.competency,
-        reason=f"Approved intervention {row.id}",
-        description=description.strip(),
-        due_date=payload.due_date,
-        status="assigned",
-        score=None,
-    )
-    db.add(hw)
-    await db.flush()
+    try:
+        assignment = await assign_intervention_via_dh(
+            db,
+            student=student,
+            teacher=teacher,
+            subject_id=row.subject_id,
+            due_date=payload.due_date,
+            include_ai_generated=False,
+        )
+    except InterventionHomeworkAssignError:
+        # Preserve status_code (422/404/409/…) for the HTTP layer.
+        raise
 
-    row.assigned_homework_id = hw.id
+    row.assigned_homework_id = assignment.id
     row.status = "assigned"
     row.assigned_at = utc_now()
     row.reviewed_by_user_id = row.reviewed_by_user_id or teacher.id

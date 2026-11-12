@@ -64,7 +64,11 @@ class InterventionReviewRequest(BaseModel):
 
 
 class InterventionAssignRequest(BaseModel):
-    """Assign via existing Differentiated Homework remediation create path."""
+    """Assign via the full Differentiated Homework draft → approve → assign workflow.
+
+    title/description are retained for API compatibility but are not used to create
+    legacy HomeworkRemediation rows; questions come from the central bank.
+    """
 
     due_date: str = Field(min_length=8, max_length=32)
     title: Optional[str] = None
