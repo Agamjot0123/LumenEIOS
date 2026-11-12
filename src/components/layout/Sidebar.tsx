@@ -1,6 +1,8 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useFeatureFlags } from '../../context/FeatureFlagContext';
+import { getRoleLabel } from '../../lib/permissions';
 import {
   LayoutDashboard,
   Building2,
@@ -20,11 +22,20 @@ import {
   PlusCircle,
   History,
   UserRound,
+  Activity,
+  ToggleLeft,
+  KeyRound,
+  ScrollText,
+  Library,
+  FlaskConical,
+  ShieldAlert,
+  Megaphone,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
   const { currentUser } = useAuth();
+  const flags = useFeatureFlags();
   const location = useLocation();
   const role = currentUser?.role || 'admin';
 
@@ -71,6 +82,18 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
   const getNavItems = (): NavItem[] => {
     switch (role) {
       case 'developer':
+        return [
+          { label: 'Developer Home', path: '/developer', icon: <LayoutDashboard className="w-4 h-4" /> },
+          { label: 'Platform Health', path: '/developer/health', icon: <Activity className="w-4 h-4" /> },
+          { label: 'Sample Roster', path: '/developer/roster', icon: <KeyRound className="w-4 h-4" /> },
+          { label: 'Feature Flags', path: '/developer/flags', icon: <ToggleLeft className="w-4 h-4" /> },
+          { label: 'Access Log', path: '/developer/access', icon: <ScrollText className="w-4 h-4" /> },
+          { label: 'Competency Framework', path: '/developer/framework', icon: <Library className="w-4 h-4" /> },
+          { label: 'Model Workshop', path: '/developer/workshop', icon: <FlaskConical className="w-4 h-4" /> },
+          { label: 'Data Quality', path: '/developer/quality', icon: <ShieldAlert className="w-4 h-4" /> },
+          { label: 'Release Notes', path: '/developer/releases', icon: <Megaphone className="w-4 h-4" /> },
+        ];
+
       case 'admin':
         return [
           { label: 'Platform Overview', path: '/admin/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -151,7 +174,12 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     }
   };
 
-  const navItems = getNavItems();
+  const navItems = getNavItems().filter((item) => {
+    if (item.path === '/teacher/assessments-beta' && !flags.questionStudio) return false;
+    if (item.path === '/upload-beta' && !flags.uploadBeta) return false;
+    if (item.path === '/student/answer-sheets' && !flags.answerSheetOcr) return false;
+    return true;
+  });
 
   return (
     <aside
@@ -175,8 +203,8 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       <div className="px-5 py-3 bg-navy-900/60 border-b border-navy-700/40">
         <div className="flex items-center justify-between text-xs">
           <span className="text-gray-400">Workspace:</span>
-          <span className="capitalize font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
-            {role} Portal
+          <span className="font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
+            {getRoleLabel(role)} Portal
           </span>
         </div>
       </div>

@@ -15,7 +15,7 @@ async def test_assistant_scopes_parent_records_and_navigation(client, parent_tok
     async def answer(self, url, *, json):
         captured.update(json)
         return httpx.Response(200, request=httpx.Request("POST", url), json={
-            "message": {"content": '{"answer":"Progress overview","page":"Child progress"}'},
+            "message": {"content": '{"answer":"Progress overview","page":"Reports"}'},
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "post", answer)

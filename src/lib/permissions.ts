@@ -29,9 +29,16 @@ export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS):
   return allowedRoles.includes(role);
 }
 
+export function getRoleLabel(role: string | undefined): string {
+  if (role === 'admin') return 'Management';
+  if (!role) return '';
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 export function getDefaultDashboardPath(role: Role): string {
   switch (role) {
     case 'developer':
+      return '/developer';
     case 'admin':
       return '/admin/dashboard';
     case 'principal':

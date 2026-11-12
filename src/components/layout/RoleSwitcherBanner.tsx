@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { demoMode, useAuth } from '../../context/AuthContext';
 import { Role } from '../../types';
-import { getDefaultDashboardPath } from '../../lib/permissions';
+import { getDefaultDashboardPath, getRoleLabel } from '../../lib/permissions';
 import { Sparkles, ArrowRight, Shield, GraduationCap, School, BookOpen, Users, Code } from 'lucide-react';
 
 export const RoleSwitcherBanner: React.FC = () => {
@@ -15,7 +15,7 @@ export const RoleSwitcherBanner: React.FC = () => {
     ...(currentUser?.demoRoot
       ? [{ role: 'developer' as const, label: 'Developer', icon: <Code className="w-3.5 h-3.5" /> }]
       : []),
-    { role: 'admin', label: 'Admin', icon: <Shield className="w-3.5 h-3.5" /> },
+    { role: 'admin', label: 'Management', icon: <Shield className="w-3.5 h-3.5" /> },
     { role: 'principal', label: 'Principal', icon: <School className="w-3.5 h-3.5" /> },
     { role: 'teacher', label: 'Teacher', icon: <BookOpen className="w-3.5 h-3.5" /> },
     { role: 'student', label: 'Student', icon: <GraduationCap className="w-3.5 h-3.5" /> },
@@ -44,9 +44,11 @@ export const RoleSwitcherBanner: React.FC = () => {
           <Sparkles className="w-3.5 h-3.5" />
           <span>{currentUser?.demoRoot ? 'Root access' : 'Interactive Stakeholder Prototype'}</span>
         </span>
-        <span className="text-gray-400 hidden md:inline">• Active Persona:</span>
+        <span className="text-gray-400 hidden md:inline">
+          {currentUser?.demoRoot && currentUser.role !== 'developer' ? '• Viewing as:' : '• Active Persona:'}
+        </span>
         <span className="bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded font-mono font-medium hidden md:inline">
-          {currentUser?.name} ({currentUser?.role})
+          {currentUser?.name} ({getRoleLabel(currentUser?.role)})
         </span>
       </div>
 

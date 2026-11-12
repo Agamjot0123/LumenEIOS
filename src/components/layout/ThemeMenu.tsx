@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Palette } from 'lucide-react';
-import { THEMES, useTheme } from '../../context/ThemeContext';
+import { THEMES, UI_MODES, useTheme } from '../../context/ThemeContext';
+import { useFeatureFlags } from '../../context/FeatureFlagContext';
 import { cn } from '../../lib/utils';
 
 export const ThemeMenu: React.FC<{ className?: string }> = ({ className }) => {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, uiMode, setUiMode } = useTheme();
+  const flags = useFeatureFlags();
+  const themes = flags.presentationUi ? THEMES : THEMES.filter((item) => item.id !== 'presentation');
+  const uiModes = flags.presentationUi ? UI_MODES : UI_MODES.filter((item) => item.id !== 'presentation');
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const active = THEMES.find((item) => item.id === theme) ?? THEMES[0];
@@ -55,12 +59,12 @@ export const ThemeMenu: React.FC<{ className?: string }> = ({ className }) => {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 mt-1.5 w-64 bg-white rounded-xl shadow-modal border border-surface-border py-2 z-50 animate-fade-in"
+          className="absolute right-0 mt-1.5 w-72 bg-white rounded-xl shadow-modal border border-surface-border py-2 z-50 animate-fade-in"
         >
           <div className="px-3.5 py-1.5 text-[11px] font-semibold text-content-secondary uppercase tracking-wider">
             Appearance
           </div>
-          {THEMES.map((item) => {
+          {themes.map((item) => {
             const selected = item.id === theme;
             return (
               <button
@@ -86,6 +90,31 @@ export const ThemeMenu: React.FC<{ className?: string }> = ({ className }) => {
                     />
                   ))}
                 </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{item.label}</span>
+                  <span className="block text-[10px] text-content-secondary">{item.hint}</span>
+                </span>
+                {selected && <Check className="w-4 h-4 text-teal-600 shrink-0" />}
+              </button>
+            );
+          })}
+          <div className="mt-1 px-3.5 py-1.5 text-[11px] font-semibold text-content-secondary uppercase tracking-wider border-t border-surface-border">
+            Interface
+          </div>
+          {uiModes.map((item) => {
+            const selected = item.id === uiMode;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                onClick={() => setUiMode(item.id)}
+                className={cn(
+                  'w-full px-3.5 py-2 text-left text-xs hover:bg-surface-bg flex items-center gap-3 transition-colors',
+                  selected ? 'bg-teal-50/60 text-teal-800' : 'text-content-primary'
+                )}
+              >
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">{item.label}</span>
                   <span className="block text-[10px] text-content-secondary">{item.hint}</span>
