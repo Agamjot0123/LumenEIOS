@@ -147,6 +147,7 @@ class Student(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+
 class StudentOcrHistory(Base):
     __tablename__ = "student_ocr_history"
 
@@ -196,6 +197,7 @@ class Assessment(Base):
     competency_focus_json = Column(JSON, default=list, nullable=False)
     questions_json = Column(JSON, default=list, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+
 
 
 class AssignmentOcrUpload(Base):

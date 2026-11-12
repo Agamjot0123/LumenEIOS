@@ -79,6 +79,7 @@ class StudentOcrHistoryOut(OCRPreviewItem, BaseSchema):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+
 class VerifiedItemRequest(BaseModel):
     item_index: int
     marks: int

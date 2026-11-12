@@ -1,5 +1,5 @@
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from backend.app.schemas.common import BaseSchema
 
 
@@ -31,6 +31,17 @@ class GenerateQuestionsRequest(BaseModel):
     save_to_bank: bool = True
 
 
+class RegenerateQuestionRequest(BaseModel):
+    subject_id: Optional[str] = None
+    question_type: str = "mcq"
+    bloom_level: str = "Apply"
+    competency: str = "CU"
+    source_document_ids: List[str] = []
+    source_document_names: List[str] = []
+    current_text: str = ""
+    custom_instruction: Optional[str] = None
+
+
 class QuestionUpdateRequest(BaseModel):
     text: Optional[str] = None
     type: Optional[str] = None
@@ -43,14 +54,14 @@ class QuestionUpdateRequest(BaseModel):
 
 
 class AssessmentCreate(BaseModel):
-    class_id: Optional[str] = None
+    class_id: Optional[str] = "class-8a"
     subject_id: str
     title: str
     cycle_number: int = 1
     date: str
     duration_minutes: int = 45
     total_marks: int = 25
-    questions: List[QuestionSchema] = Field(min_length=1)
+    questions: List[QuestionSchema]
     competency_focus: List[str]
 
 
@@ -67,6 +78,32 @@ class AssessmentOut(BaseSchema):
     status: str
     competency_focus_json: List[str]
     questions_json: List[Any]
+
+
+class SubmissionCreate(BaseModel):
+    student_id: str
+    marks_obtained: int
+    total_marks: int
+    lu_score: int
+    cu_score: int
+    au_score: int
+    ct_score: int
+    feedback: Optional[str] = None
+    is_scanned: bool = False
+
+
+class SubmissionOut(BaseSchema):
+    id: str
+    assessment_id: str
+    student_id: str
+    student_name: str
+    marks_obtained: int
+    total_marks: int
+    percentage: int
+    scores: dict
+    feedback: Optional[str] = None
+    submission_date: str
+    is_scanned: bool
 
 
 class AssignmentSubject(BaseModel):
@@ -99,28 +136,3 @@ class UploadAssignment(BaseModel):
     uploaded: bool
     questions: List[UploadQuestion]
 
-
-class SubmissionCreate(BaseModel):
-    student_id: str
-    marks_obtained: int
-    total_marks: int
-    lu_score: int
-    cu_score: int
-    au_score: int
-    ct_score: int
-    feedback: Optional[str] = None
-    is_scanned: bool = False
-
-
-class SubmissionOut(BaseSchema):
-    id: str
-    assessment_id: str
-    student_id: str
-    student_name: str
-    marks_obtained: int
-    total_marks: int
-    percentage: int
-    scores: dict
-    feedback: Optional[str] = None
-    submission_date: str
-    is_scanned: bool

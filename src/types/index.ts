@@ -17,7 +17,6 @@ export interface CompetencyScores {
 }
 
 export interface User {
-  demoRoot?: boolean;
   id: string;
   email: string;
   name: string;
@@ -28,6 +27,8 @@ export interface User {
   assignedSubjectIds?: string[];
   linkedChildIds?: string[];
   designation?: string;
+  /** True when signed in via the development demo-root login (LEOFELIX / KVR). */
+  demoRoot?: boolean;
 }
 
 export interface School {
@@ -83,7 +84,11 @@ export interface Student {
   homeworkCompletionRate: number;
   needsSupport: boolean;
   supportArea?: string;
+  /** Optional admission year used by school performance charts. */
   joinedYear?: number;
+  /** Present on `/classes/students/me` profile responses. */
+  subjectNames?: string[];
+  parentNames?: string[];
 }
 
 export interface Question {

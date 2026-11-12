@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Question, CompetencyKey, BloomLevel, SourceDocument } from '../../types';
 import { apiClient, AssignmentTarget, ProcessStep } from '../../lib/apiClient';
+import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -271,7 +272,7 @@ export const AssessmentBuilder: React.FC = () => {
         mcqCount: q.type === 'mcq' ? 1 : 0,
         theoryCount: q.type === 'mcq' ? 0 : 1,
         bloomLevel: currentBloomLevel,
-        topicHint: `${topicHint.trim() || 'Use the supplied sources'}. Write a different question from: ${q.text}`,
+        topicHint: (topicHint.trim() || 'Use the supplied sources') + '. Write a different question from: ' + q.text,
         saveToBank: false,
       });
       const updated: Question = { ...result.questions[0], id: q.id };
@@ -354,6 +355,34 @@ export const AssessmentBuilder: React.FC = () => {
   const handleExportWordDoc = (questionsToExport: Question[], paperTitle: string) => {
     const subjectObj = subjects.find((s) => s.id === genSubjectId);
     const totalMarks = questionsToExport.reduce((s, q) => s + q.marks, 0);
+    const demoBanner = DEMO_MODE
+      ? '<p style="background:#FEF3C7;border:1px solid #F59E0B;padding:8px 12px;font-size:12px;">OFFLINE DEMO - synthetic data, not official student results.</p>'
+      : '';
+    const cards = questionsToExport
+      .map((q, i) => {
+        const optionsHtml =
+          q.options && q.options.length > 0
+            ? `<div class="options">${q.options.map((opt) => `<div>${escapeHtml(opt)}</div>`).join('')}</div>`
+            : '';
+        const sources =
+          q.sourceDocumentNames && q.sourceDocumentNames.length > 0
+            ? `<strong>Grounded Source(s):</strong> ${escapeHtml(q.sourceDocumentNames.join(', '))}`
+            : '';
+        return `
+          <div class="q-box">
+            <div class="q-header">
+              Q${i + 1}. [${escapeHtml(q.type.toUpperCase())} • ${escapeHtml(q.marks)} Marks • Competency: ${escapeHtml(q.competency)} • Bloom: ${escapeHtml(q.bloomLevel)}]
+            </div>
+            <p>${escapeHtml(q.text)}</p>
+            ${optionsHtml}
+            <div class="rubric">
+              <strong>Official Answer Key:</strong> ${escapeHtml(q.correctAnswer || 'See rubric')}<br/>
+              <strong>Marking Rubric:</strong> ${escapeHtml(q.markingRubric || 'Standard competency rubric applies.')}<br/>
+              ${sources}
+            </div>
+          </div>`;
+      })
+      .join('');
 
     const htmlContent = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -361,7 +390,7 @@ export const AssessmentBuilder: React.FC = () => {
             xmlns="http://www.w3.org/TR/REC-html40">
       <head>
         <meta charset="utf-8" />
-        <title>${paperTitle}</title>
+        <title>${escapeHtml(paperTitle)}</title>
         <style>
           body { font-family: Calibri, Arial, sans-serif; color: #182230; line-height: 1.5; padding: 24px; }
           h1 { color: #142A43; font-size: 20pt; margin-bottom: 4px; }
@@ -374,39 +403,15 @@ export const AssessmentBuilder: React.FC = () => {
         </style>
       </head>
       <body>
-        <h1>LumenEIOS — ${paperTitle}</h1>
+        ${demoBanner}
+        <h1>LumenEIOS — ${escapeHtml(paperTitle)}</h1>
         <div class="meta">
-          <strong>Subject:</strong> ${subjectObj?.name || 'Mathematics'} &nbsp;|&nbsp;
-          <strong>Bloom Target:</strong> ${currentBloomLevel} &nbsp;|&nbsp;
+          <strong>Subject:</strong> ${escapeHtml(subjectObj?.name || 'Mathematics')} &nbsp;|&nbsp;
+          <strong>Bloom Target:</strong> ${escapeHtml(currentBloomLevel)} &nbsp;|&nbsp;
           <strong>Total Questions:</strong> ${questionsToExport.length} &nbsp;|&nbsp;
           <strong>Total Marks:</strong> ${totalMarks}
         </div>
-        ${questionsToExport
-          .map(
-            (q, i) => `
-          <div class="q-box">
-            <div class="q-header">
-              Q${i + 1}. [${q.type.toUpperCase()} • ${q.marks} Marks • Competency: ${q.competency} • Bloom: ${q.bloomLevel}]
-            </div>
-            <p>${q.text}</p>
-            ${
-              q.options && q.options.length > 0
-                ? `<div class="options">${q.options.map((opt) => `<div>${opt}</div>`).join('')}</div>`
-                : ''
-            }
-            <div class="rubric">
-              <strong>Official Answer Key:</strong> ${q.correctAnswer || 'See rubric'}<br/>
-              <strong>Marking Rubric:</strong> ${q.markingRubric || 'Standard competency rubric applies.'}<br/>
-              ${
-                q.sourceDocumentNames && q.sourceDocumentNames.length > 0
-                  ? `<strong>Grounded Source(s):</strong> ${q.sourceDocumentNames.join(', ')}`
-                  : ''
-              }
-            </div>
-          </div>
-        `
-          )
-          .join('')}
+        ${cards}
       </body>
       </html>
     `;
@@ -433,10 +438,33 @@ export const AssessmentBuilder: React.FC = () => {
       showToast('Pop-up blocked. Please allow pop-ups to print/save as PDF.', 'warning');
       return;
     }
+    const demoBanner = DEMO_MODE
+      ? '<p style="background:#FEF3C7;border:1px solid #F59E0B;padding:8px 12px;font-size:12px;margin:0 0 16px 0;">OFFLINE DEMO - synthetic data, not official student results.</p>'
+      : '';
+    const cards = questionsToExport
+      .map((q, i) => {
+        const optionsHtml =
+          q.options && q.options.length > 0
+            ? `<div class="opts">${q.options.map((o) => `<div>${escapeHtml(o)}</div>`).join('')}</div>`
+            : '';
+        return `
+            <div class="q-card">
+              <div class="q-meta">
+                QUESTION ${i + 1} &bull; ${escapeHtml(q.type.toUpperCase())} &bull; ${escapeHtml(q.marks)} MARKS &bull; COMPETENCY: ${escapeHtml(q.competency)} &bull; BLOOM: ${escapeHtml(q.bloomLevel)}
+              </div>
+              <div class="q-text">${escapeHtml(q.text)}</div>
+              ${optionsHtml}
+              <div class="key">
+                <div><strong>Answer Key:</strong> ${escapeHtml(q.correctAnswer || 'Refer to rubric')}</div>
+                <div><strong>Marking Rubric:</strong> ${escapeHtml(q.markingRubric || 'Standard NEP 2020 competency rubric')}</div>
+              </div>
+            </div>`;
+      })
+      .join('');
     printWin.document.write(`
       <html>
         <head>
-          <title>${paperTitle} — LumenEIOS</title>
+          <title>${escapeHtml(paperTitle)} — LumenEIOS</title>
           <style>
             body { font-family: Inter, Arial, sans-serif; color: #182230; padding: 32px; line-height: 1.5; }
             h1 { font-size: 20px; color: #142A43; margin: 0 0 4px 0; }
@@ -449,34 +477,15 @@ export const AssessmentBuilder: React.FC = () => {
           </style>
         </head>
         <body>
-          <h1>LumenEIOS Adaptive EdTech Ecosystem — ${paperTitle}</h1>
+          ${demoBanner}
+          <h1>LumenEIOS Adaptive EdTech Ecosystem — ${escapeHtml(paperTitle)}</h1>
           <div class="sub">
-            Subject: <strong>${subjectObj?.name || 'Mathematics'}</strong> &bull;
-            Cognitive Target: <strong>${currentBloomLevel}</strong> &bull;
+            Subject: <strong>${escapeHtml(subjectObj?.name || 'Mathematics')}</strong> &bull;
+            Cognitive Target: <strong>${escapeHtml(currentBloomLevel)}</strong> &bull;
             Items: <strong>${questionsToExport.length}</strong> &bull;
             Max Marks: <strong>${totalMarks}</strong>
           </div>
-          ${questionsToExport
-            .map(
-              (q, i) => `
-            <div class="q-card">
-              <div class="q-meta">
-                QUESTION ${i + 1} &bull; ${q.type.toUpperCase()} &bull; ${q.marks} MARKS &bull; COMPETENCY: ${q.competency} &bull; BLOOM: ${q.bloomLevel}
-              </div>
-              <div class="q-text">${q.text}</div>
-              ${
-                q.options && q.options.length > 0
-                  ? `<div class="opts">${q.options.map((o) => `<div>${o}</div>`).join('')}</div>`
-                  : ''
-              }
-              <div class="key">
-                <div><strong>Answer Key:</strong> ${q.correctAnswer || 'Refer to rubric'}</div>
-                <div><strong>Marking Rubric:</strong> ${q.markingRubric || 'Standard NEP 2020 competency rubric'}</div>
-              </div>
-            </div>
-          `
-            )
-            .join('')}
+          ${cards}
         </body>
       </html>
     `);

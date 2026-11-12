@@ -16,12 +16,11 @@ def test_existing_sha256_password_hash_can_still_be_verified():
 @pytest.mark.asyncio
 async def test_demo_root_switches_roles_and_requires_development_opt_in(client, teacher_token, monkeypatch):
     url = "/api/v1/auth"
-    password = "example-dev-test-password"
-    credentials = {"email": "LEOFELIX", "password": password}
+    credentials = {"email": "LEOFELIX", "password": "KVR"}
     monkeypatch.setattr(settings, "APP_ENV", "development")
     monkeypatch.setattr(settings, "DEMO_ROOT_PASSWORD", None)
     assert (await client.post(f"{url}/login", json=credentials)).status_code == 401
-    monkeypatch.setattr(settings, "DEMO_ROOT_PASSWORD", SecretStr(password))
+    monkeypatch.setattr(settings, "DEMO_ROOT_PASSWORD", SecretStr("KVR"))
     assert (await client.post(f"{url}/login", json=credentials | {"password": "wrong"})).status_code == 401
     assert (await client.post(
         f"{url}/demo-root/role", json={"role": "admin"},
@@ -37,7 +36,7 @@ async def test_demo_root_switches_roles_and_requires_development_opt_in(client, 
         f"{url}/me", headers={"Authorization": f"Bearer {session['access_token']}"}
     )).json()["role"] == "developer"
     email_login = await client.post(
-        f"{url}/login", json={"email": "leofelix@lumeneios.demo", "password": password}
+        f"{url}/login", json={"email": "leofelix@lumeneios.demo", "password": "KVR"}
     )
     assert email_login.status_code == 200
     assert email_login.json()["user"]["role"] == "developer"

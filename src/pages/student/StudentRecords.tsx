@@ -46,8 +46,8 @@ function RecordsPanel({ view, email }: { view: View; email: string }) {
               ['Login email', email],
               ['Roll number', profile.rollNo],
               ['Class', profile.className],
-              ['Subjects', profile.subjectNames.join(', ') || 'No subjects recorded'],
-              ['Parents / guardians', profile.parentNames.join(', ') || 'No parent accounts linked'],
+              ['Subjects', (profile.subjectNames || []).join(', ') || 'No subjects recorded'],
+              ['Parents / guardians', (profile.parentNames || []).join(', ') || 'No parent accounts linked'],
             ].map(([label, value]) => (
               <div key={label} className="min-w-0 rounded-lg border border-surface-border p-3">
                 <dt className="font-semibold">{label}</dt>

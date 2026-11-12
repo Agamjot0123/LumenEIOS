@@ -1,15 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
 import { initialUsers } from '../data/seedData';
+import { DEMO_MODE, clearTeachingCache } from '../lib/runtime';
 import { apiClient } from '../lib/apiClient';
 
-export const demoMode = (import.meta as any).env?.VITE_DEMO_MODE === 'true';
+/** Re-export for callers that previously imported demoMode from this module. */
+export const demoMode = DEMO_MODE;
 
 interface AuthContextType {
   currentUser: User | null;
   currentSchoolId: string;
+  isLoading: boolean;
   isRestoringSession: boolean;
-  login: (email: string, password: string) => Promise<User>;
+  login: (email: string, password?: string) => Promise<User> | boolean;
+  loginWithPassword: (email: string, password: string) => Promise<User>;
   loginAsRole: (role: Role) => Promise<User>;
   logout: () => void;
   switchSchool: (schoolId: string) => Promise<void>;
@@ -19,70 +23,145 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function toUser(user: Awaited<ReturnType<typeof apiClient.auth.me>>): User {
-  return { ...user, schoolId: user.school_id || '', demoRoot: user.demo_root === true };
+function mapUser(raw: any): User {
+  return {
+    ...raw,
+    schoolId: raw.school_id || raw.schoolId || '',
+    linkedChildIds: raw.linked_child_ids || raw.linkedChildIds || [],
+    demoRoot: raw.demo_root === true || raw.demoRoot === true,
+  };
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isRestoringSession, setIsRestoringSession] = useState(
-    () => !!localStorage.getItem('lumeneios_token')
-  );
-  const currentSchoolId = currentUser?.schoolId || 'school-1';
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    if (!DEMO_MODE) return null;
+    const saved = localStorage.getItem('lumeneios_demo_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return initialUsers[0];
+      }
+    }
+    return initialUsers[0];
+  });
+
+  const [currentSchoolId, setCurrentSchoolId] = useState<string>(() => {
+    return localStorage.getItem('lumeneios_current_school') || 'school-1';
+  });
+
+  const [isLoading, setIsLoading] = useState(!DEMO_MODE);
 
   const acceptUser = (user: User) => {
     localStorage.setItem('lumeneios_current_school', user.schoolId || 'school-1');
+    setCurrentSchoolId(user.schoolId || 'school-1');
     setCurrentUser(user);
   };
 
   useEffect(() => {
-    localStorage.removeItem('lumeneios_auth_user');
-    if (!localStorage.getItem('lumeneios_token')) {
-      setIsRestoringSession(false);
+    if (DEMO_MODE) {
+      if (currentUser) localStorage.setItem('lumeneios_demo_user', JSON.stringify(currentUser));
+      else localStorage.removeItem('lumeneios_demo_user');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem('lumeneios_current_school', currentSchoolId);
+  }, [currentSchoolId]);
+
+  useEffect(() => {
+    if (DEMO_MODE) {
+      localStorage.removeItem('lumeneios_token');
+      clearTeachingCache();
       return;
     }
     let active = true;
-    apiClient.auth.me()
-      .then((user) => { if (active) acceptUser(toUser(user)); })
-      .catch(() => { if (active) localStorage.removeItem('lumeneios_token'); })
-      .finally(() => { if (active) setIsRestoringSession(false); });
-    return () => { active = false; };
+    clearTeachingCache();
+    const expired = () => setCurrentUser(null);
+    window.addEventListener('lumeneios-session-expired', expired);
+    if (localStorage.getItem('lumeneios_token')) {
+      apiClient.auth.me()
+        .then((raw) => { if (active) acceptUser(mapUser(raw)); })
+        .catch(() => { /* apiClient clears only the matching expired session */ })
+        .finally(() => { if (active) setIsLoading(false); });
+    } else {
+      setIsLoading(false);
+    }
+    return () => {
+      active = false;
+      window.removeEventListener('lumeneios-session-expired', expired);
+    };
   }, []);
 
-  const login = async (email: string, password: string) => {
+  /** Offline demo: email-only. Live/API: password login against the backend. */
+  const login = (email: string, password?: string): Promise<User> | boolean => {
+    if (DEMO_MODE) {
+      const user = initialUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+      if (!user) return false;
+      acceptUser(user);
+      return true;
+    }
+    return loginWithPassword(email, password || '');
+  };
+
+  const loginWithPassword = async (email: string, password: string) => {
     const response = await apiClient.auth.login(email.trim(), password);
-    const user = toUser(response.user);
+    const user = mapUser(response.user);
     acceptUser(user);
     return user;
   };
 
-  const loginAsRole = async (role: Role) => {
-    if (currentUser?.demoRoot) {
-      const user = toUser(await apiClient.auth.switchDemoRole(role));
+  const loginAsRole = async (role: Role): Promise<User> => {
+    if (DEMO_MODE) {
+      const user = initialUsers.find((u) => u.role === role);
+      if (!user) throw new Error('Demo sign-in is disabled for this role.');
       acceptUser(user);
       return user;
     }
-    const user = initialUsers.find((candidate) => candidate.role === role);
-    if (!demoMode || !user) throw new Error('Demo sign-in is disabled.');
-    return login(user.email, 'demo123');
+    if (currentUser?.demoRoot) {
+      const response = await apiClient.auth.switchDemoRole(role);
+      const user = mapUser(response.user);
+      acceptUser(user);
+      return user;
+    }
+    const persona = initialUsers.find((candidate) => candidate.role === role);
+    if (!persona) throw new Error('Demo sign-in is disabled.');
+    // Seeded backend persona accounts use demo123; onboarded users do not.
+    return loginWithPassword(persona.email, 'demo123');
   };
 
   const logout = () => {
-    void apiClient.auth.logout();
-    localStorage.removeItem('lumeneios_current_school');
     setCurrentUser(null);
+    localStorage.removeItem(DEMO_MODE ? 'lumeneios_demo_user' : 'lumeneios_auth_user');
+    void apiClient.auth.logout();
   };
 
   const switchSchool = async (schoolId: string) => {
+    if (DEMO_MODE) {
+      setCurrentSchoolId(schoolId);
+      return;
+    }
     const response = await apiClient.auth.switchSchool(schoolId);
-    acceptUser(toUser(response.user));
+    clearTeachingCache();
+    acceptUser(mapUser(response.user));
   };
 
   return (
-    <AuthContext.Provider value={{
-      currentUser, currentSchoolId, isRestoringSession, login, loginAsRole, logout,
-      switchSchool, availableUsers: initialUsers, isAuthenticated: !!currentUser,
-    }}>
+    <AuthContext.Provider
+      value={{
+        currentUser,
+        currentSchoolId,
+        login,
+        loginWithPassword,
+        loginAsRole,
+        logout,
+        switchSchool,
+        availableUsers: DEMO_MODE ? initialUsers : initialUsers,
+        isAuthenticated: !!currentUser,
+        isLoading,
+        isRestoringSession: isLoading,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -90,6 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
   return context;
 };

@@ -3,12 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_roles, require_school_access, user_school_ids
+from backend.app.api.dependencies import (
+    get_current_user,
+    require_bearer_token,
+    require_roles,
+    require_school_access,
+    user_school_ids,
+)
 from backend.app.db.session import get_db
 from backend.app.models.entities import School, ClassSection, User, AuditEvent, utc_now
 from backend.app.schemas.schools import SchoolOut, SchoolCreate, SchoolUpdate, ClassSectionOut
 
-router = APIRouter(prefix="/schools", tags=["Schools"])
+router = APIRouter(prefix="/schools", tags=["Schools"], dependencies=[Depends(require_bearer_token)])
 
 
 @router.get("", response_model=List[SchoolOut])
@@ -70,6 +76,7 @@ async def update_school(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_roles("admin", "principal"))
 ):
+    await require_school_access(db, admin, school_id)
     result = await db.execute(select(School).filter(School.id == school_id))
     school = result.scalars().first()
     if not school:

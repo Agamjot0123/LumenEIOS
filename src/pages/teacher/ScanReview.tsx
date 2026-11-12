@@ -1,10 +1,50 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, FileText, Loader2, ScanLine, Trash2, UploadCloud } from 'lucide-react';
+import { AlertCircle, FileText, Loader2, Printer, ScanLine, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
 import { ApiError, apiClient, ProcessStep, UploadAssignment } from '../../lib/apiClient';
+import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
 import { UnauthorizedPage } from '../shared/UnauthorizedPage';
+
+const OFFLINE_DEMO_BANNER = 'OFFLINE DEMO - synthetic data, not official student results.';
+
+function printOcrExtract(
+  items: Array<{ fileName: string; extractedText: string; pagesProcessed: number }>,
+  provider: string,
+  modelVersion: string,
+) {
+  const printWin = window.open('', '_blank', 'width=900,height=700');
+  if (!printWin) return;
+  const demoBanner = DEMO_MODE
+    ? `<p style="background:#FEF3C7;border:1px solid #F59E0B;padding:8px 12px;font-size:12px;">${escapeHtml(OFFLINE_DEMO_BANNER)}</p>`
+    : '';
+  const cards = items
+    .map((item) => `
+      <section style="margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #E1E7ED;">
+        <h2 style="font-size:14px;margin:0 0 6px 0;">${escapeHtml(item.fileName)}</h2>
+        <p style="font-size:11px;color:#667085;margin:0 0 8px 0;">${escapeHtml(item.pagesProcessed)} page(s)</p>
+        <pre style="white-space:pre-wrap;font-size:12px;background:#F3F6F8;padding:12px;">${escapeHtml(item.extractedText || '[No text extracted]')}</pre>
+      </section>`)
+    .join('');
+  printWin.document.write(`
+    <html>
+      <head>
+        <title>OCR extract — LumenEIOS</title>
+        <style>body{font-family:Inter,Arial,sans-serif;color:#182230;padding:32px;line-height:1.5}</style>
+      </head>
+      <body>
+        ${demoBanner}
+        <h1>LumenEIOS OCR extract</h1>
+        <p style="font-size:12px;color:#667085;">${escapeHtml(provider)} · ${escapeHtml(modelVersion)}</p>
+        ${cards}
+      </body>
+    </html>
+  `);
+  printWin.document.close();
+  printWin.focus();
+  setTimeout(() => printWin.print(), 250);
+}
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES = 50;
@@ -341,7 +381,18 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           </p>
         </div>
         {results ? (
-          results.results.map((result) => (
+          <>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => printOcrExtract(results.results, results.provider, results.modelVersion)}
+                className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-white px-3 py-1.5 text-xs font-semibold text-navy-900 hover:bg-surface-bg"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Print extract
+              </button>
+            </div>
+            {results.results.map((result) => (
             <div
               key={result.fileName}
               className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle"
@@ -356,7 +407,8 @@ function UploadPage({ assignment, onBack, onProcessed }: {
                 {result.extractedText || '[No text extracted]'}
               </pre>
             </div>
-          ))
+            ))}
+          </>
         ) : (
           <div className="rounded-xl border border-surface-border bg-white p-4 text-sm text-content-secondary shadow-subtle">
             {isProcessing ? 'Waiting for OCR extraction…' : 'Extracted text will be shown in this panel.'}

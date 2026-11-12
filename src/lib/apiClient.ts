@@ -5,8 +5,9 @@
  */
 
 import type { Role, Student, User } from '../types';
+import { DEMO_MODE, clearTeachingCache, apiErrorMessage } from './runtime';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/+$/, '');
 
 type AccountDetails = {
   name: string;
@@ -49,7 +50,14 @@ export type UploadAssignment = {
   subject_name: string;
   total_marks: number;
   uploaded: boolean;
-  questions: { id: string | null; text: string; type: string; options: string[] | null; marks: number; competency: string | null }[];
+  questions: Array<{
+    id?: string;
+    text: string;
+    type: string;
+    options?: string[];
+    marks: number;
+    competency?: string;
+  }>;
 };
 
 function authHeaders(options: RequestInit = {}): Record<string, string> {
@@ -75,13 +83,27 @@ function errorMessage(errorBody: any, fallback: string) {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  if (DEMO_MODE) throw new ApiError(0, 'Offline demonstration: live API access is disabled.');
+  const token = localStorage.getItem('lumeneios_token');
   const url = `${API_BASE_URL}${endpoint}`;
   try {
     const response = await fetch(url, { ...options, headers: authHeaders(options) });
 
+    if (endpoint !== '/auth/login' && token !== localStorage.getItem('lumeneios_token')) {
+      throw new ApiError(409, 'The session changed while this request was pending. Reload the current account.');
+    }
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
-      throw new ApiError(response.status, errorMessage(errorBody, 'API request failed') || 'API request failed', errorBody);
+      if (response.status === 401) {
+        localStorage.removeItem('lumeneios_token');
+        clearTeachingCache();
+        window.dispatchEvent(new Event('lumeneios-session-expired'));
+      }
+      throw new ApiError(
+        response.status,
+        apiErrorMessage(response.status, errorBody.detail) || errorMessage(errorBody, 'API request failed'),
+        errorBody,
+      );
     }
 
     return await response.json();
@@ -96,6 +118,7 @@ async function postEventStream<T>(
   options: RequestInit,
   onProgress: (step: ProcessStep) => void,
 ): Promise<T> {
+  if (DEMO_MODE) throw new ApiError(0, 'Offline demonstration: live API access is disabled.');
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers: authHeaders(options) });
@@ -230,29 +253,76 @@ function mapBatchOut(b: any) {
 }
 
 export const apiClient = {
+  homework: {
+    call<T = any>(path: string, method = 'GET', body?: unknown) {
+      return request<T>(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    },
+    assignments() { return request<any[]>('/students/me/homework/assignments'); },
+    assignment(id: string) { return request<any>(`/students/me/homework/assignments/${encodeURIComponent(id)}`); },
+    submission(id: string) { return request<any>(`/students/me/homework/assignments/${encodeURIComponent(id)}/submission`); },
+    save(id: string, answers: unknown[], version: number | null) {
+      return request<any>(`/students/me/homework/assignments/${encodeURIComponent(id)}/submission`, {
+        method: 'PUT', body: JSON.stringify({ answers, ...(version == null ? {} : { expected_version: version }) }),
+      });
+    },
+    submit(id: string, version: number | null) {
+      return request<any>(`/students/me/homework/assignments/${encodeURIComponent(id)}/submission/submit`, {
+        method: 'POST', body: JSON.stringify(version == null ? {} : { expected_version: version }),
+      });
+    },
+    result(id: string) { return request<any>(`/students/me/homework/assignments/${encodeURIComponent(id)}/evaluation`); },
+    parentChildren() { return request<any[]>('/parents/me/students'); },
+    parentAssignments(student: string) {
+      return request<any[]>(`/parents/me/students/${encodeURIComponent(student)}/homework/assignments`);
+    },
+    parentResult(student: string, id: string) {
+      return request<any>(`/parents/me/students/${encodeURIComponent(student)}/homework/assignments/${encodeURIComponent(id)}/evaluation`);
+    },
+    /** Teacher-only AI mark suggestions. Never finalizes, releases, or writes awarded_marks. */
+    aiSuggestions(assignmentId: string) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`);
+    },
+    generateAiSuggestions(assignmentId: string, body: { positions?: number[]; replace?: boolean } = {}) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+    rerunAiSuggestions(assignmentId: string, body: { positions?: number[] } = {}) {
+      return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions/rerun`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+  },
+
   // Authentication
   auth: {
     async login(email: string, password: string) {
-      const res = await request<{ access_token: string; user: ApiUser }>('/auth/login', {
+      const res = await request<{ access_token: string; refresh_token?: string; user: ApiUser }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
         signal: AbortSignal.timeout(8000),
       });
       if (res.access_token) {
+        clearTeachingCache();
         localStorage.setItem('lumeneios_token', res.access_token);
+        localStorage.setItem('lumeneios_auth_user', JSON.stringify(res.user));
       }
       return res;
     },
     async me() {
       return request<ApiUser>('/auth/me', { signal: AbortSignal.timeout(8000) });
     },
-    async switchDemoRole(role: Role) {
+    async switchDemoRole(role: Role | string) {
       const response = await request<{ access_token: string; user: ApiUser }>('/auth/demo-root/role', {
         method: 'POST',
         body: JSON.stringify({ role }),
       });
-      localStorage.setItem('lumeneios_token', response.access_token);
-      return response.user;
+      if (response.access_token) {
+        localStorage.setItem('lumeneios_token', response.access_token);
+      }
+      return response;
     },
     async switchSchool(schoolId: string) {
       const res = await request<{ access_token: string; user: ApiUser }>('/auth/switch-school', {
@@ -265,12 +335,9 @@ export const apiClient = {
       return res;
     },
     async logout() {
+      // Tokens are typically stateless; local logout must succeed even offline.
       localStorage.removeItem('lumeneios_token');
-      try {
-        await request('/auth/logout', { method: 'POST' });
-      } catch {
-        // Ignore logout network errors
-      }
+      clearTeachingCache();
     },
   },
 
@@ -295,7 +362,7 @@ export const apiClient = {
   },
 
   student: {
-    async profile(): Promise<Student & { subjectNames: string[]; parentNames: string[] }> {
+    async profile(): Promise<Student> {
       const student = await request<any>('/classes/students/me');
       return {
         id: student.id,
@@ -313,8 +380,8 @@ export const apiClient = {
         homeworkCompletionRate: student.homework_completion_rate,
         needsSupport: student.needs_support,
         supportArea: student.support_area,
-        subjectNames: student.subject_names,
-        parentNames: student.parent_names,
+        subjectNames: student.subject_names || student.subjectNames || [],
+        parentNames: student.parent_names || student.parentNames || [],
       };
     },
   },
@@ -447,17 +514,20 @@ export const apiClient = {
 
   // Assessments & AI Question Generation
   assessments: {
-    async getAll() {
-      return request<any[]>('/assessments');
-    },
     targets() {
       return request<AssignmentTarget[]>('/assessments/targets');
     },
     uploadAssignments() {
       return request<UploadAssignment[]>('/assessments/upload-assignments');
     },
+    async getAll() {
+      return request<any[]>('/assessments');
+    },
+    async getClassAssessments(classId: string) {
+      return request<any[]>(`/classes/${classId}/assessments`);
+    },
     async create(classId: string, data: any) {
-      return request<{ id: string; school_id: string }>(`/classes/${encodeURIComponent(classId)}/assessments`, {
+      return request<any>(`/classes/${classId}/assessments`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -478,6 +548,37 @@ export const apiClient = {
       const list = await request<any[]>(`/assessments/question-bank?${params.toString()}`);
       return list.map(mapQuestionOut);
     },
+    async generateQuestions(data: {
+      subjectId: string;
+      sourceDocumentIds: string[];
+      mcqCount: number;
+      theoryCount: number;
+      bloomLevel: string;
+      topicHint?: string;
+      assessmentId?: string;
+      saveToBank?: boolean;
+    }, onProgress?: (step: ProcessStep) => void) {
+      const body = JSON.stringify({
+        subject_id: data.subjectId,
+        source_document_ids: data.sourceDocumentIds,
+        mcq_count: data.mcqCount,
+        theory_count: data.theoryCount,
+        bloom_level: data.bloomLevel,
+        focus_topic: data.topicHint || undefined,
+        assessment_id: data.assessmentId || undefined,
+        save_to_bank: data.saveToBank ?? true,
+      });
+      const res = onProgress
+        ? await postEventStream<any>('/assessments/generate-questions/stream', { method: 'POST', body }, onProgress)
+        : await request<any>('/assessments/generate-questions', { method: 'POST', body });
+      return {
+        subjectId: res.subject_id,
+        bloomLevel: res.bloom_level,
+        sourceDocumentsUsed: res.source_documents_used || res.source_documents || [],
+        generatedCount: res.generated_count,
+        questions: (res.questions || []).map(mapQuestionOut),
+      };
+    },
     async generateQuestionsBeta(data: {
       subjectId: string;
       subjectName: string;
@@ -493,7 +594,7 @@ export const apiClient = {
         subject_id: data.subjectId,
         subject_name: data.subjectName,
         source_document_ids: data.sourceDocumentIds,
-        source_urls: data.sourceUrls ?? [],
+        source_urls: data.sourceUrls || [],
         mcq_count: data.mcqCount,
         theory_count: data.theoryCount,
         bloom_level: data.bloomLevel,
@@ -511,6 +612,34 @@ export const apiClient = {
         generatedCount: res.generated_count,
         questions: (res.questions || []).map(mapQuestionOut),
       };
+    },
+    async regenerateQuestion(
+      questionId: string,
+      context: {
+        subjectId: string;
+        type: string;
+        competency: string;
+        text: string;
+        sourceDocumentIds?: string[];
+        sourceDocumentNames?: string[];
+      },
+      bloomLevel?: string,
+      customInstruction?: string,
+    ) {
+      const res = await request<any>(`/assessments/questions/${questionId}/regenerate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          subject_id: context.subjectId,
+          question_type: context.type,
+          competency: context.competency,
+          current_text: context.text,
+          source_document_ids: context.sourceDocumentIds || [],
+          source_document_names: context.sourceDocumentNames || [],
+          bloom_level: bloomLevel || undefined,
+          custom_instruction: customInstruction || undefined,
+        }),
+      });
+      return mapQuestionOut(res);
     },
     async updateQuestion(questionId: string, data: Partial<{
       text: string;
@@ -537,6 +666,17 @@ export const apiClient = {
       });
       return mapQuestionOut(res);
     },
+    /** Gemini preview: returns questions for review; nothing is saved. */
+    async aiGenerateQuestions(params: Record<string, unknown>) {
+      return request<any>('/assessments/ai/generate-questions', { method: 'POST', body: JSON.stringify(params) });
+    },
+    /** Saves educator-approved (possibly edited) AI questions to the bank. */
+    async aiSaveQuestions(subjectId: string, questions: unknown[], model?: string) {
+      return request<any>('/assessments/ai/questions', {
+        method: 'POST',
+        body: JSON.stringify({ subject_id: subjectId, questions, model }),
+      });
+    },
     async deleteQuestion(questionId: string) {
       return request<any>(`/assessments/questions/${questionId}`, {
         method: 'DELETE',
@@ -546,11 +686,8 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
-    history() {
-      return request<Array<{
-        id: string; file_name: string; extracted_text: string; pages_processed: number; created_at: string;
-        assignment_title: string | null;
-      }>>('/ocr/history');
+    async history() {
+      return request<Array<{ id: string; file_name: string; extracted_text: string; pages_processed: number; created_at: string; assignment_title?: string | null }>>('/ocr/history');
     },
     async extractPreview(
       files: File[],
@@ -742,8 +879,7 @@ export const apiClient = {
   health: {
     async check() {
       try {
-        // /health sits at the server root, outside /api/v1.
-        const res = await fetch(`${API_BASE_URL.replace(/\/api\/v1\/?$/, '')}/health`);
+        const res = await fetch('http://localhost:8000/health');
         return res.ok;
       } catch {
         return false;

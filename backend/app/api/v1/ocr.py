@@ -19,8 +19,8 @@ from backend.app.models.entities import (
     GradingBatch,
     GradingBatchItem,
     Assessment,
-    AssignmentOcrUpload,
     AssessmentSubmission,
+    AssignmentOcrUpload,
     Student,
     StudentOcrHistory,
     StudentCompetencySnapshot,
@@ -32,8 +32,8 @@ from backend.app.models.entities import (
 from backend.app.schemas.ocr import (
     OCRRunOut,
     OCRPreviewOut,
-    StudentOcrHistoryOut,
     OCRAnswerRegion,
+    StudentOcrHistoryOut,
     HumanReviewRequest,
     HumanReviewOut,
     BatchItemOut,
@@ -47,9 +47,9 @@ from backend.app.services.ocr_service import (
     get_ocr_provider,
 )
 from backend.app.services.progress import report_progress, stream_job
+from backend.app.services.storage_service import storage_service
 from backend.app.services.assessment_audience import upload_assignments
 from backend.app.modules.differentiated_homework.student_access import require_linked_student
-from backend.app.services.storage_service import storage_service
 from backend.app.services.batch_grading_service import (
     match_student_from_filename_or_text,
     run_grading_batch_job,
@@ -69,6 +69,7 @@ OCR_PREVIEW_MIME_TYPES = {"image/jpeg", "image/jpg", "image/png", "application/p
 class ProcessOCRRequest(BaseModel):
     document_id: str
     provider: str = "simulated"
+
 
 
 @router.get("/history", response_model=List[StudentOcrHistoryOut])
@@ -183,12 +184,12 @@ async def extract_ocr_preview(
             Path(detail["storage_path"]).unlink(missing_ok=True)
 
     if student_id:
-        history = [StudentOcrHistory(student_id=student_id, **item) for item in results]
-        db.add_all(history)
+        history_rows = [StudentOcrHistory(student_id=student_id, **item) for item in results]
+        db.add_all(history_rows)
         if assessment_id is not None:
             await db.flush()
             db.add_all(
-                AssignmentOcrUpload(history_id=entry.id, assessment_id=assessment_id) for entry in history
+                AssignmentOcrUpload(history_id=entry.id, assessment_id=assessment_id) for entry in history_rows
             )
         await db.commit()
 

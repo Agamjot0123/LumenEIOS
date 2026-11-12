@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from backend.app.api.dependencies import reject_non_finite_json
 from backend.app.api.v1.auth import router as auth_router
 from backend.app.api.v1.schools import router as schools_router
 from backend.app.api.v1.users import router as users_router
@@ -20,7 +21,7 @@ from backend.app.api.v1.admin import router as admin_router
 from backend.app.api.v1.onboarding import router as onboarding_router
 from backend.app.api.v1.developer import router as developer_router
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(reject_non_finite_json)])
 
 api_router.include_router(auth_router)
 api_router.include_router(schools_router)
@@ -42,4 +43,3 @@ api_router.include_router(audit_router)
 api_router.include_router(admin_router)
 api_router.include_router(onboarding_router)
 api_router.include_router(developer_router)
-

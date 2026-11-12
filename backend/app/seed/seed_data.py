@@ -13,14 +13,20 @@ Every account's password is demo123. Seeding runs only on an empty database; to 
 the database file (or run backend/scripts/reset_roster.py) and restart the backend.
 
 The IDs school-1 and user-principal-1 are kept on purpose: some API fallbacks still name them.
+
+Login emails:
+    Classic demo personas (LoginPage / docs): admin@, principal@, teacher@, student@, parent@
+    Named roster aliases also exist for admin/principal/teacher (iitmandi@, principal.jnv@, garima@).
 """
 import logging
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import get_password_hash
 from backend.app.models.entities import (
+    AuditEvent,
     ClassSection,
     ParentStudentLink,
     School,
@@ -36,13 +42,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_PASSWORD = "demo123"
 DOMAIN = "lumeneios.demo"
 
-# The LEOFELIX root login switches into these accounts (see api/v1/auth.py).
+# LEOFELIX role-switch targets and classic LoginPage personas (see api/v1/auth.py).
 ROOT_PERSONA_EMAILS = {
-    "admin": f"iitmandi@{DOMAIN}",
-    "principal": f"principal.jnv@{DOMAIN}",
-    "teacher": f"garima@{DOMAIN}",
-    "student": f"gurleen@{DOMAIN}",
-    "parent": f"gurleen.mummy@{DOMAIN}",
+    "admin": f"admin@{DOMAIN}",
+    "principal": f"principal@{DOMAIN}",
+    "teacher": f"teacher@{DOMAIN}",
+    "student": f"student@{DOMAIN}",
+    "parent": f"parent@{DOMAIN}",
 }
 
 SCHOOLS = [
@@ -95,6 +101,37 @@ STUDENTS = [
 
 SCHOOL_SLUG = {"school-1": "jnv", "school-2": "dakshana"}
 
+# Named emails from the upstream roster sheet (same persona names; no second StudentAccountLink).
+NAMED_LOGIN_ALIASES = [
+    {
+        "id": "user-alias-iitmandi",
+        "email": f"iitmandi@{DOMAIN}",
+        "name": "IIT Mandi",
+        "role": "admin",
+        "school_id": "school-1",
+        "designation": "Administrator alias",
+        "memberships": ["school-1", "school-2"],
+    },
+    {
+        "id": "user-alias-principal-jnv",
+        "email": f"principal.jnv@{DOMAIN}",
+        "name": "JNV Bengaluru",
+        "role": "principal",
+        "school_id": "school-1",
+        "designation": "Principal alias",
+        "memberships": ["school-1"],
+    },
+    {
+        "id": "user-alias-garima",
+        "email": f"garima@{DOMAIN}",
+        "name": "Garima",
+        "role": "teacher",
+        "school_id": "school-1",
+        "designation": "Science teacher alias",
+        "memberships": ["school-1"],
+    },
+]
+
 
 def class_id(school_id: str, grade: int) -> str:
     return f"class-{SCHOOL_SLUG[school_id]}-{grade}"
@@ -120,34 +157,125 @@ def build_classes() -> list[dict]:
 def roster_users() -> list[dict]:
     """Every login account, in display order. Used by the seed and the login sheet."""
     users = [{
-        "id": "user-admin", "email": f"iitmandi@{DOMAIN}", "name": "IIT Mandi", "role": "admin",
-        "school_id": "school-1", "designation": "Administrator, JNV Bengaluru and Dakshana Kottayam",
+        "id": "user-admin",
+        "email": ROOT_PERSONA_EMAILS["admin"],
+        "name": "IIT Mandi",
+        "role": "admin",
+        "school_id": "school-1",
+        "designation": "Administrator, JNV Bengaluru and Dakshana Kottayam",
     }]
     for school in SCHOOLS:
+        email = (
+            ROOT_PERSONA_EMAILS["principal"]
+            if school["id"] == "school-1"
+            else school["principal_email"]
+        )
         users.append({
-            "id": school["principal_id"], "email": school["principal_email"],
-            "name": school["principal_name"], "role": "principal", "school_id": school["id"],
+            "id": school["principal_id"],
+            "email": email,
+            "name": school["principal_name"],
+            "role": "principal",
+            "school_id": school["id"],
             "designation": f"Principal, {school['name']}",
         })
     for teacher in TEACHERS:
+        email = (
+            ROOT_PERSONA_EMAILS["teacher"]
+            if teacher["key"] == "garima"
+            else f"{teacher['key']}@{DOMAIN}"
+        )
         users.append({
-            "id": f"user-teacher-{teacher['key']}", "email": f"{teacher['key']}@{DOMAIN}",
-            "name": teacher["name"], "role": "teacher", "school_id": teacher["school"],
+            "id": f"user-teacher-{teacher['key']}",
+            "email": email,
+            "name": teacher["name"],
+            "role": "teacher",
+            "school_id": teacher["school"],
             "designation": teacher["designation"],
         })
     for student in STUDENTS:
+        email = (
+            ROOT_PERSONA_EMAILS["student"]
+            if student["key"] == "gurleen"
+            else f"{student['key']}@{DOMAIN}"
+        )
         users.append({
-            "id": f"student-{student['key']}", "email": f"{student['key']}@{DOMAIN}",
-            "name": student["name"], "role": "student", "school_id": student["school"],
+            "id": f"student-{student['key']}",
+            "email": email,
+            "name": student["name"],
+            "role": "student",
+            "school_id": student["school"],
             "designation": f"Student, Class {student['grade']}",
         })
     for student in STUDENTS:
+        email = (
+            ROOT_PERSONA_EMAILS["parent"]
+            if student["key"] == "gurleen"
+            else f"{student['key']}.mummy@{DOMAIN}"
+        )
         users.append({
-            "id": f"parent-{student['key']}", "email": f"{student['key']}.mummy@{DOMAIN}",
-            "name": f"{student['name']} ki Mummy", "role": "parent", "school_id": student["school"],
+            "id": f"parent-{student['key']}",
+            "email": email,
+            "name": f"{student['name']} ki Mummy",
+            "role": "parent",
+            "school_id": student["school"],
             "designation": f"Parent of {student['name']}",
         })
     return users
+
+
+async def ensure_classic_demo_student_link(session: AsyncSession) -> None:
+    """Idempotently link the classic Aarav Patel demo login when that roster is present.
+
+    Student homework endpoints require an explicit StudentAccountLink. Older demo databases
+    were seeded before that table existed, so teacher-assigned homework for user-student-1
+    was invisible to student@lumeneios.demo. This only creates the known classic demo link
+    (never infers links for arbitrary same-ID accounts) and does not wipe or reseed data.
+    """
+    seed_event_id = "seed-classic-demo-student-account-link-v1"
+    if await session.get(AuditEvent, seed_event_id):
+        return
+    user = await session.get(User, "user-student-1")
+    student = await session.get(Student, "user-student-1")
+    if not user or not student:
+        return
+    if (
+        user.email != f"student@{DOMAIN}"
+        or user.role != "student"
+        or user.school_id != "school-1"
+        or student.school_id != "school-1"
+        or student.name != "Aarav Patel"
+    ):
+        return
+    if await session.scalar(select(StudentAccountLink.id).where(or_(
+        StudentAccountLink.user_id == user.id,
+        StudentAccountLink.student_id == student.id,
+    ))):
+        # Mark complete so we do not re-check forever when a link already exists.
+        session.add(AuditEvent(
+            id=seed_event_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            user_id="user-admin",
+            user_name="System",
+            category="user",
+            action="Classic demo student already linked",
+            details="StudentAccountLink already present for Aarav Patel demo login.",
+        ))
+        await session.commit()
+        return
+    session.add_all([
+        StudentAccountLink(user_id=user.id, student_id=student.id, created_by="user-admin"),
+        AuditEvent(
+            id=seed_event_id,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            user_id="user-admin",
+            user_name="System",
+            category="user",
+            action="Linked classic demo student",
+            details="Linked student@lumeneios.demo (Aarav Patel) to roster record user-student-1.",
+        ),
+    ])
+    await session.commit()
+    logger.info("Ensured StudentAccountLink for classic demo student Aarav Patel (user-student-1).")
 
 
 async def seed_database_if_empty(session: AsyncSession) -> None:
@@ -187,7 +315,9 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
             school_id=user["school_id"], role=user["role"],
         ))
     # The admin controls both schools.
-    session.add(SchoolMembership(id="mem-user-admin-school-2", user_id="user-admin", school_id="school-2", role="admin"))
+    session.add(SchoolMembership(
+        id="mem-user-admin-school-2", user_id="user-admin", school_id="school-2", role="admin",
+    ))
 
     for section in classes:
         lead = section["teachers"][0]
@@ -199,7 +329,10 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
             name=f"Class {section['grade']}-A",
             class_teacher_id=f"user-teacher-{lead['key']}",
             class_teacher_name=lead["name"],
-            student_count=sum(1 for s in STUDENTS if s["school"] == section["school_id"] and s["grade"] == section["grade"]),
+            student_count=sum(
+                1 for s in STUDENTS
+                if s["school"] == section["school_id"] and s["grade"] == section["grade"]
+            ),
             subject_ids_json=section["subject_ids"],
         ))
 
@@ -222,11 +355,38 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
 
     for student in STUDENTS:
         student_id = f"student-{student['key']}"
-        session.add(ParentStudentLink(id=f"psl-{student['key']}", parent_user_id=f"parent-{student['key']}", student_id=student_id))
-        session.add(StudentAccountLink(user_id=student_id, student_id=student_id, created_by="user-admin"))
+        session.add(ParentStudentLink(
+            id=f"psl-{student['key']}",
+            parent_user_id=f"parent-{student['key']}",
+            student_id=student_id,
+        ))
+        session.add(StudentAccountLink(
+            user_id=student_id, student_id=student_id, created_by="user-admin",
+        ))
+
+    for alias in NAMED_LOGIN_ALIASES:
+        session.add(User(
+            id=alias["id"],
+            email=alias["email"],
+            name=alias["name"],
+            role=alias["role"],
+            school_id=alias["school_id"],
+            designation=alias["designation"],
+            hashed_password=password_hash,
+        ))
+        for membership_school in alias["memberships"]:
+            session.add(SchoolMembership(
+                id=f"mem-{alias['id']}-{membership_school}",
+                user_id=alias["id"],
+                school_id=membership_school,
+                role=alias["role"],
+            ))
 
     await session.commit()
     logger.info(
         "Seeded %d schools (%s), %d accounts, %d classes.",
-        len(SCHOOLS), ", ".join(names.values()), len(roster_users()), len(classes),
+        len(SCHOOLS),
+        ", ".join(names.values()),
+        len(roster_users()) + len(NAMED_LOGIN_ALIASES),
+        len(classes),
     )

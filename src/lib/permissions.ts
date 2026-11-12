@@ -17,10 +17,10 @@ export const PERMISSIONS = {
   APPROVE_COMPRESSION: ['admin', 'principal', 'teacher'],
   ASSIGN_REMEDIATION: ['teacher'],
   SUBMIT_ASSIGNMENTS: ['student'],
-  REVIEW_STUDENT_SHEETS: ['teacher'],
+  REVIEW_STUDENT_SHEETS: ['admin', 'principal', 'teacher'],
   VIEW_CHILD_PROGRESS: ['parent'],
-  ADD_STUDENT: ['principal'],
-  ADD_TEACHER: ['principal'],
+  ADD_STUDENT: ['admin', 'principal', 'teacher'],
+  ADD_TEACHER: ['admin', 'principal'],
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {
@@ -53,4 +53,3 @@ export function getDefaultDashboardPath(role: Role): string {
       return '/login';
   }
 }
-

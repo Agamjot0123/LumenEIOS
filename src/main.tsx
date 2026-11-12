@@ -6,6 +6,7 @@ import { FeatureFlagProvider } from './context/FeatureFlagContext';
 import { DataProvider } from './context/DataContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
+import { DEMO_MODE } from './lib/runtime';
 import './styles/themes.css';
 import './styles/presentation-ui.css';
 import './index.css';
@@ -16,13 +17,17 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <BrowserRouter>
         <AuthProvider>
           <FeatureFlagProvider>
-            <DataProvider>
+            {/* Offline DemoApp supplies its own DataProvider; live host needs it for existing modules. */}
+            {DEMO_MODE ? (
               <App />
-            </DataProvider>
+            ) : (
+              <DataProvider>
+                <App />
+              </DataProvider>
+            )}
           </FeatureFlagProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
-

@@ -353,8 +353,9 @@ async def test_failed_assignment_leaves_no_audit_event(client, db_session, teach
         return assignment
 
     monkeypatch.setattr(homework_router, "build_assignment", broken_build)
-    with pytest.raises(IntegrityError):  # not a duplicate, so it's a server fault, not a 409
-        await client.post(ASSIGN.format(draft["id"]), headers=auth(teacher_token))
+    failed = await client.post(ASSIGN.format(draft["id"]), headers=auth(teacher_token))
+    assert failed.status_code == 500  # server fault, never mistaken for a duplicate/conflict
+    assert failed.json() == {"detail": "Database operation failed."}
     monkeypatch.undo()
 
     assert await assignment_count(db_session, draft["id"]) == 0

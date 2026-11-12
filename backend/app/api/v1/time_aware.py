@@ -1,3 +1,5 @@
+from backend.app.api.record_access import check_school, class_record
+from backend.app.api.dependencies import require_bearer_token
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -29,7 +31,7 @@ from backend.app.services.time_aware_engine import (
     generate_compression_proposal,
 )
 
-router = APIRouter(tags=["Time-Aware Pedagogical Engine"])
+router = APIRouter(tags=["Time-Aware Pedagogical Engine"], dependencies=[Depends(require_bearer_token)])
 
 
 @router.post("/classes/{class_id}/time-aware/calculate", response_model=PacingMetricsOut)
@@ -37,11 +39,14 @@ async def calculate_class_pacing(
     class_id: str,
     req: CalculatePacingRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
     cls_res = await db.execute(select(ClassSection).filter(ClassSection.id == class_id))
     cls = cls_res.scalars().first()
-    school_id = cls.school_id if cls else "school-1"
+    if cls is None:
+        raise HTTPException(status_code=404, detail="Class not found.")
+    await check_school(db, current_user, cls.school_id)
+    school_id = cls.school_id
 
     disruptions_res = await db.execute(select(InstructionalDisruption).filter(InstructionalDisruption.school_id == school_id))
     disruptions = disruptions_res.scalars().all()
@@ -62,7 +67,10 @@ async def preview_syllabus_compression(
 ):
     cls_res = await db.execute(select(ClassSection).filter(ClassSection.id == class_id))
     cls = cls_res.scalars().first()
-    school_id = cls.school_id if cls else "school-1"
+    if cls is None:
+        raise HTTPException(status_code=404, detail="Class not found.")
+    await check_school(db, current_user, cls.school_id)
+    school_id = cls.school_id
 
     disruptions_res = await db.execute(select(InstructionalDisruption).filter(InstructionalDisruption.school_id == school_id))
     disruptions = disruptions_res.scalars().all()
@@ -124,6 +132,8 @@ async def approve_compression_proposal(
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found.")
 
+    await check_school(db, educator, proposal.school_id)
+    await class_record(db, educator, proposal.class_id)
     proposal.status = "approved"
     proposal.approved_by = educator.name
     proposal.approved_at = utc_now()
@@ -149,14 +159,14 @@ async def approve_compression_proposal(
     )
     db.add(audit)
 
-    notif = Notification(
-        user_id="user-principal-1",
-        title="Syllabus Compression Approved",
-        message=f"{educator.name} approved compaction recovering {proposal.days_saved} instructional periods.",
-        type="success",
-        link="/principal/dashboard"
-    )
-    db.add(notif)
+    principals = (await db.execute(select(User).where(
+        User.role == "principal", User.school_id == proposal.school_id))).scalars().all()
+    for principal in principals:
+        db.add(Notification(
+            user_id=principal.id, title="Syllabus Compression Approved",
+            message=f"{educator.name} approved compaction recovering {proposal.days_saved} instructional periods.",
+            type="success", link="/principal/dashboard",
+        ))
 
     await db.commit()
     return {
@@ -179,6 +189,8 @@ async def reject_compression_proposal(
     if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found.")
 
+    await check_school(db, educator, proposal.school_id)
+    await class_record(db, educator, proposal.class_id)
     proposal.status = "rejected"
     await db.commit()
     return {"message": "Proposal rejected."}
@@ -188,9 +200,10 @@ async def reject_compression_proposal(
 async def list_cross_curricular_proposals(
     class_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
-    res = await db.execute(select(CrossCurricularProposal))
+    cls = await class_record(db, current_user, class_id)
+    res = await db.execute(select(CrossCurricularProposal).where(CrossCurricularProposal.class_id == class_id, CrossCurricularProposal.school_id == cls.school_id))
     proposals = res.scalars().all()
     return [
         CrossCurricularProposalOut(
@@ -221,6 +234,8 @@ async def accept_cross_curricular_proposal(
     if not prop:
         raise HTTPException(status_code=404, detail="Proposal not found.")
 
+    await check_school(db, educator, prop.school_id)
+    await class_record(db, educator, prop.class_id)
     prop.status = "accepted"
 
     audit = AuditEvent(
@@ -247,6 +262,8 @@ async def reject_cross_curricular_proposal(
     if not prop:
         raise HTTPException(status_code=404, detail="Proposal not found.")
 
+    await check_school(db, educator, prop.school_id)
+    await class_record(db, educator, prop.class_id)
     prop.status = "rejected"
     await db.commit()
     return {"message": "Proposal rejected."}
