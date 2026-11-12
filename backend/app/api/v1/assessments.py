@@ -743,7 +743,10 @@ async def submit_assessment_grade(
         au_score=req.au_score,
         ct_score=req.ct_score,
         overall_score=overall_comp,
-        notes=f"Graded submission for assessment: {asm.title}"
+        notes=f"Graded submission for assessment: {asm.title}",
+        subject_id=asm.subject_id,
+        source_assessment_id=asm.id,
+        source_submission_id=sub.id,
     )
     db.add(snapshot)
 

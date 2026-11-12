@@ -871,6 +871,9 @@ async def _publish_item_submission(
         au_score=au,
         ct_score=ct,
         overall_score=overall,
+        subject_id=asm.subject_id if asm else None,
+        source_assessment_id=batch.assessment_id,
+        source_submission_id=sub.id,
         notes=f"Batch Auto-Graded & Teacher Approved: {item.file_name}",
     )
     db.add(snapshot)
