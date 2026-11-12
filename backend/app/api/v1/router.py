@@ -9,6 +9,7 @@ from backend.app.api.v1.calendar import router as calendar_router
 from backend.app.api.v1.assessments import router as assessments_router
 from backend.app.api.v1.competencies import router as competencies_router
 from backend.app.modules.differentiated_homework.router import router as homework_router
+from backend.app.modules.student_progress.router import router as student_progress_router
 from backend.app.api.v1.curriculum import router as curriculum_router
 from backend.app.api.v1.time_aware import router as time_aware_router
 from backend.app.api.v1.documents import router as documents_router
@@ -32,6 +33,7 @@ api_router.include_router(calendar_router)
 api_router.include_router(assessments_router)
 api_router.include_router(competencies_router)
 api_router.include_router(homework_router)
+api_router.include_router(student_progress_router)
 api_router.include_router(curriculum_router)
 api_router.include_router(time_aware_router)
 api_router.include_router(documents_router)

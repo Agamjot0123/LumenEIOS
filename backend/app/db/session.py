@@ -51,4 +51,18 @@ async def init_db():
             if name not in existing:
                 await conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {definition}"))
 
+        # Subject-aware competency snapshots (nullable; historical rows remain global).
+        snap_cols = await conn.run_sync(lambda sync: {
+            column["name"] for column in inspect(sync).get_columns("student_competency_snapshots")
+        }) if await conn.run_sync(lambda sync: inspect(sync).has_table("student_competency_snapshots")) else set()
+        for name, definition in {
+            "subject_id": "VARCHAR(64)",
+            "source_assessment_id": "VARCHAR(64)",
+            "source_submission_id": "VARCHAR(64)",
+        }.items():
+            if snap_cols and name not in snap_cols:
+                await conn.execute(
+                    text(f"ALTER TABLE student_competency_snapshots ADD COLUMN {name} {definition}")
+                )
+
 
