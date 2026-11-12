@@ -18,6 +18,7 @@ from backend.app.api.v1.reports import router as reports_router
 from backend.app.api.v1.audit import router as audit_router
 from backend.app.api.v1.admin import router as admin_router
 from backend.app.api.v1.onboarding import router as onboarding_router
+from backend.app.api.v1.developer import router as developer_router
 
 api_router = APIRouter()
 
@@ -40,4 +41,5 @@ api_router.include_router(reports_router)
 api_router.include_router(audit_router)
 api_router.include_router(admin_router)
 api_router.include_router(onboarding_router)
+api_router.include_router(developer_router)
 

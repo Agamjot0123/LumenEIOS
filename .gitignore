@@ -1,5 +1,6 @@
 node_modules
 .env
+lumeneios.db.backup-*
 .venv/
 __pycache__/
 *.pyc

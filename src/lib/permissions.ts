@@ -38,6 +38,7 @@ export function getRoleLabel(role: string | undefined): string {
 export function getDefaultDashboardPath(role: Role): string {
   switch (role) {
     case 'developer':
+      return '/developer';
     case 'admin':
       return '/admin/dashboard';
     case 'principal':

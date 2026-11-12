@@ -31,6 +31,17 @@ import { SchoolTeachers } from './pages/principal/SchoolTeachers';
 import { SchoolPerformancePage } from './pages/principal/SchoolPerformancePage';
 import { StudentHomework } from './pages/teacher/StudentHomework';
 import { StudentAnswerSheets } from './pages/student/StudentAnswerSheets';
+import {
+  AccessLog,
+  CompetencyFramework,
+  DataQuality,
+  DeveloperHome,
+  FeatureFlags,
+  ModelWorkshop,
+  PlatformHealth,
+  ReleaseNotes,
+  SampleRoster,
+} from './pages/developer/DeveloperPages';
 import { getDefaultDashboardPath } from './lib/permissions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -71,6 +82,16 @@ export const App: React.FC = () => {
         <Route path="/admin/users" element={<UsersManagement />} />
         <Route path="/admin/academic-config" element={<AcademicConfig />} />
         <Route path="/admin/audit-logs" element={<AuditLogs />} />
+
+        <Route path="/developer" element={<DeveloperHome />} />
+        <Route path="/developer/health" element={<PlatformHealth />} />
+        <Route path="/developer/roster" element={<SampleRoster />} />
+        <Route path="/developer/flags" element={<FeatureFlags />} />
+        <Route path="/developer/access" element={<AccessLog />} />
+        <Route path="/developer/framework" element={<CompetencyFramework />} />
+        <Route path="/developer/workshop" element={<ModelWorkshop />} />
+        <Route path="/developer/quality" element={<DataQuality />} />
+        <Route path="/developer/releases" element={<ReleaseNotes />} />
 
         {/* Principal Routes */}
         <Route path="/principal/dashboard" element={<PrincipalDashboard />} />

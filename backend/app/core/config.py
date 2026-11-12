@@ -72,14 +72,21 @@ class Settings(BaseSettings):
 
     # Legacy demo mode allows anonymous requests to use the seeded admin.
     DEMO_MODE: bool = False
-    # Enable the team root login explicitly in a development environment.
+    # Enable the team root login in development. A blank value uses the password shown on the sign-in page.
     DEMO_ROOT_PASSWORD: SecretStr | None = None
 
     @property
+    def demo_root_password(self) -> str | None:
+        if self.APP_ENV != "development":
+            return None
+        configured = ""
+        if self.DEMO_ROOT_PASSWORD is not None:
+            configured = self.DEMO_ROOT_PASSWORD.get_secret_value().strip()
+        return configured or "KVR"
+
+    @property
     def demo_root_enabled(self) -> bool:
-        return self.APP_ENV == "development" and bool(
-            self.DEMO_ROOT_PASSWORD and self.DEMO_ROOT_PASSWORD.get_secret_value()
-        )
+        return self.demo_root_password is not None
 
 
 settings = Settings()

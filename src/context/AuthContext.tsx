@@ -37,7 +37,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     localStorage.removeItem('lumeneios_auth_user');
-    if (!localStorage.getItem('lumeneios_token')) return;
+    if (!localStorage.getItem('lumeneios_token')) {
+      setIsRestoringSession(false);
+      return;
+    }
     let active = true;
     apiClient.auth.me()
       .then((user) => { if (active) acceptUser(toUser(user)); })

@@ -44,7 +44,9 @@ export const RoleSwitcherBanner: React.FC = () => {
           <Sparkles className="w-3.5 h-3.5" />
           <span>{currentUser?.demoRoot ? 'Root access' : 'Interactive Stakeholder Prototype'}</span>
         </span>
-        <span className="text-gray-400 hidden md:inline">• Active Persona:</span>
+        <span className="text-gray-400 hidden md:inline">
+          {currentUser?.demoRoot && currentUser.role !== 'developer' ? '• Viewing as:' : '• Active Persona:'}
+        </span>
         <span className="bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded font-mono font-medium hidden md:inline">
           {currentUser?.name} ({getRoleLabel(currentUser?.role)})
         </span>
