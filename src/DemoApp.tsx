@@ -75,7 +75,9 @@ export const DemoApp: React.FC = () => {
         <Route path="/teacher/assessments" element={<AssessmentBuilder />} />
         <Route path="/teacher/curriculum-180" element={<CurriculumPlanner180 />} />
         <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
-        <Route path="/teacher/scan-review" element={<ScanReview />} />
+        <Route path="/upload" element={<ScanReview />} />
+        <Route path="/upload-beta" element={<ScanReview beta />} />
+        <Route path="/teacher/scan-review" element={<Navigate to="/upload" replace />} />
         <Route path="/teacher/remediation" element={<DifferentiatedHomeworkPage />} />
         <Route path="/teacher/homework" element={<DifferentiatedHomeworkPage />} />
 

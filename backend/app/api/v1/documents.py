@@ -88,6 +88,7 @@ async def upload_studio_pdf(
     subject_id: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
 ):
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF files are allowed.")
@@ -129,7 +130,8 @@ async def upload_studio_pdf(
         ) from exc
 
     await file.seek(0)
-    return await upload_document(file, subject_id, "source_material", db, current_user)
+    # Call the shared upload helper directly (not via FastAPI DI), so school_id must be passed in.
+    return await upload_document(file, subject_id, "source_material", db, current_user, school_id)
 
 
 @router.post("/bulk-upload", response_model=BulkDocumentUploadResponse)
