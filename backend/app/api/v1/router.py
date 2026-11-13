@@ -22,6 +22,11 @@ from backend.app.api.v1.admin import router as admin_router
 from backend.app.api.v1.onboarding import router as onboarding_router
 from backend.app.api.v1.assistant import router as assistant_router
 from backend.app.api.v1.developer import router as developer_router
+from backend.app.api.v1.ncert import router as ncert_router
+from backend.app.api.v1.planning import router as planning_router
+from backend.app.api.v1.teacher_planning import router as teacher_plan_router, oversight as plan_oversight_router, logs as plan_logs_router, calendar_router as plan_calendar_router
+
+from backend.app.api.v1.plans import router as plans_router
 
 api_router = APIRouter(dependencies=[Depends(reject_non_finite_json)])
 
@@ -47,3 +52,10 @@ api_router.include_router(admin_router)
 api_router.include_router(onboarding_router)
 api_router.include_router(assistant_router)
 api_router.include_router(developer_router)
+api_router.include_router(ncert_router)
+api_router.include_router(planning_router)
+api_router.include_router(teacher_plan_router)
+api_router.include_router(plan_oversight_router)
+api_router.include_router(plan_logs_router)
+api_router.include_router(plan_calendar_router)
+api_router.include_router(plans_router)

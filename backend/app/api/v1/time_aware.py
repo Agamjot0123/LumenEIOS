@@ -26,10 +26,7 @@ from backend.app.schemas.time_aware import (
     ProposalDecisionRequest,
     CrossCurricularProposalOut,
 )
-from backend.app.services.time_aware_engine import (
-    calculate_pacing_metrics,
-    generate_compression_proposal,
-)
+from backend.app.services.time_aware_engine import calculate_pacing_metrics
 
 router = APIRouter(tags=["Time-Aware Pedagogical Engine"], dependencies=[Depends(require_bearer_token)])
 
@@ -58,66 +55,20 @@ async def calculate_class_pacing(
     return PacingMetricsOut(**metrics)
 
 
+LEGACY_COMPRESSION_RETIRED = (
+    "Legacy syllabus compression is retired: it applied a fixed Core/Non-Core ratio to curriculum rows that have no "
+    "approved topic-level period requirements. Use the planning workspace (/planning/workspace): approved topic "
+    "requirements, lost-period recording and Principal/Admin-approved recovery proposals."
+)
+
+
 @router.post("/classes/{class_id}/time-aware/compression-preview", response_model=CompressionProposalOut)
 async def preview_syllabus_compression(
     class_id: str,
     req: CalculatePacingRequest,
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
-    cls_res = await db.execute(select(ClassSection).filter(ClassSection.id == class_id))
-    cls = cls_res.scalars().first()
-    if cls is None:
-        raise HTTPException(status_code=404, detail="Class not found.")
-    await check_school(db, current_user, cls.school_id)
-    school_id = cls.school_id
-
-    disruptions_res = await db.execute(select(InstructionalDisruption).filter(InstructionalDisruption.school_id == school_id))
-    disruptions = disruptions_res.scalars().all()
-
-    curriculum_res = await db.execute(select(CurriculumDay).filter(CurriculumDay.class_id == class_id))
-    curriculum = curriculum_res.scalars().all()
-
-    metrics = calculate_pacing_metrics(req.total_official_days, req.current_day, disruptions, curriculum)
-    proposal, reassigned, integrated = generate_compression_proposal(curriculum, metrics, school_id, class_id)
-
-    # Persist or update pending proposal
-    db.add(proposal)
-    await db.commit()
-    await db.refresh(proposal)
-
-    return CompressionProposalOut(
-        proposal_id=proposal.id,
-        original_duration_days=proposal.original_duration_days,
-        revised_duration_days=proposal.revised_duration_days,
-        days_saved=proposal.days_saved,
-        topics_preserved_count=proposal.topics_preserved_count,
-        topics_reassigned_count=proposal.topics_reassigned_count,
-        topics_integrated_count=proposal.topics_integrated_count,
-        preserved_core_count=proposal.topics_preserved_count,
-        reassigned_topics=[
-            TopicSummary(
-                id=t.id,
-                day_number=t.day_number,
-                topic=t.topic,
-                objective=t.objective,
-                classification=t.classification,
-                estimated_duration_mins=t.estimated_duration_mins
-            ) for t in reassigned
-        ],
-        integrated_topics=[
-            TopicSummary(
-                id=t.id,
-                day_number=t.day_number,
-                topic=t.topic,
-                objective=t.objective,
-                classification=t.classification,
-                estimated_duration_mins=t.estimated_duration_mins
-            ) for t in integrated
-        ],
-        trade_off_analysis=proposal.trade_offs_json,
-        remediation_requirements=proposal.remediation_requirements_json,
-    )
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_COMPRESSION_RETIRED)
 
 
 @router.post("/curriculum-proposals/{proposal_id}/approve")
@@ -128,53 +79,10 @@ async def approve_compression_proposal(
     educator: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
     res = await db.execute(select(CurriculumProposal).filter(CurriculumProposal.id == proposal_id))
-    proposal = res.scalars().first()
-    if not proposal:
+    if not res.scalars().first():
         raise HTTPException(status_code=404, detail="Proposal not found.")
-
-    await check_school(db, educator, proposal.school_id)
-    await class_record(db, educator, proposal.class_id)
-    proposal.status = "approved"
-    proposal.approved_by = educator.name
-    proposal.approved_at = utc_now()
-
-    # Apply topic status updates in curriculum
-    reassigned_set = set(proposal.reassigned_topic_ids)
-    integrated_set = set(proposal.integrated_topic_ids)
-
-    curriculum_res = await db.execute(select(CurriculumDay).filter(CurriculumDay.class_id == proposal.class_id))
-    for day in curriculum_res.scalars().all():
-        if day.id in reassigned_set:
-            day.status = "compressed_to_homework"
-        elif day.id in integrated_set:
-            day.status = "integrated"
-
-    audit = AuditEvent(
-        timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
-        user_id=educator.id,
-        user_name=educator.name,
-        action="Approved Time-Aware Syllabus Compression",
-        details=f"Applied 60/40 compaction saving {proposal.days_saved} days. Preserved {proposal.topics_preserved_count} core concepts.",
-        category="curriculum"
-    )
-    db.add(audit)
-
-    principals = (await db.execute(select(User).where(
-        User.role == "principal", User.school_id == proposal.school_id))).scalars().all()
-    for principal in principals:
-        db.add(Notification(
-            user_id=principal.id, title="Syllabus Compression Approved",
-            message=f"{educator.name} approved compaction recovering {proposal.days_saved} instructional periods.",
-            type="success", link="/principal/dashboard",
-        ))
-
-    await db.commit()
-    return {
-        "status": "approved",
-        "proposal_id": proposal.id,
-        "message": "Syllabus compression approved and applied transactionally.",
-        "days_saved": proposal.days_saved,
-    }
+    # Historical proposals are preserved untouched; approving one would apply the retired fixed-ratio compression.
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_COMPRESSION_RETIRED)
 
 
 @router.post("/curriculum-proposals/{proposal_id}/reject")

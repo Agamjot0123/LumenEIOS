@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Topbar } from './Topbar';
 import { Sidebar } from './Sidebar';
 import { RoleSwitcherBanner } from './RoleSwitcherBanner';
+import { DemoDataNotice, demoNoticeFor } from '../common/DemoDataNotice';
 import { Menu, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { AssistantPanel } from './AssistantPanel';
@@ -10,6 +11,7 @@ import { AssistantPanel } from './AssistantPanel';
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const demoNotice = demoNoticeFor(location.pathname);
   const { currentUser, currentSchoolId } = useAuth();
 
   // Close mobile menu on route change
@@ -58,6 +60,7 @@ export const AppLayout: React.FC = () => {
 
         {/* Dynamic Route Viewport */}
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
+          {demoNotice && <DemoDataNotice text={demoNotice} />}
           <Outlet />
         </main>
       </div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PlanningStatusCard } from '../time-aware/PlanningStatusCard';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { KPICard } from '../../components/common/KPICard';
@@ -80,6 +81,8 @@ export const AdminDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      <PlanningStatusCard link="/principal/curriculum" linkLabel="Planning Oversight" />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

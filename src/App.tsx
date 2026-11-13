@@ -42,6 +42,9 @@ import {
   SampleRoster,
 } from './pages/developer/DeveloperPages';
 import { DifferentiatedHomeworkPage } from './pages/homework/DifferentiatedHomeworkPage';
+import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
+import { CoverageOversight } from './pages/principal/CoverageOversight';
+import { PlanLogs } from './pages/shared/PlanLogs';
 import { getDefaultDashboardPath } from './lib/permissions';
 import { DEMO_MODE } from './lib/runtime';
 
@@ -90,6 +93,9 @@ const MainApp: React.FC = () => (
       <Route path="/developer/quality" element={<DataQuality />} />
       <Route path="/developer/releases" element={<ReleaseNotes />} />
 
+      <Route path="/principal/academic-config" element={<AcademicConfig />} />
+      <Route path="/principal/coverage" element={<CoverageOversight />} />
+      <Route path="/logs" element={<PlanLogs />} />
       <Route path="/principal/dashboard" element={<PrincipalDashboard />} />
       <Route path="/principal/teachers" element={<TeacherAssignments />} />
       <Route path="/principal/teachers/add" element={<OnboardingPage key="teacher" kind="Teacher" />} />
@@ -113,6 +119,12 @@ const MainApp: React.FC = () => (
       <Route path="/teacher/remediation" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/homework" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/student-homework" element={<StudentHomework />} />
+
+      {/* Curriculum Catalogue (Classes VI–VIII Mathematics & Science) */}
+      <Route element={<CurriculumModule />}>
+        <Route path="/curriculum/catalogue" element={<CatalogueDashboard />} />
+        <Route path="/curriculum/catalogue/:grade/:subject" element={<CatalogueCombinationPage />} />
+      </Route>
 
       <Route path="/student/dashboard" element={<StudentDashboard />} />
       <Route path="/student/homework" element={<DifferentiatedHomeworkPage />} />

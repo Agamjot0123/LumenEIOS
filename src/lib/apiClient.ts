@@ -155,6 +155,8 @@ async function postEventStream<T>(
   if (result === undefined) throw new ApiError(0, 'The server closed the progress stream before finishing.');
   return result;
 }
+/** Shared typed request helper (auth header + school context) for feature service modules. */
+export const apiRequest = request;
 
 function mapQuestionOut(q: any) {
   return {
@@ -919,7 +921,7 @@ export const apiClient = {
   health: {
     async check() {
       try {
-        const res = await fetch('http://localhost:8000/health');
+        const res = await fetch(`${API_BASE_URL.replace(/\/api\/v1\/?$/, '')}/health`);
         return res.ok;
       } catch {
         return false;

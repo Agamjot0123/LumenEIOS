@@ -346,22 +346,19 @@ async def test_storage_errors_do_not_expose_private_paths(monkeypatch):
     assert result['valid'] is False and 'PRIVATE-DISK-PATH' not in result['error']
 
 
-async def test_school_notifications_are_sent_to_that_schools_principals(client,world,resources,db_session):
+async def test_retired_legacy_proposal_approval_sends_no_cross_school_notifications(client,world,resources,db_session):
+    # Legacy fixed-ratio compression approval is retired (HTTP 410); it must neither apply changes nor notify anyone.
     recipient=User(id=uid(),email=uid()+'@example.com',name='School principal',role='principal',school_id='school-3',hashed_password='unused')
     db_session.add(recipient);await db_session.commit();recipient_id=recipient.id
     before=set((await db_session.execute(select(Notification.id))).scalars().all())
     world['users']['teacher'].school_id='school-3';await db_session.commit()
-    response=await client.post(f"/api/v1/curriculum-proposals/{resources['proposal']}/approve",json={'action':'approve'},
-                               headers=auth(world['users']['teacher']))
-    assert response.status_code==200,response.text
-    rows=list((await db_session.execute(select(Notification).where(Notification.id.not_in(before)))).scalars())
-    keys=[row.id for row in rows]
     try:
-        assert rows
-        allowed=set((await db_session.execute(select(User.id).where(User.role=='principal',User.school_id=='school-3'))).scalars())
-        assert all(row.user_id in allowed for row in rows)
+        response=await client.post(f"/api/v1/curriculum-proposals/{resources['proposal']}/approve",json={'action':'approve'},
+                                   headers=auth(world['users']['teacher']))
+        assert response.status_code==410,response.text
+        rows=list((await db_session.execute(select(Notification).where(Notification.id.not_in(before)))).scalars())
+        assert rows==[]
     finally:
-        await db_session.execute(delete(Notification).where(Notification.id.in_(keys)))
         await db_session.execute(delete(User).where(User.id==recipient_id));await db_session.commit()
 
 

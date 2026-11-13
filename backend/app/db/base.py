@@ -54,3 +54,11 @@ __all__ = [
     "AuditEvent",
 ]
 
+
+# Explicit catalogue registration; existing model exports remain unchanged.
+from backend.app.models.ncert_catalogue import CATALOGUE_MODELS
+from backend.app.models.ncert_review import CatalogueMappingDecision
+from backend.app.models.planning_workspace import PlanningWorkspaceRevision  # noqa: E402,F401
+
+# Teacher-scoped planning tables (migration 004).
+from backend.app.models.teacher_planning import TEACHER_PLANNING_MODELS

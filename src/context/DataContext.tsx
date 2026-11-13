@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { usePlanningStore, PlanningStore } from '../lib/planning/store';
+import { useAuth } from './AuthContext';
 import {
   School,
   ClassSection,
@@ -113,6 +115,8 @@ const initialQuestionBank: Question[] = initialAssessments.flatMap((asm) =>
 );
 
 interface DataContextType {
+  /** Authoritative curriculum-planning workspace (config, syllabus governance, plans, execution, recovery). */
+  planning: PlanningStore;
   schools: School[];
   classes: ClassSection[];
   subjects: Subject[];
@@ -190,6 +194,14 @@ function saveStorage<T>(key: string, value: T): void {
 }
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { currentUser: planningUser } = useAuth();
+  const actorRef = React.useRef(planningUser);
+  actorRef.current = planningUser;
+  const getActor = React.useCallback(
+    () => (actorRef.current ? { id: actorRef.current.id, name: actorRef.current.name, role: actorRef.current.role, email: actorRef.current.email } : null),
+    [],
+  );
+  const planning = usePlanningStore(getActor, planningUser ? `${planningUser.id}:${planningUser.role}` : '');
   const [schools, setSchools] = useState<School[]>(() => loadStorage('schools', initialSchools));
   const [classes, setClasses] = useState<ClassSection[]>(() => loadStorage('classes', initialClasses));
   const [subjects] = useState<Subject[]>(initialSubjects);
@@ -762,6 +774,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <DataContext.Provider
       value={{
+        planning,
         schools,
         classes,
         subjects,

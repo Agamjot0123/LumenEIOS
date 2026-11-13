@@ -53,7 +53,7 @@ export const CompetencyRadarChart: React.FC<CompetencyRadarChartProps> = ({
   return (
     <div style={{ width: '100%', height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
+        <RadarChart cx="50%" cy="50%" outerRadius="58%" margin={{ top: 8, right: 44, bottom: 8, left: 44 }} data={data}>
           <PolarGrid stroke="#E1E7ED" />
           <PolarAngleAxis
             dataKey="subject"

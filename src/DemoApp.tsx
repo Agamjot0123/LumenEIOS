@@ -23,6 +23,9 @@ import { ParentDashboard } from './pages/parent/ParentDashboard';
 import { NotFoundPage } from './pages/shared/NotFoundPage';
 import { UnauthorizedPage } from './pages/shared/UnauthorizedPage';
 import { DifferentiatedHomeworkPage } from './pages/homework/DifferentiatedHomeworkPage';
+import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
+import { CoverageOversight } from './pages/principal/CoverageOversight';
+import { PlanLogs } from './pages/shared/PlanLogs';
 import { getDefaultDashboardPath } from './lib/permissions';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -64,6 +67,13 @@ export const DemoApp: React.FC = () => {
         <Route path="/admin/audit-logs" element={<AuditLogs />} />
 
         {/* Principal Routes */}
+        <Route path="/principal/academic-config" element={<AcademicConfig />} />
+        <Route path="/principal/coverage" element={<CoverageOversight />} />
+        <Route path="/logs" element={<PlanLogs />} />
+        <Route element={<CurriculumModule />}>
+          <Route path="/curriculum/catalogue" element={<CatalogueDashboard />} />
+          <Route path="/curriculum/catalogue/:grade/:subject" element={<CatalogueCombinationPage />} />
+        </Route>
         <Route path="/principal/dashboard" element={<PrincipalDashboard />} />
         <Route path="/principal/teachers" element={<TeacherAssignments />} />
         <Route path="/principal/curriculum" element={<CurriculumOversight />} />
