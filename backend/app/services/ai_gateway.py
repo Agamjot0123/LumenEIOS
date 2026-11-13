@@ -68,17 +68,30 @@ class GeminiProvider:
         self._client = client
 
     async def generate_json(self, *, system: str, prompt: str, schema: Type[BaseModel]) -> str:
-        from google.genai import errors, types
+        from google.genai import types
 
         config = types.GenerateContentConfig(
             system_instruction=system,
             response_mime_type="application/json",
-            response_schema=schema,
+            response_json_schema=_gemini_json_schema(schema),
             temperature=0.7,
         )
+        return await self._generate(prompt, config)
+
+    async def transcribe_image(self, *, system: str, image: bytes, mime_type: str) -> str:
+        from google.genai import types
+
+        return await self._generate(
+            ["Transcribe this page.", types.Part.from_bytes(data=image, mime_type=mime_type)],
+            types.GenerateContentConfig(system_instruction=system),
+        )
+
+    async def _generate(self, contents, config) -> str:
+        from google.genai import errors
+
         try:
             response = await asyncio.wait_for(
-                self._client.aio.models.generate_content(model=self.model, contents=prompt, config=config),
+                self._client.aio.models.generate_content(model=self.model, contents=contents, config=config),
                 timeout=self._timeout,
             )
         except asyncio.TimeoutError:
@@ -98,7 +111,24 @@ class GeminiProvider:
         return text
 
 
-def get_ai_provider() -> AIProvider:
+def _gemini_json_schema(schema: Type[BaseModel]) -> dict:
+    """JSON Schema for Gemini. Drop open-object maps; the Developer API rejects them."""
+    data = schema.model_json_schema()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            node.pop("additionalProperties", None)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return data
+
+
+def get_ai_provider() -> GeminiProvider:
     """Build the configured provider. Raises AINotConfigured if no key is set.
     Tests replace this function; they never reach a real provider."""
     return GeminiProvider(

@@ -11,6 +11,8 @@ from sqlalchemy import select
 from backend.app.core.security import create_access_token
 from backend.app.models.entities import StudentOcrHistory
 import backend.app.services.ocr_service as ocr_service
+from backend.app.services import gemini_ocr_service
+from backend.app.services.ai_gateway import AINotConfigured
 from backend.app.services.storage_service import storage_service
 
 URL = "/api/v1/ocr/extract-preview"
@@ -24,9 +26,13 @@ def png_bytes() -> bytes:
 
 @pytest.fixture
 def fake_model(monkeypatch):
-    """Skip the GPU while keeping the provider's file handling real."""
-    monkeypatch.setattr(ocr_service.qwen_model, "_load_model", lambda: None)
-    monkeypatch.setattr(ocr_service.qwen_model, "_infer_image", lambda _image: "recognized text")
+    """Stub the Gemini call while keeping the real upload and page handling."""
+    async def transcribe(*, system, image, mime_type):
+        assert image
+        assert mime_type in {"image/png", "image/jpeg"}
+        return "recognized text"
+
+    monkeypatch.setattr(gemini_ocr_service, "get_ai_provider", lambda: SimpleNamespace(transcribe_image=transcribe))
 
 
 async def post(client, token, name, content, content_type="application/octet-stream"):
@@ -90,7 +96,7 @@ async def test_preview_returns_text_and_removes_temporary_upload(client, teacher
 
     assert response.status_code == 200
     body = response.json()
-    assert body["provider"] == "qwen2.5-vl"
+    assert body["provider"] == "gemini"
     assert body["results"][0]["extracted_text"] == "recognized text"
     assert set(Path(storage_service.upload_dir).iterdir()) == before
 
@@ -200,7 +206,7 @@ async def test_preview_returns_json_for_unexpected_errors(client, teacher_token,
     def fail(*_args):
         raise KeyError("unexpected")
 
-    monkeypatch.setattr(ocr_service.qwen_model, "_extract_sync", fail)
+    monkeypatch.setattr(gemini_ocr_service, "get_ai_provider", fail)
 
     response = await post(client, teacher_token, "sheet.png", png_bytes(), "image/png")
 
