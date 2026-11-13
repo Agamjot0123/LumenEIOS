@@ -2,7 +2,7 @@
 
 As of 2026-11-10 · Code paths are relative to `apps/lumeneios` in the arena repo (branch `sync/lumeneios-updates`).
 
-LumenEIOS OCR today only previews text. A teacher uploads JPG, PNG or PDF answer sheets, and the backend transcribes them with **Qwen2.5-VL-3B-Instruct-AWQ**. The model runs inside the FastAPI process on a local NVIDIA GPU. OCR does **not** grade, store results or publish marks. Every mark still needs a teacher's sign-off.
+Teachers upload JPG, PNG or PDF answer sheets and run OCR with **Qwen2.5-VL-3B-Instruct-AWQ** on the backend GPU. After extraction, choose a scheduled assignment in Upload or open it through Upload Beta. Correct the transcription and remove student identifiers, then select **Evaluate this scan** for draft marks and feedback. Evaluation uses the configured Gemini provider (`GEMINI_API_KEY`) and the assignment's answer key or rubric. Draft results appear on the scan card for teacher review and are discarded when leaving the page.
 
 ## At a glance
 
@@ -55,6 +55,7 @@ All routes are in `backend/app/api/v1/ocr.py` under `/api/v1/ocr`. Only `admin`,
 | Method + path | Purpose | Notes |
 |---|---|---|
 | `POST /ocr/extract-preview` | Qwen OCR text preview | Form fields `files[]` and `wait_before_each_image`. Returns `{provider, model_version, results:[{file_name, extracted_text, pages_processed}]}`. Saves nothing. |
+| `POST /ocr/evaluate-scan` | Draft marks for reviewed OCR text | Authenticated teachers send `assessment_id` and `extracted_text`. Returns per-question marks, feedback, and review flags using the official assignment in the teacher's school. |
 | `POST /ocr/process` | Runs a provider on a stored `Document` and saves an `OCRRun` with regions | Rejects `provider="qwen"` with 400, because Qwen gives text only, not regions. |
 | `POST /ocr/review/verify` | Teacher-verified marks for a document | Human-in-the-loop step. Not called by the Qwen preview. |
 | `/ocr/batches/...` | Batch grading: create, start, cancel, retry, review, approve | Hard-coded to the **simulated** provider (`batch_grading_service.py`). |
@@ -116,7 +117,7 @@ Current result: 398 passed and 3 skipped. One skipped test needs a GPU. The othe
 
 ## Known gaps
 
-- **Qwen output isn't connected to grading.** It returns plain text only, with no answer regions, marks or competencies. Batch grading and `/ocr/process` still use simulated data.
+- **Batch grading and `/ocr/process` use simulated answer regions.** Evaluate this scan grades the reviewed Qwen transcription from Upload.
 - **TrOCR and PaddleOCR are stubs.**
 - **One page at a time.** The global lock means one GPU and no batching. A worst-case request (50 PDFs × 25 pages) can take over an hour.
 - **Can't deploy yet.** `infrastructure/Dockerfile` has no CUDA, so OCR only works where the backend runs on a GPU machine.

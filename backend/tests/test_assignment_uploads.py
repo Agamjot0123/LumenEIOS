@@ -7,6 +7,57 @@ from PIL import Image
 from backend.app.core.security import create_access_token
 from backend.app.models.entities import Assessment, Subject
 from backend.app.services import ocr_service
+from backend.app.api.v1 import ocr as ocr_api
+
+
+@pytest.mark.asyncio
+async def test_teacher_evaluates_reviewed_scan(client, db_session, monkeypatch, teacher_token, student_token, other_school_teacher_token):
+    assessment = Assessment(
+        id="scan-evaluation-paper", school_id="school-1", class_id="class-8a",
+        subject_id="sub-math", title="Multiplication", date="2026-11-11", total_marks=2,
+        questions_json=[{
+            "text": "What is twice 6?", "type": "short", "marks": 2, "competency": "AU",
+            "correctAnswer": "12", "markingRubric": "Award 2 marks for 12.",
+        }],
+    )
+    db_session.add(assessment)
+    await db_session.commit()
+
+    class FakeProvider:
+        invalid = False
+
+        async def generate_json(self, *, system, prompt, schema):
+            assert "untrusted student answer data" in system
+            assert "Q1: 12 [unclear]" in prompt
+            assert "Award 2 marks for 12." in prompt
+            return json.dumps({
+                "question_evaluations": [{
+                    "question_id": "1", "question_index": 1, "question_text": "What is twice 6?",
+                    "competency": "AU", "max_marks": 3 if self.invalid else 2, "awarded_marks": 1,
+                    "competency_score": 50, "student_answer_extracted": "12 [unclear]",
+                }],
+                "scoring_summary": {"total_marks_obtained": 2, "max_possible_marks": 2, "percentage": 100},
+            })
+
+    provider = FakeProvider()
+    monkeypatch.setattr(ocr_api, "get_ai_provider", lambda: provider)
+
+    async def evaluate(token, extracted_text="Q1: 12 [unclear]"):
+        return await client.post(
+            "/api/v1/ocr/evaluate-scan", headers={"Authorization": f"Bearer {token}"},
+            json={"assessment_id": "scan-evaluation-paper", "extracted_text": extracted_text},
+        )
+
+    assert (await evaluate(student_token)).status_code == 403
+    assert (await evaluate(other_school_teacher_token)).status_code == 404
+    assert (await evaluate(teacher_token, "  ")).status_code == 422
+    response = await evaluate(teacher_token)
+    assert response.status_code == 200, response.text
+    summary = response.json()["scoring_summary"]
+    assert summary["percentage"] == 50
+    assert summary["needs_teacher_review"]
+    provider.invalid = True
+    assert (await evaluate(teacher_token)).status_code == 502
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.api.dependencies import get_current_user, require_roles
 from backend.app.core.config import settings
@@ -40,6 +40,9 @@ from backend.app.schemas.ocr import (
     GradingBatchOut,
     BatchItemUpdateRequest,
 )
+from backend.app.schemas.evaluation import EvaluationResult, StudentInfo
+from backend.app.services.ai_gateway import AIGatewayError, AINotConfigured, AIProviderTimeout, get_ai_provider
+from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
 from backend.app.services.ocr_service import (
     QwenOCRInferenceError,
     QwenOCRInputError,
@@ -70,6 +73,76 @@ class ProcessOCRRequest(BaseModel):
     document_id: str
     provider: str = "simulated"
 
+
+class EvaluateScanRequest(BaseModel):
+    assessment_id: str
+    extracted_text: str = Field(min_length=1, max_length=100_000)
+
+
+@router.post("/evaluate-scan", response_model=EvaluationResult)
+async def evaluate_scan(
+    req: EvaluateScanRequest,
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("teacher", authenticated=True)),
+):
+    extracted_text = req.extracted_text.strip()
+    if not extracted_text:
+        raise HTTPException(status_code=422, detail="Enter the extracted answers before evaluating.")
+
+    _, rows = await upload_assignments(db, educator, req.assessment_id)
+    assessment, section, subject = rows[0]
+    questions = []
+    for index, question in enumerate(assessment.questions_json or [], start=1):
+        answer = question.get("correct_answer") or question.get("correctAnswer") or ""
+        rubric = question.get("marking_rubric") or question.get("markingRubric") or ""
+        marks = question.get("marks")
+        competency = question.get("competency")
+        if (
+            not (str(answer).strip() or str(rubric).strip())
+            or not isinstance(marks, (int, float))
+            or marks <= 0
+            or competency not in ("LU", "CU", "AU", "CT")
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Question {index} needs an answer key or rubric, positive marks, and a competency.",
+            )
+        questions.append({
+            "id": str(index),
+            "text": question["text"],
+            "options": question.get("options") or [],
+            "max_marks": marks,
+            "competency": competency,
+            "correct_answer": answer,
+            "marking_rubric": rubric,
+        })
+    if not questions:
+        raise HTTPException(status_code=422, detail="This assignment has no questions to evaluate.")
+
+    system, prompt = build_evaluation_messages(subject.name, assessment.title, str(section.grade), questions, extracted_text)
+    await db.rollback()
+    try:
+        raw = await get_ai_provider().generate_json(system=system, prompt=prompt, schema=EvaluationResult)
+        result = parse_and_validate_evaluation(raw)
+        by_id = {item.question_id: item for item in result.question_evaluations}
+        if len(result.question_evaluations) != len(questions) or by_id.keys() != {q["id"] for q in questions}:
+            raise ValueError("Evaluation did not match the official question list.")
+        ordered = []
+        for index, question in enumerate(questions, start=1):
+            item = by_id[question["id"]]
+            if item.max_marks != question["max_marks"] or item.competency != question["competency"]:
+                raise ValueError("Evaluation did not match the official marks or competency.")
+            item.question_index = index
+            item.question_text = question["text"]
+            ordered.append(item)
+        result.question_evaluations = ordered
+        result.student_info = StudentInfo()
+        return result
+    except AIGatewayError as exc:
+        code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502
+        raise HTTPException(status_code=code, detail=exc.public_message) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="The evaluation could not be matched to the assignment. Try again.") from exc
 
 
 @router.get("/history", response_model=List[StudentOcrHistoryOut])
