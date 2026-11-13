@@ -40,7 +40,12 @@ if not exist "node_modules\vite" (
     )
 )
 
-start "LumenEIOS Backend and API" cmd /k ""%CD%\.venv\Scripts\python.exe" -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload"
+if exist ".venv-gpu\Scripts\python.exe" (
+    set "API_PYTHON=%CD%\.venv-gpu\Scripts\python.exe"
+) else (
+    set "API_PYTHON=%CD%\.venv\Scripts\python.exe"
+)
+start "LumenEIOS Backend and API" cmd /k ""%API_PYTHON%" -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload"
 start "LumenEIOS Frontend" cmd /k "cd /d ""%CD%"" && npm run dev"
 
 echo Frontend: http://localhost:3000

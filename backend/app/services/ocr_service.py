@@ -226,6 +226,7 @@ class QwenVisionOCRProvider(BaseOCRProvider):
         self._model_id = model_id
         self._device = "cuda" if use_cuda else "cpu"
         self._process_vision_info = process_vision_info
+        logger.info("Loaded Qwen OCR model %s on %s", model_id, self._device)
         report_progress("model", "Loaded the OCR model", 1, 1)
 
     def _infer_image(self, image: Any) -> str:

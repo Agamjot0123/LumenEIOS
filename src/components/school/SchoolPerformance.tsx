@@ -100,7 +100,19 @@ function scaleScores(scores: CompetencyScores, factor: number): CompetencyScores
   };
 }
 
-function yearPoints(student: Student, year: number, results: AssessmentResult[]) {
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function academicMonth(iso: string): { year: number; label: string } | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const month = date.getMonth();
+  return {
+    year: month >= 3 ? date.getFullYear() : date.getFullYear() - 1,
+    label: MONTH_LABELS[month],
+  };
+}
+
+function yearPoints(student: Student, year: number) {
   const months = year >= CURRENT_YEAR ? SCHOOL_MONTHS.slice(0, 8) : SCHOOL_MONTHS;
   const yearsBack = Math.max(0, CURRENT_YEAR - year);
   const start = year >= CURRENT_YEAR
@@ -109,25 +121,68 @@ function yearPoints(student: Student, year: number, results: AssessmentResult[])
   const end = year >= CURRENT_YEAR
     ? student.competencies
     : scaleScores(student.baselineCompetencies, 1 - yearsBack * 0.09);
-  const recorded = year >= CURRENT_YEAR ? results.find((item) => item.studentId === student.id) : undefined;
+  const recordedRate = year === CURRENT_YEAR;
 
   return months.map((label, index) => {
     const progress = months.length === 1 ? 1 : index / (months.length - 1);
     const wave = Math.sin((index + 1) * 1.2) * 1.4;
     const mix = (from: number, to: number, wobble: number) => clampScore(from + (to - from) * progress + wobble);
-    const point = {
+    return {
       label,
       LU: mix(start.LU, end.LU, wave),
       CU: mix(start.CU, end.CU, -wave * 0.6),
       AU: mix(start.AU, end.AU, wave * 0.4),
       CT: mix(start.CT, end.CT, -wave * 0.3),
       overall: mix(start.overall, end.overall, 0),
+      attendance: recordedRate ? clampScore(student.attendancePct) : null,
+      homework: recordedRate ? clampScore(student.homeworkCompletionRate) : null,
     };
-    if (recorded && label === 'Sep') {
-      return { label, ...recorded.scores };
-    }
-    return point;
   });
+}
+
+function assessmentOverallByMonth(studentId: string, year: number, results: AssessmentResult[]) {
+  const buckets = new Map<string, number[]>();
+  for (const result of results) {
+    if (result.studentId !== studentId) continue;
+    const placed = academicMonth(result.submissionDate);
+    if (!placed || placed.year !== year) continue;
+    const score = result.scores?.overall ?? result.percentage;
+    const list = buckets.get(placed.label) || [];
+    list.push(score);
+    buckets.set(placed.label, list);
+  }
+  const averages = new Map<string, number>();
+  for (const [label, values] of buckets) {
+    averages.set(label, clampScore(values.reduce((sum, value) => sum + value, 0) / values.length));
+  }
+  return averages;
+}
+
+function chartPoints(student: Student, classmates: Student[], year: number, results: AssessmentResult[]) {
+  const own = yearPoints(student, year);
+  const classSeries = classmates.map((classmate) => yearPoints(classmate, year));
+  const assessed = assessmentOverallByMonth(student.id, year, results);
+  return own.map((point, index) => {
+    const values = classSeries.map((series) => series[index].overall);
+    return {
+      ...point,
+      classAverage: values.length
+        ? clampScore(values.reduce((sum, value) => sum + value, 0) / values.length)
+        : null,
+      assessed: assessed.get(point.label) ?? null,
+    };
+  });
+}
+
+function AssessmentDot(props: {
+  cx?: number;
+  cy?: number;
+  payload?: { assessed?: number | null };
+  fill?: string;
+}) {
+  const { cx, cy, payload, fill } = props;
+  if (payload?.assessed == null || cx == null || cy == null) return <g />;
+  return <circle cx={cx} cy={cy} r={5} fill={fill || '#B91C1C'} stroke="#ffffff" strokeWidth={1.5} />;
 }
 
 function ScoreTable({
@@ -249,7 +304,14 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
   const student = schoolStudents.find((item) => item.id === selectedStudentId) || null;
   const joined = student ? admissionYear(student) : CURRENT_YEAR;
   const years = student ? Array.from({ length: CURRENT_YEAR - joined + 1 }, (_, index) => CURRENT_YEAR - index) : [];
-  const points = student ? yearPoints(student, chartYear, assessmentResults) : [];
+  const points = student
+    ? chartPoints(
+        student,
+        schoolStudents.filter((item) => item.classId === student.classId),
+        chartYear,
+        assessmentResults
+      )
+    : [];
 
   return (
     <div className="space-y-5">
@@ -326,7 +388,7 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
           title={`${student.name} · ${chartYear}–${String(chartYear + 1).slice(2)}`}
           subtitle={`Monthly scores at ${school.name}. ${
             joined < CURRENT_YEAR ? `Enrolled since ${joined}.` : `Enrolled in ${joined}.`
-          }`}
+          } The dashed line is the class average. Dots are recorded assessments. Attendance and homework are the rates stored for ${CURRENT_YEAR}–${String(CURRENT_YEAR + 1).slice(2)}.`}
         >
           <label className="mb-4 flex items-center gap-3 text-sm font-semibold text-navy-900">
             Year
@@ -342,19 +404,37 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
               ))}
             </select>
           </label>
-          <div className="h-80">
+          <div className="h-96">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={analytics ? '#E2E8F0' : '#E1E7ED'} strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" interval={0} tick={{ fontSize: 12, fill: analytics ? '#64748B' : '#667085' }} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: analytics ? '#64748B' : '#667085' }} />
-                <Tooltip />
+                <Tooltip filterNull />
                 <Legend />
                 <Line type="monotone" dataKey="LU" name="Language" stroke={analytics ? '#1E3A8A' : '#3B82F6'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="CU" name="Concept" stroke={analytics ? '#3B82F6' : '#10B981'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="AU" name="Application" stroke={analytics ? '#93C5FD' : '#F59E0B'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke={analytics ? '#BFDBFE' : '#8B5CF6'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="overall" name="Overall" stroke={analytics ? '#0F172A' : '#142A43'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="classAverage" name="Class average" stroke="#64748B" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} />
+                {chartYear === CURRENT_YEAR && (
+                  <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#0F766E" strokeWidth={2} strokeDasharray="2 3" dot={false} connectNulls={false} />
+                )}
+                {chartYear === CURRENT_YEAR && (
+                  <Line type="monotone" dataKey="homework" name="Homework" stroke="#B45309" strokeWidth={2} strokeDasharray="2 3" dot={false} connectNulls={false} />
+                )}
+                <Line
+                  type="monotone"
+                  dataKey="assessed"
+                  name="Assessment"
+                  stroke="#B91C1C"
+                  strokeWidth={0}
+                  connectNulls={false}
+                  legendType="circle"
+                  dot={<AssessmentDot fill="#B91C1C" />}
+                  activeDot={<AssessmentDot fill="#B91C1C" />}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
