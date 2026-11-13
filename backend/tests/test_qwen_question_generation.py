@@ -27,6 +27,88 @@ def test_studio_parser_keeps_requested_types_and_rejects_bad_counts():
         parse_studio_questions(raw.replace('"descriptive"', '"mcq"'), mcq_count=1, theory_count=1)
 
 
+def test_studio_parser_ignores_unrequested_sections():
+    raw = json.dumps({
+        "mcqs": [{
+            "type": "mcq", "text": "Pick one?",
+            "options": ["A", "B", "C", "D"], "correct_answer": "A",
+            "marking_rubric": "A", "competency": "CU",
+        }],
+        "theory": [{
+            "type": "short", "text": "Explain.", "correct_answer": "Because",
+            "marking_rubric": "Reason", "competency": "CT",
+        }],
+    })
+    questions = parse_studio_questions(raw, mcq_count=1, theory_count=0)
+    assert len(questions) == 1 and questions[0]["type"] == "mcq"
+
+
+def test_studio_parser_trims_extra_questions_and_answer_punctuation():
+    raw = json.dumps({"mcqs": [
+        {
+            "type": "mcq", "text": "Pick one?",
+            "options": ["One", "Two", "Three", "Four"],
+            "correct_answer": "Two.", "marking_rubric": "Two", "competency": "CU",
+        },
+        {
+            "type": "mcq", "text": "Extra?",
+            "options": ["W", "X", "Y", "Z"],
+            "correct_answer": "X", "marking_rubric": "X", "competency": "AU",
+        },
+    ], "theory": []})
+    questions = parse_studio_questions(raw, mcq_count=1, theory_count=0)
+    assert len(questions) == 1
+    assert questions[0]["correct_answer"] == "Two"
+
+
+def test_studio_parser_repairs_answer_missing_from_options():
+    raw = json.dumps({"mcqs": [{
+        "type": "mcq", "text": "What do stomach muscles do?",
+        "options": [
+            "Help contract and relax.",
+            "Produce digestive juices.",
+            "Absorb nutrients.",
+            "Secrete saliva.",
+        ],
+        "correct_answer": "Help churn the food.",
+        "marking_rubric": "Churning mixes food.",
+        "competency": "AU",
+    }], "theory": []})
+    question = parse_studio_questions(raw, mcq_count=1, theory_count=0)[0]
+    assert question["correct_answer"] == "Help churn the food."
+    assert question["correct_answer"] in question["options"]
+    assert len(question["options"]) == 4
+
+
+def test_studio_parser_normalizes_common_qwen_option_shapes():
+    as_dict = json.dumps({"mcqs": [{
+        "type": "mcq", "text": "Pick one.",
+        "options": {"A": "One", "B": "Two", "C": "Three", "D": "Four"},
+        "correct_answer": "B", "marking_rubric": "Two is right", "competency": "CU",
+    }], "theory": []})
+    questions = parse_studio_questions(as_dict, mcq_count=1, theory_count=0)
+    assert questions[0]["options"] == ["One", "Two", "Three", "Four"]
+    assert questions[0]["correct_answer"] == "Two"
+
+    as_labeled = json.dumps({"mcqs": [{
+        "type": "mcq", "text": "Pick one.",
+        "options": "a) Red\nb) Blue\nc) Green\nd) Yellow",
+        "correct_answer": "c)", "marking_rubric": "Green", "competency": "LU",
+    }], "theory": []})
+    questions = parse_studio_questions(as_labeled, mcq_count=1, theory_count=0)
+    assert questions[0]["options"] == ["Red", "Blue", "Green", "Yellow"]
+    assert questions[0]["correct_answer"] == "Green"
+
+    as_objects = json.dumps({"mcqs": [{
+        "type": "mcq", "text": "Pick one.",
+        "options": [{"text": "W"}, {"text": "X"}, {"text": "Y"}, {"text": "Z"}],
+        "correct_answer": "Y", "marking_rubric": "Y", "competency": "AU",
+    }], "theory": []})
+    questions = parse_studio_questions(as_objects, mcq_count=1, theory_count=0)
+    assert questions[0]["options"] == ["W", "X", "Y", "Z"]
+    assert questions[0]["correct_answer"] == "Y"
+
+
 def test_studio_prompt_assigns_each_competency_and_the_recommended_answer():
     prompt = build_studio_prompt("Science", 2, 2, "Analyze", "friction", "chapter context")
     for phrase in (

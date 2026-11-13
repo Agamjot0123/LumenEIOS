@@ -7,7 +7,8 @@
 import type { Role, Student, User } from '../types';
 import { DEMO_MODE, clearTeachingCache, apiErrorMessage } from './runtime';
 
-const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/+$/, '');
+// Prefer VITE_API_URL. Local default is same-origin /api/v1 (Vite proxies to FastAPI).
+const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL || '/api/v1').replace(/\/+$/, '');
 
 type AccountDetails = {
   name: string;

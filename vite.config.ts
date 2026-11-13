@@ -15,6 +15,18 @@ export default defineConfig(({command,mode}) => {
   return {
     plugins:[react()],
     resolve:{alias:{'@':path.resolve(__dirname,'./src')}},
-    server:{port:3000,open:false,host:'127.0.0.1'},
+    server:{
+      port:3000,
+      open:false,
+      host:'127.0.0.1',
+      // Same-origin /api proxy avoids WSL/Windows localhost mismatches when the
+      // browser cannot reach the FastAPI process on :8000 directly.
+      proxy:{
+        '/api':{
+          target:'http://127.0.0.1:8000',
+          changeOrigin:true,
+        },
+      },
+    },
   };
 });

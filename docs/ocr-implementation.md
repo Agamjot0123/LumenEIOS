@@ -88,7 +88,7 @@ The **Upload** screen is at `/upload` (`src/pages/teacher/ScanReview.tsx`). Succ
 
 1. Install a **CUDA-enabled PyTorch** build that matches the GPU.
 2. Install `backend/requirements-ocr.txt`. The versions are pinned on purpose, because AutoAWQ is deprecated and only works with Transformers 4.51.3:
-   - `transformers==4.51.3`, `accelerate==1.15.0`, `autoawq==0.2.9`, `triton==3.6.0`, `qwen-vl-utils==0.0.14`, `PyMuPDF==2.1`
+   - `transformers==4.51.3`, `accelerate==1.15.0`, `autoawq==0.2.9`, `triton==3.6.0`, `torchvision==0.26.0`, `qwen-vl-utils==0.0.14`, `PyMuPDF==2.1`
    - Tested on an RTX 5060 (8 GB) with PyTorch 2.11.0+cu128 and Python 3.14.
 3. Optional: set `QWEN_VL_MODEL_ID` in `.env`. Use `HF_TOKEN` if the model download needs it.
 4. Run FastAPI on the GPU machine. The weights download from Hugging Face on the first OCR request.
