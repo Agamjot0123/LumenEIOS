@@ -75,10 +75,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
-    # Qwen OCR preview + Question Studio Beta (local Ollama / HF stack from teammate frontend).
+    # Qwen OCR preview, Question Studio Beta, and the assistant.
     QWEN_VL_MODEL_ID: str = "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
-    QWEN_QUESTION_STUDIO_MODEL_ID: str = "qwen2.5vl:7b"
-    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
 
     # Optional Neo4j Knowledge Graph
     NEO4J_ENABLED: bool = False
@@ -91,15 +89,22 @@ class Settings(BaseSettings):
 
     # Demo mode: seeds sample accounts (password demo123) and enables demo shortcuts.
     DEMO_MODE: bool = True
-    # Development-only root login: LEOFELIX or leofelix@lumeneios.demo.
-    # Ignored unless APP_ENV is development. Set empty to disable.
+    # Development root login: LEOFELIX or leofelix@lumeneios.demo.
+    # Defaults to the password shown on the sign-in page. Blank or production disables it.
     DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")
 
     @property
+    def demo_root_password(self) -> str | None:
+        if self.APP_ENV.lower() != "development":
+            return None
+        if self.DEMO_ROOT_PASSWORD is None:
+            return None
+        configured = self.DEMO_ROOT_PASSWORD.get_secret_value().strip()
+        return configured or None
+
+    @property
     def demo_root_enabled(self) -> bool:
-        return self.APP_ENV.lower() == "development" and bool(
-            self.DEMO_ROOT_PASSWORD and self.DEMO_ROOT_PASSWORD.get_secret_value()
-        )
+        return self.demo_root_password is not None
 
     @model_validator(mode="after")
     def production_configuration(self):

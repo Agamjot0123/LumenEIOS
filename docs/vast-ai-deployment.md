@@ -2,8 +2,7 @@
 
 This runs the whole app on one rented GPU machine:
 - the FastAPI backend, port 8000
-- Qwen2.5-VL-3B OCR, loaded inside the backend
-- Ollama with `qwen2.5vl:7b`, used by AI Question Studio Beta
+- one Qwen2.5-VL 3B AWQ model for worksheet OCR, Question Studio Beta, and the assistant
 - the built frontend, port 3000
 
 Commands run from the repo's `apps/lumeneios` folder unless noted.
@@ -17,9 +16,9 @@ Commands run from the repo's `apps/lumeneios` folder unless noted.
 | Setting | Choose |
 |---|---|
 | Template | A PyTorch / CUDA 12.8 image, e.g. `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime`, or any Ubuntu + CUDA 12.8 image |
-| GPU | 16 GB VRAM or more (RTX 4080/4090, A4000, L4). OCR 3B uses about 5 GB; Ollama 7B needs about 6–8 GB more |
+| GPU | 16 GB VRAM or more (RTX 4080/4090, A4000, L4). all three features share the same model |
 | Driver | NVIDIA driver 570 or newer (shown on the offer; needed for CUDA 12.8) |
-| Disk | 60 GB or more (PyTorch + model weights + Ollama model) |
+| Disk | 60 GB or more (PyTorch, the shared model, and app data) |
 | Ports | Add `-p 8000:8000 -p 3000:3000` to the Docker options |
 
 After it starts, open the instance's **IP & ports** panel. Vast maps 8000 and 3000 to random public ports, for example `203.0.113.7:41234 -> 8000`. Below, `PUBLIC_IP`, `API_PORT` and `WEB_PORT` mean those public values.
@@ -47,15 +46,11 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"   
 
 Install the OCR requirements **after** torch. The `triton==3.6.0` pin matches torch 2.11.0.
 
-## 4. Install Ollama (for AI Question Studio Beta)
+## 4. Cache the shared model
 
 ```bash
-curl -fsSL https://ollama.com/install.sh | sh
-nohup ollama serve > ollama.log 2>&1 &
-ollama pull qwen2.5vl:7b
+python -c 'from huggingface_hub import snapshot_download; snapshot_download("Qwen/Qwen2.5-VL-3B-Instruct-AWQ")'
 ```
-
-Ollama stays on `127.0.0.1:11434`. Don't expose that port publicly.
 
 ## 5. Create `.env` — required before going public
 
@@ -68,8 +63,6 @@ DEMO_MODE=false
 SECRET_KEY=<paste output of: python -c "import secrets; print(secrets.token_urlsafe(48))">
 BACKEND_CORS_ORIGINS=["http://PUBLIC_IP:WEB_PORT"]
 QWEN_VL_MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct-AWQ
-QWEN_QUESTION_STUDIO_MODEL_ID=qwen2.5vl:7b
-OLLAMA_BASE_URL=http://127.0.0.1:11434
 HF_TOKEN=
 ```
 

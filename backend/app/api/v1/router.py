@@ -9,6 +9,7 @@ from backend.app.api.v1.calendar import router as calendar_router
 from backend.app.api.v1.assessments import router as assessments_router
 from backend.app.api.v1.competencies import router as competencies_router
 from backend.app.modules.differentiated_homework.router import router as homework_router
+from backend.app.modules.student_progress.router import router as student_progress_router
 from backend.app.api.v1.curriculum import router as curriculum_router
 from backend.app.api.v1.time_aware import router as time_aware_router
 from backend.app.api.v1.documents import router as documents_router
@@ -19,6 +20,8 @@ from backend.app.api.v1.reports import router as reports_router
 from backend.app.api.v1.audit import router as audit_router
 from backend.app.api.v1.admin import router as admin_router
 from backend.app.api.v1.onboarding import router as onboarding_router
+from backend.app.api.v1.assistant import router as assistant_router
+from backend.app.api.v1.developer import router as developer_router
 
 api_router = APIRouter(dependencies=[Depends(reject_non_finite_json)])
 
@@ -31,6 +34,7 @@ api_router.include_router(calendar_router)
 api_router.include_router(assessments_router)
 api_router.include_router(competencies_router)
 api_router.include_router(homework_router)
+api_router.include_router(student_progress_router)
 api_router.include_router(curriculum_router)
 api_router.include_router(time_aware_router)
 api_router.include_router(documents_router)
@@ -41,3 +45,5 @@ api_router.include_router(reports_router)
 api_router.include_router(audit_router)
 api_router.include_router(admin_router)
 api_router.include_router(onboarding_router)
+api_router.include_router(assistant_router)
+api_router.include_router(developer_router)

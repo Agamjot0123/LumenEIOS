@@ -241,6 +241,10 @@ class StudentCompetencySnapshot(Base):
     ct_score = Column(Integer, nullable=False)
     overall_score = Column(Integer, nullable=False)
     notes = Column(Text, nullable=True)
+    # Forward-compatible subject linkage. Historical rows stay NULL (global / unscoped).
+    subject_id = Column(String(64), nullable=True, index=True)
+    source_assessment_id = Column(String(64), nullable=True, index=True)
+    source_submission_id = Column(String(64), nullable=True, index=True)
 
 
 class HomeworkRemediation(Base):
@@ -528,5 +532,49 @@ class GradingBatchItem(Base):
     retry_count = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class SchoolFeatureFlag(Base):
+    __tablename__ = "school_feature_flags"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    school_id = Column(String(64), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, index=True)
+    flag_key = Column(String(64), nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+
+
+class CompetencyOutcome(Base):
+    __tablename__ = "competency_outcomes"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    code = Column(String(32), unique=True, nullable=False)
+    domain = Column(String(8), nullable=False)
+    grade = Column(Integer, nullable=False)
+    statement = Column(Text, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class ImpersonationEvent(Base):
+    __tablename__ = "impersonation_events"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    actor_user_id = Column(String(64), nullable=False)
+    actor_name = Column(String(255), nullable=False)
+    from_role = Column(String(50), nullable=False)
+    to_role = Column(String(50), nullable=False)
+    school_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+class WorkshopRun(Base):
+    __tablename__ = "workshop_runs"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    kind = Column(String(20), nullable=False)
+    prompt = Column(Text, nullable=False)
+    result_json = Column(JSON, nullable=False)
+    status = Column(String(20), default="completed", nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
 
 

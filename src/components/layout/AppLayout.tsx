@@ -4,10 +4,13 @@ import { Topbar } from './Topbar';
 import { Sidebar } from './Sidebar';
 import { RoleSwitcherBanner } from './RoleSwitcherBanner';
 import { Menu, X } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { AssistantPanel } from './AssistantPanel';
 
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const { currentUser, currentSchoolId } = useAuth();
 
   // Close mobile menu on route change
   React.useEffect(() => {
@@ -58,6 +61,9 @@ export const AppLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+      {currentUser && ['admin', 'teacher', 'principal', 'student', 'parent'].includes(currentUser.role) && (
+        <AssistantPanel key={JSON.stringify([currentUser.id, currentUser.role, currentSchoolId])} role={currentUser.role} />
+      )}
     </div>
   );
 };

@@ -16,7 +16,7 @@ from backend.app.core.security import (
     verify_password,
 )
 from backend.app.db.session import get_db
-from backend.app.models.entities import AuditEvent, School, SchoolMembership, User, utc_now
+from backend.app.models.entities import AuditEvent, ImpersonationEvent, School, SchoolMembership, User, utc_now
 from backend.app.schemas.auth import LoginRequest, SwitchSchoolRequest, TokenResponse, UserOut
 from backend.app.seed.seed_data import ROOT_PERSONA_EMAILS
 
@@ -69,22 +69,18 @@ async def demo_persona(db: AsyncSession, role: str) -> User:
         user = await db.scalar(select(User).where(User.email == email, User.role == role))
         if user:
             return user
-    raise HTTPException(status_code=404, detail="The requested demo persona is missing.")
+    user = await db.scalar(select(User).where(User.role == role).limit(1))
+    if not user:
+        raise HTTPException(status_code=404, detail="The requested demo persona is missing.")
+    return user
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     login_id = req.email.strip().lower()
     demo_root = login_id in ROOT_LOGIN_IDS
-    if (
-        demo_root
-        and settings.demo_root_enabled
-        and settings.DEMO_ROOT_PASSWORD
-        and compare_digest(
-            req.password.encode(),
-            settings.DEMO_ROOT_PASSWORD.get_secret_value().encode(),
-        )
-    ):
+    password = settings.demo_root_password
+    if demo_root and password and compare_digest(req.password.encode(), password.encode()):
         user = await demo_persona(db, "admin")
     elif not demo_root:
         result = await db.execute(select(User).filter(User.email == login_id))
@@ -139,11 +135,19 @@ async def switch_demo_role(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    del current_user  # authorization is entirely via the demo_root claim
     if not token or not decode_token(token).get("demo_root"):
         raise HTTPException(status_code=403, detail="A demo root session is required.")
     if not settings.demo_root_enabled:
         raise HTTPException(status_code=403, detail="Demo root access is disabled.")
+    payload = decode_token(token)
+    db.add(ImpersonationEvent(
+        actor_user_id=current_user.id,
+        actor_name=current_user.name,
+        from_role=str(payload.get("role") or current_user.role),
+        to_role=req.role,
+        school_id=payload.get("school_id") or current_user.school_id,
+    ))
+    await db.commit()
     if req.role == "developer":
         return session_response(await demo_persona(db, "admin"), demo_root=True, role="developer")
     return session_response(await demo_persona(db, req.role), demo_root=True)

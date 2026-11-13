@@ -16,6 +16,7 @@ import {
   ExternalLink,
   ShieldAlert,
 } from 'lucide-react';
+import { getRoleLabel } from '../../lib/permissions';
 import { Badge } from '../common/Badge';
 import { ThemeMenu } from './ThemeMenu';
 import { FontSizeControl } from './FontSizeControl';
@@ -215,8 +216,8 @@ export const Topbar: React.FC = () => {
               <div className="text-xs font-semibold text-content-primary leading-tight">
                 {currentUser?.name}
               </div>
-              <div className="text-[10px] text-teal-600 font-medium capitalize">
-                {currentUser?.role}
+              <div className="text-[10px] text-teal-600 font-medium">
+                {getRoleLabel(currentUser?.role)}
               </div>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-content-secondary" />
@@ -229,7 +230,7 @@ export const Topbar: React.FC = () => {
                 <p className="text-[11px] text-content-secondary truncate">{currentUser?.email}</p>
                 <div className="mt-1.5">
                   <Badge variant="teal" size="sm">
-                    Role: {currentUser?.role}
+                    Role: {getRoleLabel(currentUser?.role)}
                   </Badge>
                 </div>
               </div>

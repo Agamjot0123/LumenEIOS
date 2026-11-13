@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_roles
+from backend.app.api.dependencies import get_current_user, require_roles, require_school_access
 from backend.app.db.session import get_db
 from backend.app.models.entities import Document, OCRRun, GradingBatchItem, User, AuditEvent, utc_now
 from backend.app.schemas.ocr import DocumentOut, BulkDocumentItemResult, BulkDocumentUploadResponse
@@ -296,5 +296,6 @@ async def download_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
 
+    await require_school_access(db, current_user, doc.school_id)
     file_path = storage_service.get_file_path(doc.storage_path)
     return FileResponse(file_path, media_type=doc.mime_type, filename=doc.file_name)

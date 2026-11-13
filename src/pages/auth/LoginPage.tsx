@@ -205,6 +205,15 @@ export const LoginPage: React.FC = () => {
               </p>
             )}
 
+            <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-3 text-xs text-navy-900">
+              <p className="font-semibold">Team root login</p>
+              <p className="mt-1 font-mono">Login: LEOFELIX or leofelix@lumeneios.demo</p>
+              <p className="font-mono">Password: KVR</p>
+              <p className="mt-1 text-content-secondary">
+                Signs in as Developer, with access to every role. After login, use the bar at the top to open Developer, Management, Principal, Teacher, Student, or Parent.
+              </p>
+            </div>
+
             <button
               type="submit"
               disabled={isSigningIn || isRestoringSession}

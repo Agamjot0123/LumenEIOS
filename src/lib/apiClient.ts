@@ -252,6 +252,13 @@ function mapBatchOut(b: any) {
   };
 }
 
+export type AssistantTurn = { role: 'user' | 'assistant'; content: string };
+export type AssistantReply = {
+  answer: string;
+  links: { label: string; path: string }[];
+  model_available: boolean;
+};
+
 export const apiClient = {
   homework: {
     call<T = any>(path: string, method = 'GET', body?: unknown) {
@@ -296,12 +303,19 @@ export const apiClient = {
     },
   },
 
+  assistant: {
+    chat: (message: string, history: AssistantTurn[], signal: AbortSignal) =>
+      request<AssistantReply>('/assistant/chat', {
+        method: 'POST', body: JSON.stringify({ message, history }), signal,
+      }),
+  },
   // Authentication
   auth: {
     async login(email: string, password: string) {
       const res = await request<{ access_token: string; refresh_token?: string; user: ApiUser }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(8000),
       });
       if (res.access_token) {
         clearTeachingCache();
@@ -311,7 +325,7 @@ export const apiClient = {
       return res;
     },
     async me() {
-      return request<ApiUser>('/auth/me');
+      return request<ApiUser>('/auth/me', { signal: AbortSignal.timeout(8000) });
     },
     async switchDemoRole(role: Role | string) {
       const response = await request<{ access_token: string; user: ApiUser }>('/auth/demo-root/role', {
@@ -873,6 +887,32 @@ export const apiClient = {
       if (search) params.append('search', search);
       return request<any[]>(`/audit/events?${params.toString()}`);
     },
+  },
+
+  // Developer portal
+  developer: {
+    health: () => request<any>('/developer/health'),
+    roster: () => request<any>('/developer/roster'),
+    reseed: (confirm: string) => request<any>('/developer/roster/reseed', {
+      method: 'POST',
+      body: JSON.stringify({ confirm }),
+    }),
+    flags: () => request<any>('/developer/flags'),
+    setFlag: (schoolId: string, flagKey: string, enabled: boolean) => request<any>('/developer/flags', {
+      method: 'PUT',
+      body: JSON.stringify({ school_id: schoolId, flag_key: flagKey, enabled }),
+    }),
+    activeFlags: () => request<Record<string, boolean>>('/developer/flags/active'),
+    access: () => request<any[]>('/developer/access'),
+    framework: () => request<any[]>('/developer/framework'),
+    saveOutcome: (id: string, body: { code: string; domain: string; grade: number; statement: string }) =>
+      request<any>(`/developer/framework/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    createOutcome: (body: { code: string; domain: string; grade: number; statement: string }) =>
+      request<any>('/developer/framework', { method: 'POST', body: JSON.stringify(body) }),
+    quality: () => request<any>('/developer/quality'),
+    workshop: (body: { kind: 'ocr' | 'question'; text: string; competency_code?: string }) =>
+      request<any>('/developer/workshop', { method: 'POST', body: JSON.stringify(body) }),
+    releases: () => request<any[]>('/developer/releases'),
   },
 
   // Health

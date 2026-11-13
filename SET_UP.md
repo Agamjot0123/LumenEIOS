@@ -23,7 +23,18 @@ git -C "$repo" log -1 --format='Deploying %h (%s) from '"$branch"
 cd "$app"
 
 if [ ! -x "$node_env/bin/node" ]; then
-  conda create -y --prefix "$node_env" --override-channels -c conda-forge nodejs=22
+  (
+    tmp=$(mktemp -d)
+    trap 'rm -rf -- "$tmp"' EXIT
+    cd "$tmp"
+    release=https://nodejs.org/dist/latest-v22.x
+    curl -fsSL "$release/SHASUMS256.txt" | awk '$2 ~ /-linux-x64\.tar\.gz$/ { print }' > node.sha256
+    read -r checksum archive < node.sha256
+    curl -fsSL "$release/$archive" -o "$archive"
+    sha256sum -c node.sha256
+    mkdir -p "$node_env"
+    tar -xzf "$archive" --strip-components=1 -C "$node_env"
+  )
 fi
 export PATH="$node_env/bin:$PATH"
 
@@ -37,14 +48,13 @@ if [ ! -x .venv/bin/pip ]; then
 fi
 .venv/bin/python -m pip install -r backend/requirements.txt
 
-export OLLAMA_HOST=127.0.0.1:11434
-if ! curl -fsS --max-time 3 http://127.0.0.1:11434/api/version >/dev/null; then
-  nohup ollama serve > "$app/ollama.log" 2>&1 </dev/null &
+# The shared model needs CUDA PyTorch and the GPU dependencies.
+nvidia-smi >/dev/null
+if ! .venv/bin/python -c 'import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)' 2>/dev/null; then
+  .venv/bin/python -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 fi
-curl -fsS --retry 10 --retry-connrefused --retry-delay 1 \
-  http://127.0.0.1:11434/api/version
-printf '\n'
-ollama pull qwen2.5vl:7b
+.venv/bin/python -m pip install -r backend/requirements-ocr.txt
+.venv/bin/python -c 'from huggingface_hub import snapshot_download; snapshot_download("Qwen/Qwen2.5-VL-3B-Instruct-AWQ")'
 
 if [ ! -e .env ]; then
   secret=$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')
@@ -54,8 +64,7 @@ DEBUG=false
 DEMO_MODE=false
 DEMO_ROOT_PASSWORD=
 SECRET_KEY=$secret
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-QWEN_QUESTION_STUDIO_MODEL_ID=qwen2.5vl:7b
+QWEN_VL_MODEL_ID=Qwen/Qwen2.5-VL-3B-Instruct-AWQ
 EOF
   )
   unset secret
@@ -87,6 +96,7 @@ EOF
 
 supervisorctl reread
 supervisorctl update
+supervisorctl restart lumeneios-api lumeneios-web
 
 jupyter_python=$(sed -n '1s/^#!//p' "$jupyter")
 test -x "$jupyter_python"
