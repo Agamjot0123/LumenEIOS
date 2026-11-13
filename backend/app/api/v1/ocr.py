@@ -41,7 +41,13 @@ from backend.app.schemas.ocr import (
     BatchItemUpdateRequest,
 )
 from backend.app.schemas.evaluation import EvaluationResult, StudentInfo
-from backend.app.services.ai_gateway import AIGatewayError, AINotConfigured, AIProviderTimeout, get_ai_provider
+from backend.app.services.ai_gateway import (
+    AIGatewayError,
+    AINotConfigured,
+    AIProviderTimeout,
+    active_gemini_model,
+    get_ai_provider,
+)
 from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
 from backend.app.services.gemini_ocr_service import OCRInputError, extract_gemini_text
 from backend.app.services.ocr_service import get_ocr_provider
@@ -261,7 +267,7 @@ async def extract_ocr_preview(
 
     return {
         "provider": "gemini",
-        "model_version": settings.GEMINI_MODEL,
+        "model_version": active_gemini_model(),
         "results": results,
     }
 

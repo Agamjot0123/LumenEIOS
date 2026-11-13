@@ -33,6 +33,7 @@ function useLoad<T>(load: () => Promise<T>) {
 
 const links = [
   ['/developer/health', 'Platform health', 'API, database, OCR model, and question model.'],
+  ['/developer/gemini', 'Gemini model', 'Choose which Gemini model OCR and scan evaluation use.'],
   ['/developer/roster', 'Sample roster', 'Accounts that exist, and a confirmed reseed.'],
   ['/developer/flags', 'Feature flags', 'Hide a beta for one school.'],
   ['/developer/access', 'Access log', 'Every role switch from a developer session.'],
@@ -66,6 +67,54 @@ export const PlatformHealth: React.FC = () => {
           <Status title="Database" value={data.database} detail="Query succeeded" />
           <Status title="OCR" value={data.ocr.model} detail={`${data.ocr.stored_scans} stored scans`} />
           <Status title="Question model" value={data.question_model.provider} detail={data.question_model.model} />
+        </div>
+      )}
+    </Shell>
+  );
+};
+
+export const GeminiModel: React.FC = () => {
+  const { data, error, setData } = useLoad(() => apiClient.developer.geminiModels());
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const choose = async (model: string) => {
+    if (!data || model === data.current) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const saved = await apiClient.developer.setGeminiModel(model);
+      setData({ ...data, current: saved.current });
+    } catch (err) {
+      setMessage(err instanceof ApiError ? err.message : 'The model was not changed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Shell title="Gemini model" lede="OCR and scan evaluation use the model selected here. The choice lasts until the API restarts.">
+      {error && <p role="alert" className="text-xs text-rose-600">{error}</p>}
+      {data && (
+        <div className="bg-white p-4 rounded-2xl border border-surface-border space-y-2">
+          <label className="block text-sm font-semibold text-navy-900" htmlFor="gemini-model">
+            Available Gemini models
+            <select
+              id="gemini-model"
+              value={data.current}
+              disabled={busy}
+              onChange={(event) => { void choose(event.target.value); }}
+              className="mt-2 block w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm font-normal"
+            >
+              {data.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label === model.id ? model.id : `${model.label} (${model.id})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-content-secondary">Current model: <span className="font-mono">{data.current}</span></p>
+          {message && <p role="alert" className="text-xs text-rose-600">{message}</p>}
         </div>
       )}
     </Shell>

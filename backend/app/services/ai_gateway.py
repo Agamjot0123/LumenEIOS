@@ -128,11 +128,56 @@ def _gemini_json_schema(schema: Type[BaseModel]) -> dict:
     return data
 
 
+_selected_model: str | None = None
+
+
+def active_gemini_model() -> str:
+    """Model used for OCR and evaluation. A developer choice overrides the env default."""
+    return _selected_model or settings.GEMINI_MODEL
+
+
+def select_gemini_model(model: str) -> str:
+    global _selected_model
+    chosen = model.strip()
+    if not chosen:
+        raise ValueError("Choose a Gemini model.")
+    _selected_model = chosen
+    return chosen
+
+
+def clear_gemini_model_selection() -> None:
+    global _selected_model
+    _selected_model = None
+
+
 def get_ai_provider() -> GeminiProvider:
     """Build the configured provider. Raises AINotConfigured if no key is set.
     Tests replace this function; they never reach a real provider."""
     return GeminiProvider(
         api_key=settings.GEMINI_API_KEY.get_secret_value().strip(),
-        model=settings.GEMINI_MODEL,
+        model=active_gemini_model(),
         timeout_seconds=settings.AI_REQUEST_TIMEOUT_SECONDS,
     )
+
+
+async def list_gemini_models() -> list[dict[str, str]]:
+    """Gemini models this key can call for text generation."""
+    from google.genai import errors
+
+    provider = get_ai_provider()
+    found: dict[str, str] = {}
+    try:
+        pager = await provider._client.aio.models.list()
+        async for model in pager:
+            model_id = (getattr(model, "name", "") or "").split("/")[-1].strip()
+            actions = getattr(model, "supported_actions", None) or []
+            if not model_id.startswith("gemini") or "generateContent" not in actions:
+                continue
+            found[model_id] = (getattr(model, "display_name", None) or model_id).strip()
+    except errors.APIError as exc:
+        logger.warning("Gemini model list failed (code=%s).", getattr(exc, "code", "?"))
+        raise AIProviderError() from None
+    except Exception as exc:
+        logger.warning("Gemini model list failed (%s).", type(exc).__name__)
+        raise AIProviderError() from None
+    return [{"id": model_id, "label": found[model_id]} for model_id in sorted(found)]

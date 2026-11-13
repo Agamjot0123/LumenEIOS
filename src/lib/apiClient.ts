@@ -913,6 +913,11 @@ export const apiClient = {
     workshop: (body: { kind: 'ocr' | 'question'; text: string; competency_code?: string }) =>
       request<any>('/developer/workshop', { method: 'POST', body: JSON.stringify(body) }),
     releases: () => request<any[]>('/developer/releases'),
+    geminiModels: () => request<{ current: string; models: { id: string; label: string }[] }>('/developer/gemini/models'),
+    setGeminiModel: (model: string) => request<{ current: string }>('/developer/gemini/model', {
+      method: 'PUT',
+      body: JSON.stringify({ model }),
+    }),
   },
 
   // Health

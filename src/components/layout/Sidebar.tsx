@@ -93,6 +93,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         return [
           { label: 'Developer Home', path: '/developer', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Platform Health', path: '/developer/health', icon: <Activity className="w-4 h-4" /> },
+          { label: 'Gemini Model', path: '/developer/gemini', icon: <Settings className="w-4 h-4" /> },
           { label: 'Sample Roster', path: '/developer/roster', icon: <KeyRound className="w-4 h-4" /> },
           { label: 'Feature Flags', path: '/developer/flags', icon: <ToggleLeft className="w-4 h-4" /> },
           { label: 'Access Log', path: '/developer/access', icon: <ScrollText className="w-4 h-4" /> },
