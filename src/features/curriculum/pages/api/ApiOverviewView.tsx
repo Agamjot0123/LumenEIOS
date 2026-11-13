@@ -9,7 +9,7 @@ import { EvidenceButton } from '../../components/EvidenceButton';
 import { ErrorState, LoadingState, MissingValue } from '../../components/StateViews';
 import { StatusBadge } from '../../components/StatusBadge';
 import { toDisplayStatus } from '../../status';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const REQUIRED_TYPES = ['FRAMEWORK', 'SYLLABUS', 'LEARNING_OUTCOMES', 'TEXTBOOK'];
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useId } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -22,9 +22,43 @@ export const Modal: React.FC<ModalProps> = ({
   maxWidth = 'lg',
 }) => {
   const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Accessibility: move focus into the dialog when it opens and give it back to the trigger when it closes.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => previous?.focus?.();
+  }, [isOpen]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) onClose();
+      if (!isOpen) return;
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key === 'Tab' && panelRef.current) {
+        // Keep keyboard focus inside the modal while it is open.
+        const focusable = Array.from(
+          panelRef.current.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'),
+        );
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || active === panelRef.current)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        } else if (!panelRef.current.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     };
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -52,12 +86,14 @@ export const Modal: React.FC<ModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/60 backdrop-blur-sm animate-fade-in overflow-y-auto">
       <div
         className={cn(
-          'w-full bg-white rounded-2xl shadow-modal border border-surface-border overflow-hidden my-8',
+          'w-full bg-white rounded-2xl shadow-modal border border-surface-border overflow-hidden my-8 outline-none',
           widthClasses[maxWidth]
         )}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        ref={panelRef}
+        tabIndex={-1}
       >
         <div className="px-6 py-4.5 border-b border-surface-border flex items-center justify-between bg-surface-bg/50">
           <div>

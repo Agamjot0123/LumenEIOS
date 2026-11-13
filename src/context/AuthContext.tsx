@@ -1,18 +1,21 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Role } from '../types';
 import { initialUsers } from '../data/seedData';
-import { apiClient } from '../lib/apiClient';
+import { ApiError, apiClient } from '../lib/apiClient';
 
 interface AuthContextType {
   currentUser: User | null;
   currentSchoolId: string;
-  login: (email: string) => boolean;
+  /** Verifies the password with the backend before signing in. */
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   loginAsRole: (role: Role) => void;
   logout: () => void;
   switchSchool: (schoolId: string) => void;
   availableUsers: User[];
   isAuthenticated: boolean;
 }
+
+const DEMO_AUTO_LOGIN = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_DEMO_AUTO_LOGIN === 'true';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -23,10 +26,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         return JSON.parse(saved);
       } catch {
-        return initialUsers[0]; // fallback admin
+        return DEMO_AUTO_LOGIN ? initialUsers[0] : null;
       }
     }
-    return initialUsers[0]; // default logged in as Admin for instant stakeholder access
+    // Secure by default: no saved session means the sign-in page. Instant admin access for stakeholder demos is an
+    // explicit opt-in (VITE_DEMO_AUTO_LOGIN=true), never an implicit fallback.
+    return DEMO_AUTO_LOGIN ? initialUsers[0] : null;
   });
 
   const [currentSchoolId, setCurrentSchoolId] = useState<string>(() => {
@@ -45,18 +50,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('lumeneios_current_school', currentSchoolId);
   }, [currentSchoolId]);
 
-  const login = (email: string): boolean => {
-    const user = initialUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (user) {
-      setCurrentUser(user);
-      setCurrentSchoolId(user.schoolId || 'school-1');
-      // Asynchronously obtain token from backend API
-      apiClient.auth.login(user.email).catch((err) => {
-        console.warn('Backend login sync notice:', err.message);
-      });
-      return true;
+  const login = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+    const user = initialUsers.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (!user) return { ok: false, error: 'Invalid email or password.' };
+    try {
+      await apiClient.auth.login(user.email, password);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 0) return { ok: false, error: 'Cannot reach the LumenEIOS backend to verify your password. Use a 1-click demo persona or try again.' };
+      return { ok: false, error: 'Invalid email or password.' };
     }
-    return false;
+    setCurrentUser(user);
+    setCurrentSchoolId(user.schoolId || 'school-1');
+    return { ok: true };
   };
 
   const loginAsRole = (role: Role) => {

@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "build:curriculum-fixtures": "node scripts/build-curriculum-fixtures.mjs"
+    "build:curriculum-fixtures": "node scripts/build-curriculum-fixtures.mjs",
+    "e2e": "node e2e/acceptance.mjs",
+    "e2e:course": "node e2e/course_curriculum.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -30,6 +32,7 @@
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
     "jsdom": "^25.0.1",
+    "playwright-core": "^1.65.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",

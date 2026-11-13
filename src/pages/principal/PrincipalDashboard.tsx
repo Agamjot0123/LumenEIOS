@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
+import { PlanningStatusCard } from '../time-aware/PlanningStatusCard';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { calculateAverageCompetencies, calculateTimeAwarePacing } from '../../lib/calculations';
+import { usePlanning } from '../../lib/planning/usePlanning';
+import { calculateAverageCompetencies } from '../../lib/calculations';
+import { workspaceProgress } from '../../lib/planning/progress';
 import { KPICard } from '../../components/common/KPICard';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -11,12 +14,10 @@ import { Modal } from '../../components/common/Modal';
 import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarChart';
 import { CompetencyBarChart } from '../../components/charts/CompetencyBarChart';
 import {
-  School,
   Users,
   BookOpen,
   Clock,
   Sparkles,
-  AlertTriangle,
   Send,
   CheckCircle2,
   TrendingUp,
@@ -24,8 +25,9 @@ import {
 } from 'lucide-react';
 
 export const PrincipalDashboard: React.FC = () => {
-  const { schools, classes, students, curriculumDays, lostTeachingDays } = useData();
-  const { currentUser, currentSchoolId } = useAuth();
+  const { schools, classes, students } = useData();
+  const planned = usePlanning(); // plans are the relational teacher plans, one per teacher
+  const { currentSchoolId } = useAuth();
   const navigate = useNavigate();
 
   const [isAnnounceModalOpen, setIsAnnounceModalOpen] = useState(false);
@@ -36,8 +38,7 @@ export const PrincipalDashboard: React.FC = () => {
   const schoolClasses = classes.filter((c) => c.schoolId === activeSchool.id);
   const schoolStudents = students.filter((s) => s.schoolId === activeSchool.id);
   const schoolAvg = calculateAverageCompetencies(schoolStudents);
-
-  const pacing = calculateTimeAwarePacing(curriculumDays, lostTeachingDays, 180, 104);
+  const progress = workspaceProgress(planned.workspace.plans.filter((x) => x.status === 'APPROVED'));
 
   // Class comparison data for Recharts
   const classComparison = [
@@ -97,35 +98,13 @@ export const PrincipalDashboard: React.FC = () => {
             onClick={() => navigate('/teacher/time-aware')}
             icon={<Clock className="w-4 h-4" />}
           >
-            Review Pacing & Lost Days
+            Review Progress & Lost Periods
           </Button>
         </div>
       </div>
 
-      {/* High Pacing Alert */}
-      {pacing.riskStatus === 'high' && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-amber-950">
-                Instructional Pacing Warning for Senior Grades
-              </p>
-              <p className="text-amber-800 mt-0.5 leading-relaxed">
-                Faculty recorded 16 cumulative lost teaching days (election duty, extreme weather). Teacher Vikram Sengupta has drafted a 60/40 Syllabus Compression plan.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="teal"
-            size="sm"
-            onClick={() => navigate('/teacher/time-aware')}
-            icon={<Sparkles className="w-3.5 h-3.5" />}
-          >
-            Review Proposed Compression
-          </Button>
-        </div>
-      )}
+      {/* Curriculum planning status (shared planning store) */}
+      <PlanningStatusCard link="/principal/curriculum" linkLabel="Curriculum Oversight" />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -153,9 +132,13 @@ export const PrincipalDashboard: React.FC = () => {
           trend={{ value: '+8%', isPositive: true, label: 'vs Cycle 1' }}
         />
         <KPICard
-          title="Lost Teaching Days"
-          value={`${pacing.totalLostDays} Days`}
-          subtitle="Net buffer: -4 periods"
+          title="Lost / Unaccounted Periods"
+          value={progress.lostPeriodsRecorded}
+          subtitle={
+            progress.plans.length
+              ? `${progress.unaccountedLostPeriods} await recovery · classroom ${progress.classroomPct}% · Core left ${progress.coreRemaining}`
+              : 'No approved plans yet'
+          }
           icon={<Clock className="w-5 h-5 text-rose-600" />}
           iconBg="bg-rose-50"
           onClick={() => navigate('/teacher/time-aware')}
@@ -220,7 +203,7 @@ export const PrincipalDashboard: React.FC = () => {
         >
           <span className="font-bold text-navy-900 text-sm block">Curriculum Oversight</span>
           <p className="text-xs text-content-secondary mt-1">
-            Monitor syllabus completion across subjects and review compression
+            Monitor syllabus completion and approve recovery proposals
           </p>
         </div>
 
@@ -261,7 +244,7 @@ export const PrincipalDashboard: React.FC = () => {
               required
               value={announceText}
               onChange={(e) => setAnnounceText(e.target.value)}
-              placeholder="e.g. Please review the 60/40 compacting proposals for Mathematics and Science ahead of tomorrow's faculty meeting..."
+              placeholder="e.g. Please review the pending recovery proposals for Mathematics and Science ahead of tomorrow's faculty meeting..."
               className="w-full px-3 py-2 bg-white border border-surface-border rounded-lg text-xs"
             />
           </div>

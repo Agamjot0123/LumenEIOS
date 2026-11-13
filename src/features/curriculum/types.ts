@@ -231,3 +231,6 @@ export function parseGrade(value: string | undefined): GradeNumber | null {
 export function parseSubject(value: string | undefined): SubjectKey | null {
   return value === 'mathematics' || value === 'science' ? value : null;
 }
+
+/** Opens the evidence drawer for a record (used by the retained legacy review screens). */
+export type OpenEvidence = (evidence: EvidenceRecord, heading?: string) => void;

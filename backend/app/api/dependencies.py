@@ -45,6 +45,20 @@ async def get_current_user(
     return user
 
 
+async def require_bearer_token(token: Optional[str] = Depends(oauth2_scheme)) -> None:
+    """Router-level guard for governed workflows: a real bearer token is mandatory, even when DEMO_MODE is on.
+
+    DEMO_MODE otherwise resolves an anonymous request to the first admin, which would let anyone bypass role checks
+    by calling the API directly. Approval, execution and schedule data must never be reachable that way.
+    """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def require_roles(*allowed_roles: str):
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in allowed_roles:

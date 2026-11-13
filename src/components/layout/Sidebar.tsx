@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard,
@@ -18,10 +18,12 @@ import {
   HeartHandshake,
   Settings,
   Library,
+  ScrollText,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export const Sidebar: React.FC = () => {
+/** `drawer` renders the same navigation inside the mobile slide-out (the desktop sidebar is hidden below md). */
+export const Sidebar: React.FC<{ drawer?: boolean }> = ({ drawer = false }) => {
   const { currentUser } = useAuth();
   const location = useLocation();
   const role = currentUser?.role || 'admin';
@@ -42,6 +44,9 @@ export const Sidebar: React.FC = () => {
           { label: 'Schools Directory', path: '/admin/schools', icon: <Building2 className="w-4 h-4" /> },
           { label: 'Users & Roles', path: '/admin/users', icon: <Users className="w-4 h-4" /> },
           { label: 'Academic Config', path: '/admin/academic-config', icon: <Settings className="w-4 h-4" /> },
+          { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Central Logs', path: '/logs', icon: <ScrollText className="w-4 h-4" /> },
           {
             label: 'Time-Aware Engine',
             path: '/teacher/time-aware',
@@ -72,10 +77,13 @@ export const Sidebar: React.FC = () => {
 
       case 'principal':
         return [
+          { label: 'Academic Config', path: '/principal/academic-config', icon: <Settings className="w-4 h-4" /> },
           { label: 'Campus Dashboard', path: '/principal/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Teacher Assignments', path: '/principal/teachers', icon: <Users className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
-          { label: 'Curriculum Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Central Logs', path: '/logs', icon: <ScrollText className="w-4 h-4" /> },
           {
             label: 'Time-Aware Engine',
             path: '/teacher/time-aware',
@@ -121,7 +129,8 @@ export const Sidebar: React.FC = () => {
             icon: <Library className="w-4 h-4" />,
             badge: 'VI–VIII',
           },
-          { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
+          { label: 'Central Logs', path: '/logs', icon: <ScrollText className="w-4 h-4" /> },
+          { label: 'Daily Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
           {
             label: 'AI Question Studio',
             path: '/teacher/assessments',
@@ -140,15 +149,15 @@ export const Sidebar: React.FC = () => {
       case 'student':
         return [
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-          { label: 'Adaptive Practice', path: '/student/dashboard', icon: <Sparkles className="w-4 h-4" /> },
-          { label: 'My Achievements', path: '/student/dashboard', icon: <Award className="w-4 h-4" /> },
+          { label: 'My Competencies', path: '/student/dashboard#competencies', icon: <Award className="w-4 h-4" /> },
+          { label: 'Adaptive Practice', path: '/student/dashboard#practice', icon: <Sparkles className="w-4 h-4" /> },
         ];
 
       case 'parent':
         return [
           { label: 'Family Progress', path: '/parent/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-          { label: 'Competency Growth', path: '/parent/dashboard', icon: <BarChart3 className="w-4 h-4" /> },
-          { label: 'Home Learning Guide', path: '/parent/dashboard', icon: <HeartHandshake className="w-4 h-4" /> },
+          { label: 'Competency Growth', path: '/parent/dashboard#growth', icon: <BarChart3 className="w-4 h-4" /> },
+          { label: 'Home Learning Guide', path: '/parent/dashboard#home-activities', icon: <HeartHandshake className="w-4 h-4" /> },
         ];
 
       default:
@@ -159,16 +168,22 @@ export const Sidebar: React.FC = () => {
   const navItems = getNavItems();
 
   return (
-    <aside className="w-64 bg-navy-800 text-white shrink-0 hidden md:flex flex-col border-r border-navy-700 min-h-[calc(100vh-4rem)]">
+    <aside
+      aria-label="Main navigation"
+      className={cn(
+        'w-64 bg-navy-800 text-white shrink-0 flex-col border-r border-navy-700 print:hidden',
+        drawer ? 'flex h-full overflow-y-auto' : 'hidden md:flex min-h-[calc(100vh-4rem)]',
+      )}
+    >
       {/* Brand Header */}
       <div className="p-5 border-b border-navy-700/60 flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-teal-500 text-navy-950 flex items-center justify-center font-black text-lg shadow-sm">
           L
         </div>
         <div>
-          <h1 className="font-bold text-base tracking-tight text-white leading-none">
+          <p className="font-bold text-base tracking-tight text-white leading-none">
             Lumen<span className="text-teal-400">EIOS</span>
-          </h1>
+          </p>
           <p className="text-[11px] text-gray-400 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
         </div>
       </div>
@@ -186,15 +201,17 @@ export const Sidebar: React.FC = () => {
       {/* Navigation List */}
       <nav className="flex-1 p-3.5 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
+          const [itemPath, itemHash = ''] = item.path.split('#');
           const isActive =
-            location.pathname === item.path ||
+            (location.pathname === itemPath && location.hash === (itemHash ? `#${itemHash}` : '')) ||
             (item.path === '/curriculum/catalogue' && location.pathname.startsWith('/curriculum/catalogue/'));
           return (
-            <NavLink
+            <Link
               key={item.label}
               to={item.path}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors group',
+                'flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400',
                 isActive
                   ? 'bg-teal-500 text-white shadow-sm'
                   : item.highlight
@@ -215,14 +232,14 @@ export const Sidebar: React.FC = () => {
                     isActive
                       ? 'bg-white/20 text-white'
                       : item.highlight
-                      ? 'bg-amber-400 text-navy-950'
+                      ? 'bg-amber-400 text-navy-900'
                       : 'bg-navy-700 text-gray-300'
                   )}
                 >
                   {item.badge}
                 </span>
               )}
-            </NavLink>
+            </Link>
           );
         })}
       </nav>
@@ -231,10 +248,9 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 m-3 rounded-xl bg-navy-900/80 border border-navy-700 text-xs">
         <p className="font-semibold text-teal-300">Pedagogical Guardrail</p>
         <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
-          Protects 60% Core Competencies when calendar disruptions occur.
+          Approved topic requirements determine Core and Non-Core periods. Core classroom periods remain protected.
         </p>
       </div>
     </aside>
   );
 };
-

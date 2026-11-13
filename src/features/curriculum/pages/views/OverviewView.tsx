@@ -8,7 +8,7 @@ import { DataSourceBanner } from '../../components/DataSourceBanner';
 import { EvidenceButton } from '../../components/EvidenceButton';
 import { ErrorState, LoadingState, MissingValue } from '../../components/StateViews';
 import { StatusBadge } from '../../components/StatusBadge';
-import { CountsBar } from '../CatalogueDashboard';
+import { CountsBar } from '../../components/CountsBar';
 import { eraLabel, languageLabel, RESOURCE_TYPE_LABEL } from '../../labels';
 import {
   LANGUAGES,
@@ -20,7 +20,7 @@ import {
   type SubjectKey,
   type TextbookEdition,
 } from '../../types';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const th = 'text-left text-[10px] uppercase tracking-wider font-semibold text-content-muted px-3 py-2 whitespace-nowrap';
 const td = 'px-3 py-2.5 align-top text-xs';
@@ -48,7 +48,7 @@ const ResourceTable: React.FC<{
     (a, b) => LANGUAGES.indexOf(a.language as never) - LANGUAGES.indexOf(b.language as never) || a.era.localeCompare(b.era)
   );
   return (
-    <div className="overflow-x-auto -mx-5">
+    <div className="relative overflow-x-auto -mx-5">
       <table className="w-full min-w-[640px]">
         <caption className="sr-only">{caption}</caption>
         <thead>
@@ -92,7 +92,7 @@ const EditionsTable: React.FC<{ editions: TextbookEdition[]; openEvidence: OpenE
     (a, b) => LANGUAGES.indexOf(a.language as never) - LANGUAGES.indexOf(b.language as never) || (a.partLabel ?? '').localeCompare(b.partLabel ?? '')
   );
   return (
-    <div className="overflow-x-auto -mx-5">
+    <div className="relative overflow-x-auto -mx-5">
       <table className="w-full min-w-[720px]">
         <caption className="sr-only">Textbook language editions</caption>
         <thead>
@@ -150,7 +150,7 @@ const LanguageMatrix: React.FC<{ detail: CombinationDetail; openEvidence: OpenEv
     detail.editions.find((e) => e.id === id)?.evidence ??
     [...detail.frameworks, ...detail.syllabi, ...detail.learningOutcomes].find((r) => r.id === id)?.evidence;
   return (
-    <div className="overflow-x-auto -mx-5">
+    <div className="relative overflow-x-auto -mx-5">
       <table className="w-full min-w-[560px]" data-testid="language-matrix">
         <caption className="sr-only">Language availability by resource</caption>
         <thead>

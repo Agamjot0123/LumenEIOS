@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, LoadingState, MissingValue } from '../../compon
 import { StatusBadge } from '../../components/StatusBadge';
 import { languageLabel } from '../../labels';
 import { LANGUAGES, type ChapterRecord, type GradeNumber, type SubjectKey, type TextbookEdition } from '../../types';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const editionName = (e: TextbookEdition) =>
   `${e.title ?? 'Untitled (not verified)'}${e.partLabel && !(e.title ?? '').includes(e.partLabel) ? `, ${e.partLabel}` : ''}`;
@@ -31,7 +31,7 @@ const ChapterCard: React.FC<{ chapter: ChapterRecord; openEvidence: OpenEvidence
         </div>
       }
     />
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[640px]">
         <caption className="sr-only">Topics in chapter {chapter.number}</caption>
         <thead className="bg-surface-bg/60">

@@ -1,259 +1,349 @@
+/**
+ * The Curriculum Catalogue: SELECT CLASS -> SELECT SUBJECT -> the full available syllabus with teaching coverage.
+ * Rendered through the real App so the existing routes, sidebar and planning store are exercised together.
+ * (The earlier verification/review screens were retired from the catalogue; see docs/COURSE_CURRICULUM_IMPLEMENTATION.md.)
+ */
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../../../context/AuthContext';
+import { DataProvider } from '../../../context/DataContext';
 import { initialUsers } from '../../../data/seedData';
-import { ApiError } from '../../../lib/apiClient';
-import type { Role } from '../../../types';
-import { CatalogueServiceProvider } from '../api/CatalogueServiceContext';
-import type { CurriculumCatalogueService } from '../api/catalogueService';
-import { createMockCatalogueService } from '../mocks/mockCatalogueService';
-import { CatalogueCombinationPage } from '../pages/CatalogueCombinationPage';
-import { CatalogueDashboard } from '../pages/CatalogueDashboard';
+import { App } from '../../../App';
+import { EMPTY_WORKSPACE, LOCAL_KEY, type Workspace } from '../../../lib/planning/store';
+import { defaultDatasetFor, syllabusFor, validateImport, VERIFIED_DATASET } from '../../../lib/planning/syllabus';
+import { setCoverage } from '../../../lib/planning/coverage';
 
-function signInAs(role: Role) {
-  const user = initialUsers.find((u) => u.role === role)!;
-  localStorage.setItem('lumeneios_auth_user', JSON.stringify(user));
-  return user;
-}
+vi.mock('../../../lib/teacherPlanApi', async (orig) => {
+  const real = await orig<typeof import('../../../lib/teacherPlanApi')>();
+  const { makeFakeTeacherPlanApi } = await import('../../../test/fakeTeacherPlanApi');
+  return { ...real, teacherPlanApi: makeFakeTeacherPlanApi() };
+});
+import { fakeStore } from '../../../test/fakeTeacherPlanApi';
 
-function mockService(role: Role, overrides: Partial<Parameters<typeof createMockCatalogueService>[0]> = {}) {
-  const user = initialUsers.find((u) => u.role === role)!;
-  return createMockCatalogueService({ getActor: () => ({ name: user.name, role }), latencyMs: 0, store: new Map(), ...overrides });
-}
-
-function renderCatalogue(path: string, service: CurriculumCatalogueService) {
+function open(path: string, role = 'teacher') {
+  localStorage.setItem('lumeneios_auth_user', JSON.stringify(initialUsers.find((u) => u.role === role)));
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
-        <CatalogueServiceProvider service={service}>
-          <Routes>
-            <Route path="/curriculum/catalogue" element={<CatalogueDashboard />} />
-            <Route path="/curriculum/catalogue/:grade/:subject" element={<CatalogueCombinationPage />} />
-          </Routes>
-        </CatalogueServiceProvider>
+        <DataProvider>
+          <App />
+        </DataProvider>
       </AuthProvider>
-    </MemoryRouter>
+    </MemoryRouter>,
   );
 }
+const stored = (): Workspace => JSON.parse(localStorage.getItem(LOCAL_KEY)!);
+const topicRows = () => screen.queryAllByTestId(/^topic-/);
+const chapterBoxes = () => screen.queryAllByTestId(/^chapter-(?!status-|count-)/);
+const expandAll = () => fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+const BANNED = /unverified|inferred|partial|review required|draft|approved|published|pending|permission required|verified|source-checked|awaiting/i;
 
-describe('Screen 1: catalogue dashboard', () => {
-  it('renders purpose, prototype scope, data-source disclosure and permission status', async () => {
-    signInAs('admin');
-    renderCatalogue('/curriculum/catalogue', mockService('admin'));
-    expect(screen.getByRole('heading', { name: 'Curriculum Catalogue' })).toBeInTheDocument();
-    expect(screen.getByText(/Prototype scope: Classes VI–VIII · Mathematics and Science/)).toBeInTheDocument();
-    expect(await screen.findByTestId('data-source-banner')).toHaveTextContent(/research snapshot \(mock\)/i);
-    expect(screen.getByTestId('data-source-banner')).toHaveTextContent(/none published/i);
-    expect(screen.getByTestId('permission-status')).toHaveTextContent(/can view and review/i);
-    expect(screen.getByText('Resources tracked')).toBeInTheDocument();
-    expect(screen.getByText('Pending review')).toBeInTheDocument();
+beforeEach(() => {
+  localStorage.clear();
+  fakeStore.reset();
+});
+afterEach(() => cleanup());
+
+describe('Curriculum Catalogue: select class -> select subject -> syllabus', () => {
+  it('keeps the existing route and sidebar entry, and adds no new page, route or navigation item', () => {
+    open('/curriculum/catalogue');
+    expect(screen.getByRole('heading', { level: 1, name: 'Curriculum Catalogue' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: /Curriculum Catalogue/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: /Course Curriculum/ })).toBeNull();
+    cleanup();
+    open('/curriculum/course');
+    expect(screen.queryByTestId('curriculum-catalogue')).toBeNull(); // no such route
   });
 
-  it('lists all six class–subject combinations and the selectors update the summary', async () => {
-    signInAs('teacher');
-    renderCatalogue('/curriculum/catalogue', mockService('teacher'));
-    for (const g of [6, 7, 8]) {
-      for (const s of ['mathematics', 'science']) {
-        expect(await screen.findByTestId(`combo-${g}-${s}`)).toHaveAttribute('href', `/curriculum/catalogue/${g}/${s}`);
+  it('shows header copy, the single demonstration notice and only the class choice first', () => {
+    open('/curriculum/catalogue');
+    expect(screen.getByText('Explore the syllabus and track teaching coverage.')).toBeInTheDocument();
+    expect(screen.getByTestId('demo-notice')).toHaveTextContent(/^Demonstration syllabus and coverage data\.$/);
+    for (const c of ['Class VI', 'Class VII', 'Class VIII']) expect(screen.getByRole('button', { name: c })).toBeInTheDocument();
+    expect(screen.getByText('Choose a class first.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Mathematics' })).toBeNull();
+    expect(screen.queryByTestId('syllabus-view')).toBeNull();
+  });
+
+  it('class, then subject, then the full syllabus with overview counts', () => {
+    open('/curriculum/catalogue');
+    fireEvent.click(screen.getByRole('button', { name: 'Class VI' }));
+    expect(screen.getByRole('button', { name: 'Mathematics' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Science' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('combo-6-mathematics'));
+    const view = screen.getByTestId('syllabus-view');
+    expect(within(view).getByRole('heading', { name: 'Class VI · Mathematics' })).toBeInTheDocument();
+    const units = syllabusFor(VERIFIED_DATASET, 6, 'Mathematics').units;
+    expect(screen.getByTestId('coverage-total')).toHaveTextContent(String(units.length));
+    expect(screen.getByTestId('coverage-done')).toHaveTextContent('0');
+    expect(screen.getByTestId('coverage-inprogress')).toHaveTextContent('0');
+    expect(screen.getByTestId('coverage-notdone')).toHaveTextContent(String(units.length));
+    expect(screen.getByTestId('coverage-percent')).toHaveTextContent('0%');
+    expect(screen.getByRole('progressbar', { name: 'Syllabus coverage' })).toHaveAttribute('aria-valuenow', '0');
+  });
+
+  it('every class and subject opens its full syllabus; the selector switches without leaving the page', () => {
+    for (const grade of [6, 7, 8]) {
+      for (const subject of ['mathematics', 'science'] as const) {
+        const view = open(`/curriculum/catalogue/${grade}/${subject}`);
+        const expected = syllabusFor(VERIFIED_DATASET, grade, subject === 'science' ? 'Science' : 'Mathematics');
+        expect(chapterBoxes()).toHaveLength(expected.chapters.length);
+        expect(screen.getByTestId('coverage-total')).toHaveTextContent(String(expected.units.length));
+        view.unmount();
       }
     }
-    expect(screen.getByTestId('permission-status')).toHaveTextContent(/view only/i);
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('radio', { name: 'Class VIII' }));
-    await user.click(screen.getByRole('radio', { name: 'Science' }));
-    expect(screen.getByRole('heading', { name: /Class VIII Science: summary/ })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Open Class VIII Science/ }));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Class VIII Science' })).toBeInTheDocument();
+    open('/curriculum/catalogue/6/mathematics');
+    fireEvent.click(screen.getByRole('radio', { name: 'Class VIII' }));
+    expect(screen.getByRole('heading', { name: 'Class VIII · Mathematics' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Science' }));
+    expect(screen.getByRole('heading', { name: 'Class VIII · Science' })).toBeInTheDocument();
   });
 
-  it.each([
-    [6, 'mathematics', 'Class VI Mathematics'],
-    [6, 'science', 'Class VI Science'],
-    [7, 'mathematics', 'Class VII Mathematics'],
-    [7, 'science', 'Class VII Science'],
-    [8, 'mathematics', 'Class VIII Mathematics'],
-    [8, 'science', 'Class VIII Science'],
-  ])('opens combination %s/%s', async (g, s, heading) => {
-    signInAs('admin');
-    renderCatalogue(`/curriculum/catalogue/${g}/${s}`, mockService('admin'));
-    expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Syllabus availability' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Learning-outcome availability' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Textbook editions' })).toBeInTheDocument();
+  it('an unknown class or subject falls back to the catalogue start; students are not authorised', () => {
+    open('/curriculum/catalogue/9/art');
+    expect(screen.getByText('Choose a class first.')).toBeInTheDocument();
+    cleanup();
+    open('/curriculum/catalogue/6/mathematics', 'student');
+    expect(screen.queryByTestId('syllabus-view')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    cleanup();
+    open('/curriculum/catalogue', 'student');
+    expect(screen.queryByRole('button', { name: 'Class VI' })).toBeNull();
   });
 
-  it('shows an unauthorized state for students', () => {
-    signInAs('student');
-    renderCatalogue('/curriculum/catalogue', mockService('student'));
-    expect(screen.getByTestId('state-unauthorized')).toBeInTheDocument();
-  });
-});
-
-describe('Screen 2 and 6: curriculum overview, placeholders and languages', () => {
-  it('shows textbook edition information, syllabus placeholders and language availability', async () => {
-    signInAs('principal');
-    renderCatalogue('/curriculum/catalogue/6/mathematics', mockService('principal'));
-
-    const edition = await screen.findByTestId('edition-VI-VIII-6-MATH-EDITION-fegp1');
-    expect(edition).toHaveTextContent('Ganita Prakash');
-    expect(edition).toHaveTextContent('First Edition August 2024 Shravna 1946');
-    expect(edition).toHaveTextContent('Reprint 2026-27');
-    expect(within(edition).getByText('Verified')).toBeInTheDocument();
-
-    const currentSyllabus = screen.getByTestId('resource-VI-VIII-6-MATH-SYLLABUS-en-CURRENT_NEW_TEXTBOOKS');
-    expect(currentSyllabus).toHaveTextContent('No syllabus found in checked NCERT channels');
-    expect(within(currentSyllabus).getByText('Placeholder')).toBeInTheDocument();
-    expect(currentSyllabus).not.toHaveTextContent('Ganita Prakash');
-
-    const matrix = screen.getByTestId('language-matrix');
-    expect(within(matrix).getByTestId('lang-syllabus-current-hi')).toHaveTextContent('Placeholder');
-    expect(within(matrix).getByTestId('lang-textbook-en')).toHaveTextContent('Verified');
-    expect(within(matrix).getByTestId('lang-textbook-hi')).toHaveTextContent('Partially verified');
-    expect(within(matrix).getByTestId('lang-framework-ur')).toHaveTextContent('Unverified');
-    expect(screen.getByTestId('rights-note')).toHaveTextContent(/metadata only/i);
+  it('every available chapter is listed; chapters expand and collapse to reveal every topic', () => {
+    open('/curriculum/catalogue/7/mathematics');
+    const expected = syllabusFor(VERIFIED_DATASET, 7, 'Mathematics');
+    expect(chapterBoxes()).toHaveLength(expected.chapters.length);
+    expect(topicRows()).toHaveLength(0);
+    const toggle = within(chapterBoxes()[0]).getByRole('button');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(topicRows().length).toBeGreaterThan(0);
+    fireEvent.click(toggle);
+    expect(topicRows()).toHaveLength(0);
+    expandAll();
+    expect(topicRows()).toHaveLength(expected.units.length);
+    for (const u of expected.units) expect(screen.getByTestId(`topic-${u.id}`)).toHaveTextContent(u.title);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+    expect(topicRows()).toHaveLength(0);
   });
 
-  it('renders the explicit Urdu Part II gap as a placeholder without invented details', async () => {
-    signInAs('principal');
-    renderCatalogue('/curriculum/catalogue/7/mathematics', mockService('principal'));
-    const gap = await screen.findByTestId('edition-VI-VIII-7-MATH-EDITION-MISSING-ur-PART-II');
-    expect(gap).toHaveTextContent('Expected part not identified on the official portal');
-    expect(within(gap).getByText('Placeholder')).toBeInTheDocument();
-    expect(within(screen.getByTestId('language-matrix')).getByTestId('lang-textbook-ur')).toHaveTextContent('1 gap');
+  it('shows no source-quality, verification, approval or publication wording in the catalogue content', () => {
+    open('/curriculum/catalogue');
+    expect(screen.getByTestId('curriculum-catalogue').textContent).not.toMatch(BANNED);
+    cleanup();
+    open('/curriculum/catalogue/7/mathematics');
+    expandAll();
+    const chrome = [
+      screen.getByRole('heading', { level: 1 }).textContent,
+      screen.getByTestId('demo-notice').textContent,
+      screen.getByTestId('coverage-overview').textContent,
+      ...screen.getAllByRole('radiogroup').map((g) => g.textContent),
+      ...within(screen.getAllByRole('combobox')[0]).getAllByRole('option').map((o) => o.textContent),
+    ].join(' ');
+    expect(chrome).not.toMatch(BANNED);
+    // the old review controls are gone
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.queryByRole('button', { name: /review|approve|publish|verify|evidence/i })).toBeNull();
   });
 });
 
-describe('Screen 3 and 4: chapter explorer and evidence panel', () => {
-  it('lists only source-checked chapters with locators and opens the evidence panel', async () => {
-    signInAs('teacher');
-    const user = userEvent.setup();
-    renderCatalogue('/curriculum/catalogue/6/mathematics?view=explorer', mockService('teacher'));
+describe('inline coverage status in the catalogue', () => {
+  const firstSelect = () => screen.getAllByRole('combobox')[0] as HTMLSelectElement;
 
-    expect(await screen.findByTestId('explorer-textbook-title')).toHaveTextContent('Ganita Prakash');
-    expect(screen.getByTestId('explorer-completeness')).toHaveTextContent(/no chapters or topics are inferred/i);
-    const chapter = screen.getByTestId('chapter-CH-fegp104');
-    expect(chapter).toHaveTextContent('Data Handling and Presentation');
-    expect(chapter).toHaveTextContent('Bar Graphs');
-    expect(chapter).toHaveTextContent('Chapter PDF p12; printed p85; section 4.3');
-    expect(chapter).toHaveTextContent('None verified');
-
-    await user.click(within(chapter).getByRole('button', { name: 'View evidence: section 4.3' }));
-    const dialog = screen.getByRole('dialog', { name: 'Source evidence' });
-    expect(dialog).toHaveTextContent('https://ncert.nic.in/textbook/pdf/fegp104.pdf');
-    expect(dialog).toHaveTextContent('First Edition August 2024 Shravna 1946');
-    expect(dialog).toHaveTextContent('SOURCE_VERIFIED_FOR_HEADING_AND_SECTION_MEMBERSHIP');
-    expect(within(dialog).getByRole('link', { name: /fegp104\.pdf/ })).toHaveAttribute('rel', 'noopener noreferrer');
-
-    await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: 'Source evidence' })).not.toBeInTheDocument();
+  it('offers exactly Done, Not done and In progress', () => {
+    open('/curriculum/catalogue/6/mathematics');
+    expandAll();
+    expect(within(firstSelect()).getAllByRole('option').map((o) => o.textContent)).toEqual(['Done', 'Not done', 'In progress']);
   });
 
-  it('shows a placeholder for editions with no checked chapters', async () => {
-    signInAs('teacher');
-    const user = userEvent.setup();
-    renderCatalogue('/curriculum/catalogue/6/mathematics?view=explorer', mockService('teacher'));
-    await screen.findByTestId('explorer-textbook-title');
-    await user.click(screen.getByRole('button', { name: /गणित प्रकाश/ }));
-    expect(screen.getByText('No chapters have been source-checked for this edition')).toBeInTheDocument();
-  });
-});
+  it('changes colour with each status, updates counts and percentage immediately, and persists', async () => {
+    const view = open('/curriculum/catalogue/7/mathematics');
+    const units = syllabusFor(VERIFIED_DATASET, 7, 'Mathematics').units;
+    expandAll();
+    const target = units[0];
+    const dot = () => screen.getByTestId(`dot-${target.id}`);
+    const select = () => within(screen.getByTestId(`topic-${target.id}`)).getByRole('combobox') as HTMLSelectElement;
+    expect(dot()).toHaveStyle({ backgroundColor: '#9CA3AF' });
 
-describe('Screen 5: mapping review', () => {
-  it('presents candidates as unapproved and hides review actions from teachers', async () => {
-    signInAs('teacher');
-    renderCatalogue('/curriculum/catalogue/8/science?view=review', mockService('teacher'));
-    const card = await screen.findByTestId('mapping-XW-hecu105-S5.4.1');
-    expect(card).toHaveTextContent('AI-suggested candidate. Not approved.');
-    expect(within(card).getAllByText('Awaiting review').length).toBeGreaterThanOrEqual(2);
-    expect(within(card).queryByText('Approved')).not.toBeInTheDocument();
-    expect(within(card).queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
-    expect(card).toHaveTextContent(/View only/);
-    expect(card).toHaveTextContent('differentiation using properties and functions');
-    expect(card).toHaveTextContent(/research label only/i);
-  });
+    fireEvent.change(select(), { target: { value: 'IN_PROGRESS' } });
+    await waitFor(() => expect(dot()).toHaveAttribute('data-status', 'IN_PROGRESS'));
+    expect(dot()).toHaveStyle({ backgroundColor: '#F59E0B' });
+    expect(screen.getByTestId('coverage-inprogress')).toHaveTextContent('1');
+    expect(screen.getByTestId('coverage-percent')).toHaveTextContent('0%');
 
-  it('principals can view but not review (contract: global review is admin-only)', async () => {
-    signInAs('principal');
-    renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', mockService('principal'));
-    const card = await screen.findByTestId('mapping-XW-fegp104-S4.3');
-    expect(within(card).queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
-    expect(card).toHaveTextContent(/Only an administrator/);
-  });
+    fireEvent.change(select(), { target: { value: 'DONE' } });
+    await waitFor(() => expect(dot()).toHaveAttribute('data-status', 'DONE'));
+    expect(dot()).toHaveStyle({ backgroundColor: '#16A34A' });
+    expect(screen.getByTestId('coverage-done')).toHaveTextContent('1');
+    expect(screen.getByTestId('coverage-notdone')).toHaveTextContent(String(units.length - 1));
+    expect(screen.getByTestId('coverage-percent')).toHaveTextContent(`${Math.round((1 / units.length) * 1000) / 10}%`);
 
-  it('records a decision through the service, requiring a rationale', async () => {
-    signInAs('admin');
-    const service = mockService('admin');
-    const spy = vi.spyOn(service, 'submitReview');
-    const user = userEvent.setup();
-    renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', service);
+    fireEvent.change(select(), { target: { value: 'NOT_DONE' } });
+    await waitFor(() => expect(dot()).toHaveAttribute('data-status', 'NOT_DONE'));
+    expect(dot()).toHaveStyle({ backgroundColor: '#9CA3AF' });
 
-    const card = await screen.findByTestId('mapping-XW-fegp104-S4.3');
-    await user.click(within(card).getByRole('button', { name: 'Request revision' }));
-    const modal = screen.getByRole('dialog', { name: /Request revision candidate mapping/ });
-    await user.click(within(modal).getByRole('button', { name: 'Record decision' }));
-    expect(within(modal).getByRole('alert')).toHaveTextContent(/rationale/i);
-    expect(spy).not.toHaveBeenCalled();
+    // every change reached the relational store, in order, attributed to the signed-in teacher, as MANUAL
+    expect(fakeStore.events.map((e) => [e.teacher, e.to, e.source])).toEqual([
+      ['user-teacher-1', 'in_progress', 'MANUAL'],
+      ['user-teacher-1', 'done', 'MANUAL'],
+      ['user-teacher-1', 'not_done', 'MANUAL'],
+    ]);
+    // and nothing was written to the workspace document
+    expect(JSON.parse(localStorage.getItem(LOCAL_KEY) ?? '{}').coverage ?? {}).toEqual({});
 
-    await user.type(within(modal).getByLabelText(/Decision rationale/), 'Scope of outcome is broader than bar graphs.');
-    await user.click(within(modal).getByRole('button', { name: 'Record decision' }));
-
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: /candidate mapping/ })).not.toBeInTheDocument());
-    expect(spy).toHaveBeenCalledWith('XW-fegp104-S4.3', {
-      decision: 'REVISION_REQUESTED',
-      rationale: 'Scope of outcome is broader than bar graphs.',
-      expectedRevision: 0,
-    });
-    const updated = screen.getByTestId('mapping-XW-fegp104-S4.3');
-    expect(within(updated).getByText('Revision requested')).toBeInTheDocument();
-    expect(updated).toHaveTextContent('Scope of outcome is broader than bar graphs.');
-    expect(screen.getByTestId('review-announcement')).toHaveTextContent(/recorded/);
+    fireEvent.change(select(), { target: { value: 'DONE' } });
+    await waitFor(() => expect(dot()).toHaveAttribute('data-status', 'DONE'));
+    view.unmount();
+    open('/curriculum/catalogue/7/mathematics');
+    await waitFor(() => expect(screen.getByTestId('coverage-done')).toHaveTextContent('1')); // reloaded from the store, not memory
+    expandAll();
+    expect(screen.getByTestId(`dot-${target.id}`)).toHaveAttribute('data-status', 'DONE');
   });
 
-  it('surfaces a backend authorization failure inside the decision dialog', async () => {
-    signInAs('admin');
-    const service = mockService('admin');
-    vi.spyOn(service, 'submitReview').mockRejectedValue(new ApiError(403, 'Reviewer membership required.'));
-    const user = userEvent.setup();
-    renderCatalogue('/curriculum/catalogue/6/mathematics?view=review', service);
-    const card = await screen.findByTestId('mapping-XW-fegp104-S4.3');
-    await user.click(within(card).getByRole('button', { name: 'Approve' }));
-    const modal = screen.getByRole('dialog', { name: /Approve candidate mapping/ });
-    await user.type(within(modal).getByLabelText(/Decision rationale/), 'Both endpoints checked.');
-    await user.click(within(modal).getByRole('button', { name: 'Record decision' }));
-    expect(await within(modal).findByRole('alert')).toHaveTextContent('Not permitted: Reviewer membership required.');
-    expect(within(screen.getByTestId('mapping-XW-fegp104-S4.3')).queryByText('Approved')).not.toBeInTheDocument();
-  });
-});
-
-describe('Loading and failure states (mock mode)', () => {
-  it('shows a loading state then an error with retry', async () => {
-    signInAs('admin');
-    let fail = true;
-    const base = mockService('admin');
-    const service: CurriculumCatalogueService = {
-      ...base,
-      getDashboard: () => (fail ? Promise.reject(new ApiError(0, 'offline')) : base.getDashboard()),
+  it('chapter status is calculated: mixture is In progress, all Done is Done, none is Not done', async () => {
+    open('/curriculum/catalogue/7/mathematics');
+    const view = syllabusFor(VERIFIED_DATASET, 7, 'Mathematics');
+    const chapterId = view.units[0].parentId!;
+    const inChapter = view.units.filter((u) => u.parentId === chapterId);
+    const status = () => screen.getByTestId(`chapter-status-${chapterId}`);
+    expect(status()).toHaveAttribute('data-status', 'NOT_DONE');
+    expandAll();
+    const set = async (id: string, value: string) => {
+      fireEvent.change(within(screen.getByTestId(`topic-${id}`)).getByRole('combobox'), { target: { value } });
+      await waitFor(() => expect(screen.getByTestId(`dot-${id}`)).toHaveAttribute('data-status', value));
     };
-    const user = userEvent.setup();
-    renderCatalogue('/curriculum/catalogue', service);
-    expect(screen.getByRole('status')).toHaveTextContent(/Loading/);
-    expect(await screen.findByTestId('state-error')).toHaveTextContent(/Could not reach the LumenEIOS backend/);
-    fail = false;
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByTestId('combo-6-mathematics')).toBeInTheDocument();
+    await set(inChapter[0].id, 'DONE');
+    expect(status()).toHaveAttribute('data-status', inChapter.length === 1 ? 'DONE' : 'IN_PROGRESS');
+    for (const u of inChapter.slice(1)) await set(u.id, 'DONE');
+    expect(status()).toHaveAttribute('data-status', 'DONE');
+    expect(screen.getByTestId(`chapter-count-${chapterId}`)).toHaveTextContent(`${inChapter.length} of ${inChapter.length}`);
+    await set(inChapter[0].id, 'IN_PROGRESS');
+    expect(status()).toHaveAttribute('data-status', 'IN_PROGRESS');
   });
 
-  it('maps a backend 403 to the unauthorized state', async () => {
-    signInAs('admin');
-    const base = mockService('admin');
-    renderCatalogue('/curriculum/catalogue/6/science', {
-      ...base,
-      getCombination: () => Promise.reject(new ApiError(403, 'Forbidden for this school')),
-    });
-    expect(await screen.findByTestId('state-unauthorized')).toHaveTextContent('Forbidden for this school');
+  it('missing approved period requirements never hide a topic', () => {
+    open('/curriculum/catalogue/8/science');
+    expandAll();
+    const units = syllabusFor(VERIFIED_DATASET, 8, 'Science').units;
+    expect(units.length).toBeGreaterThan(0);
+    expect(topicRows()).toHaveLength(units.length);
+  });
+
+  it('labels manual coverage as separate from recorded classroom teaching', () => {
+    const topic = syllabusFor(VERIFIED_DATASET, 6, 'Mathematics').units[0];
+    fakeStore.preload('user-teacher-1', topic.id, 'done', 'MANUAL');
+    open('/curriculum/catalogue/6/mathematics');
+    expandAll();
+    return waitFor(() => expect(within(screen.getByTestId(`topic-${topic.id}`)).getByText(/Manual coverage · no classroom periods recorded\./)).toBeInTheDocument());
+  });
+});
+
+describe('permissions', () => {
+  it('only the owning teacher edits; principals and admins see read-only coverage', async () => {
+    open('/curriculum/catalogue/6/mathematics', 'principal');
+    expandAll();
+    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    expect(screen.getByText('Coverage is read-only: only the owning teacher can change it.')).toBeInTheDocument();
+    cleanup();
+    open('/curriculum/catalogue/6/mathematics', 'admin');
+    expandAll();
+    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    cleanup();
+    open('/curriculum/catalogue/6/mathematics', 'teacher');
+    expandAll();
+    await waitFor(() => expect(screen.getAllByRole('combobox')[0]).toBeEnabled());
+  });
+
+  it('a Principal opening ?teacher=<id> sees that teacher’s coverage, read-only, and another teacher’s stays separate', async () => {
+    const topic = syllabusFor(VERIFIED_DATASET, 6, 'Mathematics').units[0];
+    fakeStore.preload('user-teacher-2', topic.id, 'done');
+    open(`/curriculum/catalogue/6/mathematics?teacher=user-teacher-2`, 'principal');
+    expandAll();
+    await waitFor(() => expect(screen.getByTestId(`dot-${topic.id}`)).toHaveAttribute('data-status', 'DONE'));
+    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    cleanup();
+    open('/curriculum/catalogue/6/mathematics', 'teacher'); // user-teacher-1: untouched
+    expandAll();
+    await waitFor(() => expect(screen.getByTestId('coverage-done')).toHaveTextContent('0'));
+  });
+});
+
+describe('data shape: resources, parent headings and the same topics as the Time-Aware Engine', () => {
+  const json = JSON.stringify({
+    label: 'Fixture syllabus',
+    textbooks: [{ id: 'tb', grade: 6, subject: 'Mathematics', title: 'Fixture Book', edition: 'E1' }],
+    nodes: [
+      { id: 'c1', textbookId: 'tb', kind: 'CHAPTER', number: '1', title: 'Fixture Chapter', sourceLocator: 'p1' },
+      { id: 't1', textbookId: 'tb', kind: 'TOPIC', parentId: 'c1', number: '1.1', title: 'Parent Heading', sourceLocator: 'p2' },
+      { id: 's1', textbookId: 'tb', kind: 'SUBTOPIC', parentId: 't1', number: '1.1.1', title: 'Sub Alpha', sourceLocator: 'p3' },
+      { id: 's2', textbookId: 'tb', kind: 'SUBTOPIC', parentId: 't1', number: '1.1.2', title: 'Sub Beta', sourceLocator: 'p4' },
+      { id: 'a1', textbookId: 'tb', kind: 'ACTIVITY', parentId: 's1', title: 'Fold the paper activity', sourceLocator: 'p3' },
+      { id: 'x1', textbookId: 'tb', kind: 'EXERCISE', parentId: 's2', title: 'Exercise set one', sourceLocator: 'p4' },
+      { id: 't2', textbookId: 'tb', kind: 'TOPIC', parentId: 'c1', number: '1.2', title: 'Leaf Topic', sourceLocator: 'p5' },
+    ],
+  });
+  const seed = () => {
+    const ds = validateImport(json, [], 'Admin').dataset!;
+    localStorage.setItem(LOCAL_KEY, JSON.stringify({ ...EMPTY_WORKSPACE, datasets: [ds] }));
+    return ds;
+  };
+
+  it('counts only teachable topics once: resources and parent headings are not coverage topics', () => {
+    seed();
+    open('/curriculum/catalogue/6/mathematics');
+    expect(screen.getByTestId('coverage-total')).toHaveTextContent('3');
+    expandAll();
+    expect(screen.getByText(/Sub Alpha/)).toBeInTheDocument();
+    expect(screen.getByText(/Sub Beta/)).toBeInTheDocument();
+    expect(screen.getByText(/Leaf Topic/)).toBeInTheDocument();
+    expect(screen.getByText(/Parent Heading/)).toBeInTheDocument();
+    expect(within(screen.getByTestId('topic-t1')).queryByRole('combobox')).toBeNull();
+    expect(screen.getAllByRole('combobox')).toHaveLength(3);
+    expect(screen.queryByText(/Fold the paper activity|Exercise set one/)).toBeNull();
+  });
+
+  it('the catalogue and the Time-Aware Engine show the same topics; scheduling data never marks coverage', () => {
+    const ds = seed();
+    expect(defaultDatasetFor([VERIFIED_DATASET, ds], 6, 'Mathematics').id).toBe(ds.id);
+    const titles = syllabusFor(ds, 6, 'Mathematics').units.map((u) => u.title);
+    expect(titles).toEqual(['Sub Alpha', 'Sub Beta', 'Leaf Topic']);
+
+    const catalogue = open('/curriculum/catalogue/6/mathematics');
+    expandAll();
+    const catalogueTopics = topicRows().map((r) => r.getAttribute('data-testid'));
+    catalogue.unmount();
+
+    open('/teacher/time-aware');
+    fireEvent.change(screen.getByLabelText('Class'), { target: { value: '6' } });
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Mathematics' } });
+    const table = screen.getByRole('table', { name: 'Generated schedule' });
+    for (const t of titles) expect(within(table).getByText(new RegExp(t))).toBeInTheDocument();
+    expect(within(table).queryByText(/Fold the paper activity|Exercise set one|Parent Heading/)).toBeNull();
+    expect(catalogueTopics).toEqual(['topic-t1', 'topic-s1', 'topic-s2', 'topic-t2']);
+    // the engine shows each topic's coverage read-only, and a generated schedule leaves it Not done
+    for (const id of ['s1', 's2', 't2']) expect(screen.getByTestId(`ta-coverage-${id}`)).toHaveAttribute('data-status', 'NOT_DONE');
+    expect(JSON.parse(localStorage.getItem(LOCAL_KEY)!).coverage ?? {}).toEqual({});
+  });
+
+  it('coverage set in the catalogue appears beside the same topic in the Time-Aware Engine', async () => {
+    const ds = seed();
+    const catalogue = open('/curriculum/catalogue/6/mathematics');
+    expandAll();
+    fireEvent.change(within(screen.getByTestId('topic-s2')).getByRole('combobox'), { target: { value: 'IN_PROGRESS' } });
+    await waitFor(() => expect(screen.getByTestId('dot-s2')).toHaveAttribute('data-status', 'IN_PROGRESS'));
+    catalogue.unmount();
+    open('/teacher/time-aware');
+    fireEvent.change(screen.getByLabelText('Class'), { target: { value: '6' } });
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Mathematics' } });
+    await waitFor(() => expect(screen.getByTestId('ta-coverage-s2')).toHaveAttribute('data-status', 'IN_PROGRESS'));
+    expect(screen.getByTestId('ta-coverage-s2')).toHaveTextContent('Syllabus coverage: In progress');
+    // both screens read the one relational record for this teacher
+    expect(fakeStore.coverage.get('user-teacher-1')?.get('s2')?.status).toBe('in_progress');
+    expect(ds.nodes.some((n) => n.id === 's2')).toBe(true);
   });
 });

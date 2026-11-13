@@ -14,7 +14,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/StateView
 import { StatusBadge } from '../../components/StatusBadge';
 import { humanize } from '../../labels';
 import type { CandidateMapping, GradeNumber, ReviewDecision, SubjectKey } from '../../types';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const DECISIONS: { key: ReviewDecision; label: string; Icon: React.ElementType; variant: 'teal' | 'danger' | 'outline' }[] = [
   { key: 'APPROVED', label: 'Approve', Icon: Check, variant: 'teal' },

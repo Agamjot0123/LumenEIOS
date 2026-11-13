@@ -28,7 +28,7 @@ import {
 import { EvidenceButton } from '../../components/EvidenceButton';
 import { EmptyState, ErrorState, LoadingState, MissingValue } from '../../components/StateViews';
 import { StatusBadge } from '../../components/StatusBadge';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const PAGE_SIZE = 50;
 

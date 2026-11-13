@@ -157,7 +157,7 @@ export const SchoolsManagement: React.FC = () => {
         {filteredSchools.map((s) => {
           const tierInfo = getTierBadge(s.infrastructureTier);
           return (
-            <Card key={s.id} className="flex flex-col justify-between">
+            <Card key={s.id} className="flex flex-col">
               <CardHeader
                 title={s.name}
                 subtitle={`${s.location}, ${s.state}`}
@@ -167,7 +167,7 @@ export const SchoolsManagement: React.FC = () => {
                   </span>
                 }
               />
-              <CardBody className="space-y-3 text-xs">
+              <CardBody className="flex-1 flex flex-col gap-3 text-xs">
                 <p className="text-content-secondary line-clamp-2 leading-relaxed">
                   {s.description}
                 </p>
@@ -197,7 +197,7 @@ export const SchoolsManagement: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-surface-border flex items-center justify-between text-[11px]">
+                <div className="mt-auto pt-2 border-t border-surface-border flex items-center justify-between text-[11px]">
                   <span className="text-content-secondary">
                     Principal: <strong className="text-navy-900">{s.principalName}</strong>
                   </span>

@@ -24,20 +24,20 @@ export const RoleSwitcherBanner: React.FC = () => {
   };
 
   return (
-    <div className="bg-navy-900 text-white px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-navy-800">
+    <div className="print:hidden bg-navy-900 text-white px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-navy-800">
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 font-semibold text-teal-400">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Interactive Stakeholder Prototype</span>
+          <span>School planning workspace</span>
         </span>
-        <span className="text-gray-400 hidden md:inline">• Active Persona:</span>
+        <span className="text-gray-400 hidden md:inline">• Viewing as:</span>
         <span className="bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded font-mono font-medium hidden md:inline">
           {currentUser?.name} ({currentUser?.role})
         </span>
       </div>
 
       <div className="flex items-center gap-1.5 overflow-x-auto">
-        <span className="text-gray-400 text-[11px] hidden lg:inline mr-1">Switch Persona:</span>
+        <span className="text-gray-400 text-[11px] hidden lg:inline mr-1">View as:</span>
         {roles.map((item) => {
           const isActive = currentUser?.role === item.role;
           return (

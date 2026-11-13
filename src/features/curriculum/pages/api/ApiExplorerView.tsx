@@ -8,7 +8,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { EvidenceButton } from '../../components/EvidenceButton';
 import { EmptyState, ErrorState, LoadingState, MissingValue } from '../../components/StateViews';
 import { StatusBadge } from '../../components/StatusBadge';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 
 const Title: React.FC<{ node: CatalogueNode }> = ({ node }) => {
   const t = nodeTitle(node);

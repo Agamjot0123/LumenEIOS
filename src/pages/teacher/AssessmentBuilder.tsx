@@ -1306,13 +1306,14 @@ export const AssessmentBuilder: React.FC = () => {
 
             {/* Attach to Assessment Cycle Bar */}
             <div className="bg-white p-3.5 rounded-2xl border border-surface-border shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <FolderPlus className="w-4 h-4 text-teal-600 shrink-0" />
-                <span className="font-semibold text-navy-900">Assign to Assessment Cycle:</span>
+                <span className="font-semibold text-navy-900 shrink-0">Assign to Assessment Cycle:</span>
                 <select
+                  aria-label="Assessment cycle"
                   value={targetAssessmentId}
                   onChange={(e) => setTargetAssessmentId(e.target.value)}
-                  className="px-2.5 py-1.5 bg-surface-bg border border-surface-border rounded-lg text-xs font-medium text-navy-900"
+                  className="min-w-0 w-full flex-1 truncate px-2.5 py-1.5 bg-surface-bg border border-surface-border rounded-lg text-xs font-medium text-navy-900"
                 >
                   {assessments.map((asm) => (
                     <option key={asm.id} value={asm.id}>
@@ -1324,6 +1325,7 @@ export const AssessmentBuilder: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
+                className="shrink-0"
                 disabled={generatedQuestions.length === 0}
                 onClick={handleAttachToAssessment}
                 icon={<FileCheck2 className="w-3.5 h-3.5" />}

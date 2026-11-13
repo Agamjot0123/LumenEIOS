@@ -2,8 +2,12 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
-import { calculateAverageCompetencies, calculateTimeAwarePacing } from '../../lib/calculations';
+import { usePlanning } from '../../lib/planning/usePlanning';
+import { calculateAverageCompetencies } from '../../lib/calculations';
 import { KPICard } from '../../components/common/KPICard';
+import { PlanningStatusCard } from '../time-aware/PlanningStatusCard';
+import { summarizeCalendar, validateConfig } from '../../lib/planning/calendar';
+import { workspaceProgress } from '../../lib/planning/progress';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -14,17 +18,18 @@ import {
   BookOpen,
   Clock,
   Sparkles,
-  AlertTriangle,
   ScanLine,
-  CheckCircle2,
-  Calendar,
   ArrowRight,
   TrendingUp,
-  FileCheck,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
-  const { classes, students, curriculumDays, lostTeachingDays, assessments, homeworkRemediations } = useData();
+  const { classes, students, homeworkRemediations } = useData();
+  const planned = usePlanning(); // calendar and plans are the school's / teacher's relational records
+  const calendar = validateConfig(planned.workspace.config).length ? null : summarizeCalendar(planned.workspace.config);
+  const today = new Date().toISOString().slice(0, 10);
+  const remainingInstructionalDays = calendar ? calendar.instructionalDates.filter((d) => d >= today).length : null;
+  const progress = workspaceProgress(planned.workspace.plans.filter((x) => x.status === 'APPROVED'));
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -41,7 +46,6 @@ export const TeacherDashboard: React.FC = () => {
     overall: 65,
   };
 
-  const pacing = calculateTimeAwarePacing(curriculumDays, lostTeachingDays, 180, 104);
 
   return (
     <div className="space-y-6">
@@ -81,32 +85,6 @@ export const TeacherDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Pacing Alert Banner if behind */}
-      {pacing.riskStatus === 'high' && (
-        <div className="p-4 rounded-xl bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-rose-950">
-                Instructional Pacing Alert: Calendar Deficit of {Math.abs(pacing.pacingBuffer)} Days
-              </p>
-              <p className="text-rose-800 mt-0.5 leading-relaxed">
-                16 lost days (elections, extreme weather, health camp) have shortened remaining teaching periods. Core concept mastery is at risk if linear teaching continues.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="danger"
-            size="sm"
-            className="shrink-0 self-start sm:self-auto"
-            onClick={() => navigate('/teacher/time-aware')}
-            icon={<Sparkles className="w-3.5 h-3.5" />}
-          >
-            Apply 60/40 Compression
-          </Button>
-        </div>
-      )}
-
       {/* KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
@@ -126,9 +104,13 @@ export const TeacherDashboard: React.FC = () => {
           trend={{ value: '+7%', isPositive: true, label: 'vs Cycle 1' }}
         />
         <KPICard
-          title="Instructional Days Left"
-          value={`${pacing.remainingInstructionalDays}d`}
-          subtitle={`${pacing.totalLostDays} days lost to official duties`}
+          title="School Days Left"
+          value={remainingInstructionalDays == null ? '—' : `${remainingInstructionalDays}d`}
+          subtitle={
+            calendar
+                ? `Instructional days from today · Academic Configuration ${planned.workspace.config.year}`
+                : 'Academic Configuration not valid'
+          }
           icon={<Clock className="w-5 h-5 text-amber-600" />}
           iconBg="bg-amber-50"
           onClick={() => navigate('/teacher/time-aware')}
@@ -184,55 +166,9 @@ export const TeacherDashboard: React.FC = () => {
           </CardBody>
         </Card>
 
-        {/* Right (2 cols): 180-Day Curriculum Pacing & Quick Navigation */}
+        {/* Right (2 cols): Daily Curriculum progress & Quick Navigation */}
         <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader
-              title="180-Day Daily Micro-Curriculum Progress"
-              subtitle={`Currently at Day ${pacing.currentDay} of 180 • Chapter: Mensuration & Surface Areas`}
-              action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/teacher/curriculum-180')}
-                  icon={<Calendar className="w-3.5 h-3.5" />}
-                >
-                  View 180-Day Timeline
-                </Button>
-              }
-            />
-            <CardBody className="space-y-4">
-              <div className="p-3.5 bg-surface-bg rounded-xl border border-surface-border flex items-center justify-between text-xs">
-                <div>
-                  <span className="text-teal-700 font-bold block">Today's Lesson Plan (Day 104)</span>
-                  <p className="text-content-primary font-medium mt-0.5">
-                    Mensuration: Calculating Volumes of Composite Cylinders and Water Cisterns
-                  </p>
-                  <p className="text-content-secondary text-[11px] mt-0.5">
-                    Modality: Visual • Bloom: Apply • Classification: Core Concept (Protected)
-                  </p>
-                </div>
-                <Badge variant="success" size="sm">
-                  Active
-                </Badge>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-lg border border-surface-border bg-white">
-                  <span className="text-content-secondary text-[11px] block">Protected Core Topics</span>
-                  <span className="font-bold text-lg text-teal-800">{pacing.coreConceptsRemaining} Remaining</span>
-                </div>
-                <div className="p-3 rounded-lg border border-surface-border bg-white">
-                  <span className="text-content-secondary text-[11px] block">Supplementary Topics</span>
-                  <span className="font-bold text-lg text-amber-800">{pacing.supplementaryTopicsRemaining} Remaining</span>
-                </div>
-                <div className="p-3 rounded-lg border border-surface-border bg-white">
-                  <span className="text-content-secondary text-[11px] block">Pacing Status</span>
-                  <span className="font-bold text-lg text-rose-700">{pacing.riskLabel}</span>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
+          <PlanningStatusCard link="/teacher/curriculum-180" linkLabel="View Daily Curriculum" />
 
           {/* Quick Shortcuts */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -299,4 +235,3 @@ export const TeacherDashboard: React.FC = () => {
     </div>
   );
 };
-

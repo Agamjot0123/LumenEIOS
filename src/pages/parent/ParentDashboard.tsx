@@ -113,7 +113,7 @@ export const ParentDashboard: React.FC = () => {
       {/* Plain Language Competencies & Radar */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Radar */}
-        <Card>
+        <Card id="growth" className="scroll-mt-6">
           <CardHeader
             title="Skill Mastery Growth"
             subtitle={`${activeChild.name}'s four learning dimensions`}
@@ -201,7 +201,7 @@ export const ParentDashboard: React.FC = () => {
         </Card>
 
         {/* Home Learning Suggestions */}
-        <Card>
+        <Card id="home-activities" className="scroll-mt-6">
           <CardHeader
             title="Suggested Supportive Home Activities"
             subtitle="Simple, positive family activities to build everyday confidence"

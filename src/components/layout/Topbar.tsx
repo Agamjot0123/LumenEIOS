@@ -8,7 +8,6 @@ import {
   Building2,
   ChevronDown,
   LogOut,
-  RotateCcw,
   User as UserIcon,
   CheckCircle,
   ExternalLink,
@@ -18,7 +17,7 @@ import { Badge } from '../common/Badge';
 
 export const Topbar: React.FC = () => {
   const { currentUser, currentSchoolId, switchSchool, logout } = useAuth();
-  const { schools, notifications, markNotificationAsRead, resetDemoData } = useData();
+  const { schools, notifications, markNotificationAsRead } = useData();
   const navigate = useNavigate();
 
   const [showSchoolMenu, setShowSchoolMenu] = useState(false);
@@ -31,15 +30,8 @@ export const Topbar: React.FC = () => {
   );
   const unreadCount = userNotifications.filter((n) => !n.read).length;
 
-  const handleResetData = () => {
-    if (window.confirm('Reset all demo data back to initial baseline? All custom edits will be restored.')) {
-      resetDemoData();
-      window.location.reload();
-    }
-  };
-
   return (
-    <header className="h-16 bg-white border-b border-surface-border sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 shadow-subtle">
+    <header className="print:hidden h-16 bg-white border-b border-surface-border sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 shadow-subtle">
       {/* Left: Current School Switcher */}
       <div className="flex items-center gap-3">
         <div className="relative">
@@ -66,7 +58,7 @@ export const Topbar: React.FC = () => {
           {showSchoolMenu && (
             <div className="absolute left-0 mt-1.5 w-72 bg-white rounded-xl shadow-modal border border-surface-border py-2 z-50 animate-fade-in">
               <div className="px-3.5 py-1.5 text-[11px] font-semibold text-content-secondary uppercase tracking-wider">
-                Select Active Campus Context
+                Select school
               </div>
               <div className="max-h-60 overflow-y-auto">
                 {schools.map((sch) => (
@@ -98,22 +90,12 @@ export const Topbar: React.FC = () => {
 
         {/* NEP 2020 Compliance Indicator */}
         <Badge variant="teal" size="sm" className="hidden lg:inline-flex">
-          NEP 2020 Pedagogical Engine
+          NEP 2020 · competency-based learning
         </Badge>
       </div>
 
-      {/* Right Controls: Notifications, Reset Demo Data, User Profile */}
+      {/* Right Controls: Notifications and User Profile */}
       <div className="flex items-center gap-2.5">
-        {/* Reset Demo Data Pill */}
-        <button
-          onClick={handleResetData}
-          title="Reset LocalStorage demo data to clean baseline"
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-content-secondary hover:text-navy-800 hover:bg-surface-bg border border-surface-border rounded-lg transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5 text-content-muted" />
-          <span>Reset Demo Data</span>
-        </button>
-
         {/* Notifications Dropdown */}
         <div className="relative">
           <button

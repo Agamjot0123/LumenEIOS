@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { usePlanningStore, PlanningStore } from '../lib/planning/store';
+import { useAuth } from './AuthContext';
 import {
   School,
   ClassSection,
@@ -7,7 +9,6 @@ import {
   Assessment,
   AssessmentResult,
   CurriculumDay,
-  LostTeachingDay,
   CrossCurricularProposal,
   HomeworkRemediation,
   AuditLog,
@@ -23,13 +24,11 @@ import {
   initialAssessments,
   initialAssessmentResults,
   initialCurriculumDays,
-  initialLostTeachingDays,
   initialCrossCurricularProposals,
   initialHomeworkRemediations,
   initialAuditLogs,
   initialNotifications,
 } from '../data/seedData';
-import { CompressionPlanProposal } from '../lib/calculations';
 import { apiClient } from '../lib/apiClient';
 
 const initialSourceDocuments: SourceDocument[] = [
@@ -108,6 +107,8 @@ const initialQuestionBank: Question[] = initialAssessments.flatMap((asm) =>
 );
 
 interface DataContextType {
+  /** Authoritative curriculum-planning workspace (config, syllabus governance, plans, execution, recovery). */
+  planning: PlanningStore;
   schools: School[];
   classes: ClassSection[];
   subjects: Subject[];
@@ -115,7 +116,6 @@ interface DataContextType {
   assessments: Assessment[];
   assessmentResults: AssessmentResult[];
   curriculumDays: CurriculumDay[];
-  lostTeachingDays: LostTeachingDay[];
   crossCurricularProposals: CrossCurricularProposal[];
   homeworkRemediations: HomeworkRemediation[];
   auditLogs: AuditLog[];
@@ -127,10 +127,8 @@ interface DataContextType {
   addSchool: (school: Partial<School>) => void;
   updateSchool: (id: string, updates: Partial<School>) => void;
   assignTeacherToClass: (classId: string, teacherId: string, teacherName: string) => void;
-  recordLostTeachingDay: (item: Omit<LostTeachingDay, 'id'>) => void;
   addAssessment: (assessment: Omit<Assessment, 'id'>) => void;
   gradeAssessmentResult: (result: Omit<AssessmentResult, 'id'>) => void;
-  applySyllabusCompression: (plan: CompressionPlanProposal) => void;
   acceptCrossCurricularProposal: (id: string) => void;
   rejectCrossCurricularProposal: (id: string) => void;
   assignHomeworkRemediation: (item: Omit<HomeworkRemediation, 'id'>) => void;
@@ -165,6 +163,14 @@ function saveStorage<T>(key: string, value: T): void {
 }
 
 export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { currentUser } = useAuth();
+  const actorRef = React.useRef(currentUser);
+  actorRef.current = currentUser;
+  const getActor = React.useCallback(
+    () => (actorRef.current ? { id: actorRef.current.id, name: actorRef.current.name, role: actorRef.current.role, email: actorRef.current.email } : null),
+    [],
+  );
+  const planning = usePlanningStore(getActor, currentUser ? `${currentUser.id}:${currentUser.role}` : '');
   const [schools, setSchools] = useState<School[]>(() => loadStorage('schools', initialSchools));
   const [classes, setClasses] = useState<ClassSection[]>(() => loadStorage('classes', initialClasses));
   const [subjects] = useState<Subject[]>(initialSubjects);
@@ -175,9 +181,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
   const [curriculumDays, setCurriculumDays] = useState<CurriculumDay[]>(() =>
     loadStorage('curriculumDays', initialCurriculumDays)
-  );
-  const [lostTeachingDays, setLostTeachingDays] = useState<LostTeachingDay[]>(() =>
-    loadStorage('lostTeachingDays', initialLostTeachingDays)
   );
   const [crossCurricularProposals, setCrossCurricularProposals] = useState<CrossCurricularProposal[]>(() =>
     loadStorage('crossCurricularProposals', initialCrossCurricularProposals)
@@ -203,7 +206,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => saveStorage('assessments', assessments), [assessments]);
   useEffect(() => saveStorage('assessmentResults', assessmentResults), [assessmentResults]);
   useEffect(() => saveStorage('curriculumDays', curriculumDays), [curriculumDays]);
-  useEffect(() => saveStorage('lostTeachingDays', lostTeachingDays), [lostTeachingDays]);
   useEffect(() => saveStorage('crossCurricularProposals', crossCurricularProposals), [crossCurricularProposals]);
   useEffect(() => saveStorage('homeworkRemediations', homeworkRemediations), [homeworkRemediations]);
   useEffect(() => saveStorage('auditLogs', auditLogs), [auditLogs]);
@@ -275,45 +277,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   };
 
-  const recordLostTeachingDay = (item: Omit<LostTeachingDay, 'id'>) => {
-    const newItem: LostTeachingDay = {
-      ...item,
-      id: `ltd-${Date.now()}`,
-    };
-    setLostTeachingDays((prev) => [newItem, ...prev]);
-
-    addAuditLog(
-      'Recorded Lost Instructional Days',
-      `Logged ${newItem.daysLost} lost day(s) due to ${newItem.reason}.`,
-      'curriculum'
-    );
-
-    // Sync with FastAPI backend
-    apiClient.calendar
-      .recordDisruption(newItem.schoolId, {
-        date: newItem.date,
-        reason: newItem.reason,
-        days_lost: newItem.daysLost,
-        notes: newItem.notes,
-      })
-      .catch((err) => {
-        console.warn('Backend disruption sync notice:', err.message);
-      });
-
-    // Auto add notification to Principal and Teacher
-    const newNotif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      userId: 'user-teacher-1',
-      title: 'Teaching Calendar Updated',
-      message: `${newItem.daysLost} teaching days deducted for ${newItem.reason}. Buffer recalculated.`,
-      type: 'warning',
-      read: false,
-      createdAt: 'Just now',
-      link: '/teacher/time-aware',
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
-  };
-
   const addAssessment = (assessmentData: Omit<Assessment, 'id'>) => {
     const newAsm: Assessment = {
       ...assessmentData,
@@ -382,56 +345,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch((err) => {
         console.warn('Backend grade sync notice:', err.message);
       });
-  };
-
-  const applySyllabusCompression = (plan: CompressionPlanProposal) => {
-    const reassignedIds = new Set(plan.reassignedTopics.map((t) => t.id));
-    const integratedIds = new Set(plan.integratedTopics.map((t) => t.id));
-
-    setCurriculumDays((prev) =>
-      prev.map((day) => {
-        if (reassignedIds.has(day.id)) {
-          return { ...day, status: 'compressed_to_homework' };
-        }
-        if (integratedIds.has(day.id)) {
-          return { ...day, status: 'integrated' };
-        }
-        return day;
-      })
-    );
-
-    // Asynchronously call backend compression preview and approval
-    apiClient.timeAware
-      .previewCompression('class-8a', {
-        total_official_days: 220,
-        current_day: 104,
-      })
-      .then((proposal) => {
-        if (proposal && proposal.proposal_id) {
-          return apiClient.timeAware.approveProposal(proposal.proposal_id);
-        }
-      })
-      .catch((err) => {
-        console.warn('Backend syllabus compression sync notice:', err.message);
-      });
-
-    addAuditLog(
-      'Approved Time-Aware Syllabus Compression',
-      `Applied 60/40 compacting strategy recovering ${plan.daysSaved} instructional days. Preserved ${plan.preservedCoreCount} core objectives.`,
-      'curriculum'
-    );
-
-    const newNotif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      userId: 'user-principal-1',
-      title: 'Syllabus Compression Approved',
-      message: `Vikram Sengupta approved plan recovering ${plan.daysSaved} days. Pacing buffer restored to safe threshold.`,
-      type: 'success',
-      read: false,
-      createdAt: 'Just now',
-      link: '/principal/dashboard',
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
   };
 
   const acceptCrossCurricularProposal = (id: string) => {
@@ -574,7 +487,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAssessments(initialAssessments);
     setAssessmentResults(initialAssessmentResults);
     setCurriculumDays(initialCurriculumDays);
-    setLostTeachingDays(initialLostTeachingDays);
     setCrossCurricularProposals(initialCrossCurricularProposals);
     setHomeworkRemediations(initialHomeworkRemediations);
     setAuditLogs(initialAuditLogs);
@@ -586,6 +498,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <DataContext.Provider
       value={{
+        planning,
         schools,
         classes,
         subjects,
@@ -593,7 +506,6 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         assessments,
         assessmentResults,
         curriculumDays,
-        lostTeachingDays,
         crossCurricularProposals,
         homeworkRemediations,
         auditLogs,
@@ -603,10 +515,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addSchool,
         updateSchool,
         assignTeacherToClass,
-        recordLostTeachingDay,
         addAssessment,
         gradeAssessmentResult,
-        applySyllabusCompression,
         acceptCrossCurricularProposal,
         rejectCrossCurricularProposal,
         assignHomeworkRemediation,

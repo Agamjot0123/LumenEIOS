@@ -3,16 +3,25 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Topbar } from './Topbar';
 import { Sidebar } from './Sidebar';
 import { RoleSwitcherBanner } from './RoleSwitcherBanner';
+import { DemoDataNotice, demoNoticeFor } from '../common/DemoDataNotice';
 import { Menu, X } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const demoNotice = demoNoticeFor(location.pathname);
 
   // Close mobile menu on route change
   React.useEffect(() => {
     setMobileMenuOpen(false);
-  }, [location.pathname]);
+  }, [location.pathname, location.hash]);
+
+  // Sidebar section links (e.g. /student/dashboard#practice) scroll to their section.
+  React.useEffect(() => {
+    if (!location.hash) return;
+    const el = document.getElementById(location.hash.slice(1));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location.pathname, location.hash]);
 
   return (
     <div className="min-h-screen bg-surface-bg flex flex-col font-sans">
@@ -23,11 +32,13 @@ export const AppLayout: React.FC = () => {
       <Topbar />
 
       {/* Mobile Drawer Toggle (visible only on small screens) */}
-      <div className="md:hidden bg-navy-800 text-white px-4 py-2 flex items-center justify-between border-b border-navy-700">
+      <div className="md:hidden print:hidden bg-navy-800 text-white px-4 py-2 flex items-center justify-between border-b border-navy-700">
         <span className="text-xs font-semibold">LumenEIOS Menu</span>
         <button
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-1 rounded bg-navy-700 text-gray-200"
+          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={mobileMenuOpen}
+          className="p-1 rounded bg-navy-700 text-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400"
         >
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
@@ -46,13 +57,14 @@ export const AppLayout: React.FC = () => {
               onClick={() => setMobileMenuOpen(false)}
             />
             <div className="relative z-50 w-64 bg-navy-800 h-full flex flex-col shadow-xl">
-              <Sidebar />
+              <Sidebar drawer />
             </div>
           </div>
         )}
 
         {/* Dynamic Route Viewport */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full overflow-x-hidden">
+          {demoNotice && <DemoDataNotice text={demoNotice} />}
           <Outlet />
         </main>
       </div>

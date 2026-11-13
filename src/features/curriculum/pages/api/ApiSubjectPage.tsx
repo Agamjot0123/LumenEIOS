@@ -10,7 +10,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { EvidenceDrawer } from '../../components/EvidenceDrawer';
 import { ErrorState, LoadingState, MissingValue, NotFoundState, UnauthorizedState } from '../../components/StateViews';
 import { ROMAN, parseGrade, type EvidenceRecord } from '../../types';
-import type { OpenEvidence } from '../CatalogueCombinationPage';
+import type { OpenEvidence } from '../../types';
 import { LanguageSelector, parseLanguage } from './ApiControls';
 import { ApiOverviewView } from './ApiOverviewView';
 import { ApiExplorerView } from './ApiExplorerView';

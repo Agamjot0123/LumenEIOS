@@ -9,8 +9,8 @@ import type { Role } from '../../../types';
 import { CatalogueServiceProvider } from '../api/CatalogueServiceContext';
 import { createNcertApi } from '../api/ncertApi';
 import type { Mapping } from '../api/contract';
-import { CatalogueCombinationPage } from '../pages/CatalogueCombinationPage';
-import { CatalogueDashboard } from '../pages/CatalogueDashboard';
+import { ApiSubjectPage as CatalogueCombinationPage } from '../pages/api/ApiSubjectPage';
+import { ApiCatalogueDashboard as CatalogueDashboard } from '../pages/api/ApiCatalogueDashboard';
 import { citation, domainError, ids, installFetch, json, mapping, node, path, release, review, type Call } from './ncertTestHttp';
 
 function signInAs(role: Role) {

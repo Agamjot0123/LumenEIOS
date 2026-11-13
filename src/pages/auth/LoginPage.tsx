@@ -56,7 +56,7 @@ export const LoginPage: React.FC = () => {
       name: 'Vikram Sengupta',
       email: 'teacher@lumeneios.demo',
       title: 'Lead Educator (Grade 8 Math & Science)',
-      description: '180-day micro-curriculum, Time-Aware compacting, VARK lessons & OCR scan grading.',
+      description: 'Daily Curriculum, Time-Aware compacting, VARK lessons & OCR scan grading.',
       icon: <BookOpen className="w-5 h-5 text-emerald-600" />,
       color: 'hover:border-emerald-500 hover:bg-emerald-50/30 ring-2 ring-emerald-500/20 border-emerald-400',
     },
@@ -80,16 +80,16 @@ export const LoginPage: React.FC = () => {
     },
   ];
 
-  const handleManualSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = login(email);
-    if (success) {
+    const result = await login(email, password);
+    if (result.ok) {
       const matched = demoAccounts.find((a) => a.email.toLowerCase() === email.toLowerCase());
       const role = matched ? matched.role : 'teacher';
       navigate(getDefaultDashboardPath(role));
     } else {
-      setError('Invalid credentials. Please click one of the pre-configured demo personas below.');
+      setError(result.error ?? 'Invalid credentials.');
     }
   };
 
@@ -211,8 +211,8 @@ export const LoginPage: React.FC = () => {
         {/* NEP 2020 pedagogical footnote */}
         <div className="mt-6 text-center text-xs text-content-secondary">
           <p>
-            LumenEIOS incorporates Time-Aware Syllabus Compacting, protecting foundational concept mastery
-            when teaching days are lost to public duties.
+            LumenEIOS plans each topic from its approved Core and Non-Core periods and proposes Core-priority
+            recovery, for Principal approval, when scheduled teaching periods are lost.
           </p>
         </div>
       </div>

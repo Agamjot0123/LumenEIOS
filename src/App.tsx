@@ -11,6 +11,8 @@ import { AuditLogs } from './pages/admin/AuditLogs';
 import { PrincipalDashboard } from './pages/principal/PrincipalDashboard';
 import { TeacherAssignments } from './pages/principal/TeacherAssignments';
 import { CurriculumOversight } from './pages/principal/CurriculumOversight';
+import { CoverageOversight } from './pages/principal/CoverageOversight';
+import { PlanLogs } from './pages/shared/PlanLogs';
 import { PrincipalReports } from './pages/principal/PrincipalReports';
 import { TeacherDashboard } from './pages/teacher/TeacherDashboard';
 import { MyClasses } from './pages/teacher/MyClasses';
@@ -64,9 +66,12 @@ export const App: React.FC = () => {
         <Route path="/admin/audit-logs" element={<AuditLogs />} />
 
         {/* Principal Routes */}
+        <Route path="/principal/academic-config" element={<AcademicConfig />} />
         <Route path="/principal/dashboard" element={<PrincipalDashboard />} />
         <Route path="/principal/teachers" element={<TeacherAssignments />} />
         <Route path="/principal/curriculum" element={<CurriculumOversight />} />
+        <Route path="/principal/coverage" element={<CoverageOversight />} />
+        <Route path="/logs" element={<PlanLogs />} />
         <Route path="/principal/reports" element={<PrincipalReports />} />
 
         {/* Teacher Routes */}
@@ -97,4 +102,3 @@ export const App: React.FC = () => {
     </Routes>
   );
 };
-
