@@ -362,6 +362,28 @@ async def test_retired_legacy_proposal_approval_sends_no_cross_school_notificati
         await db_session.execute(delete(User).where(User.id==recipient_id));await db_session.commit()
 
 
+async def test_retired_legacy_proposal_approval_is_school_scoped(client,world,resources):
+    # A foreign-school educator must not learn that a legacy proposal exists (no 410 / no 404-vs-410 oracle).
+    foreign=await client.post(f"/api/v1/curriculum-proposals/{resources['proposal']}/approve",json={'action':'approve'},
+                              headers=auth(world['users']['teacher']))
+    assert foreign.status_code in (403,404),foreign.text
+    missing=await client.post(f"/api/v1/curriculum-proposals/{uid()}/approve",json={'action':'approve'},
+                              headers=auth(world['users']['teacher']))
+    assert missing.status_code==404
+
+
+async def test_notifications_are_owner_scoped(client,world,resources,db_session):
+    teacher=auth(world['users']['teacher']);parent=auth(world['users']['parent'])
+    mine=await client.get('/api/v1/notifications',headers=teacher)
+    assert mine.status_code==200 and 'PRIVATE-NOTIFICATION' not in mine.text
+    assert (await client.post(f"/api/v1/notifications/{resources['notification']}/read",headers=teacher)).status_code==404
+    assert (await client.post('/api/v1/notifications/read-all',headers=teacher)).status_code==200
+    row=await db_session.get(Notification,resources['notification']);await db_session.refresh(row)
+    assert row.is_read is False
+    own=await client.get('/api/v1/notifications',headers=parent)
+    assert 'PRIVATE-NOTIFICATION' in own.text
+
+
 async def test_non_duplicate_account_integrity_fault_is_redacted_500(client,world,monkeypatch,db_session):
     import backend.app.api.v1.users as users
     monkeypatch.setattr(users,'get_password_hash',lambda password:None)

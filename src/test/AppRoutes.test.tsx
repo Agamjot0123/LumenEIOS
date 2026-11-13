@@ -45,3 +45,16 @@ describe('existing application routes still render', () => {
     expect(await screen.findByRole('heading', { name: 'Curriculum Catalogue' })).toBeInTheDocument();
   });
 });
+
+describe('LumenEIOS navigation per role', () => {
+  const expected: Record<string, string[]> = {
+    admin: ['/admin/academic-config', '/principal/curriculum', '/principal/coverage', '/curriculum/catalogue', '/logs', '/teacher/time-aware'],
+    principal: ['/principal/academic-config', '/principal/curriculum', '/principal/coverage', '/curriculum/catalogue', '/logs', '/teacher/time-aware'],
+    teacher: ['/teacher/curriculum-180', '/curriculum/catalogue', '/logs', '/teacher/time-aware'],
+  };
+  it.each(Object.keys(expected))('%s sidebar links to every integrated module', (role) => {
+    renderApp('/' + (role === 'teacher' ? 'teacher' : role) + '/dashboard', role as 'admin' | 'principal' | 'teacher');
+    const hrefs = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
+    for (const path of expected[role]) expect(hrefs).toContain(path);
+  });
+});

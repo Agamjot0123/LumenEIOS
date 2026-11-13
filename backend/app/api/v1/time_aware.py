@@ -79,8 +79,11 @@ async def approve_compression_proposal(
     educator: User = Depends(require_roles("admin", "principal", "teacher"))
 ):
     res = await db.execute(select(CurriculumProposal).filter(CurriculumProposal.id == proposal_id))
-    if not res.scalars().first():
+    proposal = res.scalars().first()
+    if not proposal:
         raise HTTPException(status_code=404, detail="Proposal not found.")
+    # School scoping first: an educator outside the proposal's school must not learn that it exists (or its state).
+    await check_school(db, educator, proposal.school_id)
     # Historical proposals are preserved untouched; approving one would apply the retired fixed-ratio compression.
     raise HTTPException(status_code=status.HTTP_410_GONE, detail=LEGACY_COMPRESSION_RETIRED)
 

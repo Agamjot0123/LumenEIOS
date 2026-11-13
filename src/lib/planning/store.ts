@@ -142,7 +142,7 @@ export interface Transport {
 
 const sameEmail = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-const httpTransport: Transport = {
+export const httpTransport: Transport = {
   load: () => apiRequest<ServerWorkspace>('/planning/workspace'),
   needsLogin: () => !localStorage.getItem('lumeneios_token'),
   async ensureIdentity(email: string) {
