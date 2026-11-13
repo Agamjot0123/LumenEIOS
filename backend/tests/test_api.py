@@ -85,28 +85,20 @@ async def test_time_aware_pacing(client, teacher_token):
 
 
 @pytest.mark.asyncio
-async def test_compression_proposal_lifecycle(client, teacher_token, principal_token):
-    # 1. Teacher previews/generates compression proposal
+async def test_legacy_compression_is_retired(client, teacher_token, principal_token):
+    # The fixed-ratio compression path is retired (no Core/Non-Core percentage may be applied).
     t_headers = {"Authorization": f"Bearer {teacher_token}"}
     res_gen = await client.post(
         "/api/v1/classes/class-8a/time-aware/compression-preview",
         headers=t_headers,
         json={"total_official_days": 220, "current_day": 104},
     )
-    assert res_gen.status_code == 200
-    proposal = res_gen.json()
-    assert proposal["days_saved"] > 0
-    prop_id = proposal["proposal_id"]
+    assert res_gen.status_code == 410
+    assert "planning workspace" in res_gen.json()["detail"]
 
-    # 2. Principal approves proposal
     p_headers = {"Authorization": f"Bearer {principal_token}"}
-    res_app = await client.post(
-        f"/api/v1/curriculum-proposals/{prop_id}/approve",
-        headers=p_headers,
-        json={"action": "approve"},
-    )
-    assert res_app.status_code == 200
-    assert res_app.json()["status"] == "approved"
+    res_missing = await client.post("/api/v1/curriculum-proposals/does-not-exist/approve", headers=p_headers, json={"action": "approve"})
+    assert res_missing.status_code == 404
 
 
 @pytest.mark.asyncio

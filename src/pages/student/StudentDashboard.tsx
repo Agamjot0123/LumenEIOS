@@ -152,7 +152,7 @@ function StudentDashboardContent({ student }: { student: Student }) {
       {/* Competency Spider & Mastery Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Radar */}
-        <Card>
+        <Card id="competencies" className="scroll-mt-6">
           <CardHeader
             title="My Competency Mastery"
             subtitle="Your current growth across NEP skill dimensions"
@@ -237,7 +237,7 @@ function StudentDashboardContent({ student }: { student: Student }) {
       </div>
 
       {/* Assigned Homework & Quizzes */}
-      <Card>
+      <Card id="practice" className="scroll-mt-6">
         <CardHeader
           title="Assigned Adaptive Practice & Homework"
           subtitle="Differentiated tasks recommended by your teacher based on your assessments"

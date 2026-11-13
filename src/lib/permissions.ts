@@ -21,6 +21,9 @@ export const PERMISSIONS = {
   VIEW_CHILD_PROGRESS: ['parent'],
   ADD_STUDENT: ['admin', 'principal', 'teacher'],
   ADD_TEACHER: ['admin', 'principal'],
+  // Curriculum catalogue (UI gating only — the backend must enforce authorization).
+  VIEW_CURRICULUM_CATALOGUE: ['admin', 'principal', 'teacher'],
+  REVIEW_CURRICULUM_MAPPINGS: ['admin'], // contract v1: global catalogue review is admin-only
 } as const;
 
 export function hasPermission(role: Role, permission: keyof typeof PERMISSIONS): boolean {

@@ -16,6 +16,14 @@ from backend.app.seed.seed_data import ensure_classic_demo_student_link, seed_da
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from pathlib import Path
+    from backend.app.db.session import engine
+    db_file = engine.url.database
+    resolved = str(Path(db_file).resolve()) if db_file else ":memory:"
+    app.state.database_path = resolved
+    logger.info("LumenEIOS database file (resolved absolute path): %s", resolved)
+    if Path(resolved).name in {"lumeneios.db", "lumeneios_acceptance.db", "lumeneios_planning_dev.db", "lumeneios_takeover_acceptance.db"}:
+        logger.warning("This backend is bound to a PROTECTED database file (%s). Use an isolated working copy for development.", resolved)
     logger.info("Initializing LumenEIOS database tables...")
     await init_db()
     if settings.DEMO_MODE:

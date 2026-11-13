@@ -87,6 +87,15 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     icon: <Sparkles className="w-4 h-4" />,
   };
 
+  const curriculumCatalogue: NavItem = {
+    label: 'Curriculum Catalogue',
+    path: '/curriculum/catalogue',
+    icon: <Library className="w-4 h-4" />,
+    badge: 'VI–VIII',
+  };
+
+  const centralLogs: NavItem = { label: 'Central Logs', path: '/logs', icon: <ScrollText className="w-4 h-4" /> };
+
   const getNavItems = (): NavItem[] => {
     switch (role) {
       case 'developer':
@@ -110,6 +119,17 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Add School', path: '/admin/schools/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Users & Roles', path: '/admin/users', icon: <Users className="w-4 h-4" /> },
           { label: 'Academic Config', path: '/admin/academic-config', icon: <Settings className="w-4 h-4" /> },
+          { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
+          {
+            label: 'Time-Aware Engine',
+            path: '/teacher/time-aware',
+            icon: <Clock className="w-4 h-4" />,
+            highlight: true,
+            badge: 'Pacing',
+          },
+          curriculumCatalogue,
+          centralLogs,
           { ...differentiatedHomework, path: '/homework' },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
         ];
@@ -117,13 +137,17 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       case 'principal':
         return [
           { label: 'Campus Dashboard', path: '/principal/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+          { label: 'Academic Config', path: '/principal/academic-config', icon: <Settings className="w-4 h-4" /> },
           { label: 'Teacher Assignments', path: '/principal/teachers', icon: <Users className="w-4 h-4" /> },
           { label: 'Add Teacher', path: '/principal/teachers/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Teachers', path: '/principal/staff', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Students', path: '/principal/students', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'School Performance', path: '/principal/performance', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
-          { label: 'Curriculum Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
+          { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
+          curriculumCatalogue,
+          centralLogs,
           {
             label: 'Time-Aware Engine',
             path: '/teacher/time-aware',
@@ -140,7 +164,16 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Teacher Dashboard', path: '/teacher/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'My Classes & Heatmap', path: '/teacher/classes', icon: <Users className="w-4 h-4" /> },
           { label: 'Add Student', path: '/teacher/students/add', icon: <PlusCircle className="w-4 h-4" /> },
-          { label: '180-Day Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
+          { label: 'Daily Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
+          {
+            label: 'Time-Aware Engine',
+            path: '/teacher/time-aware',
+            icon: <Clock className="w-4 h-4" />,
+            highlight: true,
+            badge: 'Pacing',
+          },
+          curriculumCatalogue,
+          centralLogs,
           questionStudioItem,
           questionStudioBetaItem,
           differentiatedHomework,
@@ -194,6 +227,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
 
   return (
     <aside
+      aria-label="Main navigation"
       data-collapsed={navCollapsed ? 'true' : 'false'}
       className={cn(
         'bg-navy-800 text-white shrink-0 flex-col border-r border-navy-700',
@@ -207,9 +241,9 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         </div>
         {!navCollapsed && (
           <div className="min-w-0">
-            <h1 className="font-bold text-base tracking-tight text-white leading-none">
+            <p className="font-bold text-base tracking-tight text-white leading-none">
               Lumen<span className="text-teal-400">EIOS</span>
-            </h1>
+            </p>
             <p className="text-[11px] text-gray-400 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
           </div>
         )}
