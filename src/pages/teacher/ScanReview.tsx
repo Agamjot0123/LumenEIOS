@@ -135,6 +135,21 @@ function UploadPage({ assignment, onBack, onProcessed }: {
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
   const [error, setError] = useState('');
+  const [gradingAssignments, setGradingAssignments] = useState<UploadAssignment[]>();
+  const [gradingAssignmentId, setGradingAssignmentId] = useState('');
+  const [assignmentError, setAssignmentError] = useState('');
+  const showAssignmentPicker = !isStudent && !assignment && !!results;
+  const evaluationAssignmentId = assignment?.id || gradingAssignmentId;
+
+  useEffect(() => {
+    if (!showAssignmentPicker) return;
+    let active = true;
+    setAssignmentError('');
+    apiClient.assessments.uploadAssignments()
+      .then((papers) => { if (active) setGradingAssignments(papers); })
+      .catch((err) => { if (active) setAssignmentError(err instanceof Error ? err.message : 'Could not load assignments.'); });
+    return () => { active = false; };
+  }, [showAssignmentPicker]);
 
   const recordOcrStep = (step: ProcessStep) => {
     setOcrSteps((current) => {
@@ -216,7 +231,8 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          Upload a photo or PDF to extract text. OCR does not grade the work.
+          Upload a photo or PDF to extract text.
+          {!isStudent && ' Review the extracted answers and evaluate them against an assignment.'}
           {isStudent && !assignment && (
             <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
           )}
@@ -382,6 +398,28 @@ function UploadPage({ assignment, onBack, onProcessed }: {
         </div>
         {results ? (
           <>
+            {showAssignmentPicker && (
+              <div className="rounded-xl border border-surface-border bg-white p-4">
+                <label className="block text-sm font-semibold text-navy-900">
+                  Assignment for evaluation
+                  <select
+                    value={gradingAssignmentId}
+                    onChange={(event) => setGradingAssignmentId(event.target.value)}
+                    className="mt-2 block w-full rounded-lg border border-surface-border p-2"
+                  >
+                    <option value="">Choose an assignment</option>
+                    {gradingAssignments?.map((paper) => (
+                      <option key={paper.id} value={paper.id}>
+                        {paper.title} · {paper.class_name} · {paper.subject_name} · {paper.date}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {assignmentError && <p role="alert" className="mt-2 text-sm text-rose-700">{assignmentError}</p>}
+                {!gradingAssignments && !assignmentError && <p role="status" className="mt-2 text-sm">Loading assignments…</p>}
+                {gradingAssignments?.length === 0 && <p className="mt-2 text-sm">No open assignments are available.</p>}
+              </div>
+            )}
             <div className="flex justify-end">
               <button
                 type="button"
@@ -392,9 +430,9 @@ function UploadPage({ assignment, onBack, onProcessed }: {
                 Print extract
               </button>
             </div>
-            {results.results.map((result) => (
+            {results.results.map((result, index) => (
             <div
-              key={result.fileName}
+              key={index}
               className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle"
             >
               <div className="mb-2 flex items-center justify-between gap-3">
@@ -403,9 +441,13 @@ function UploadPage({ assignment, onBack, onProcessed }: {
                   {result.pagesProcessed} page(s)
                 </span>
               </div>
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-bg p-3 text-sm text-navy-900">
-                {result.extractedText || '[No text extracted]'}
-              </pre>
+              {!isStudent && result.extractedText.trim() ? (
+                <ScanEvaluation extractedText={result.extractedText} assessmentId={evaluationAssignmentId} />
+              ) : (
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-bg p-3 text-sm text-navy-900">
+                  {result.extractedText || '[No text extracted]'}
+                </pre>
+              )}
             </div>
             ))}
           </>
@@ -415,6 +457,87 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function ScanEvaluation({ extractedText, assessmentId }: { extractedText: string; assessmentId: string }) {
+  const [text, setText] = useState(extractedText);
+  const [pending, setPending] = useState(false);
+  const [outcome, setOutcome] = useState<{
+    assessmentId: string;
+    text: string;
+    result?: Awaited<ReturnType<typeof apiClient.ocr.evaluateScan>>;
+    error?: string;
+  }>();
+  const current = outcome?.assessmentId === assessmentId && outcome.text === text ? outcome : undefined;
+  const summary = current?.result?.scoring_summary;
+
+  const evaluate = async () => {
+    setPending(true);
+    setOutcome(undefined);
+    try {
+      const result = await apiClient.ocr.evaluateScan(assessmentId, text.trim());
+      setOutcome({ assessmentId, text, result });
+    } catch (err) {
+      setOutcome({
+        assessmentId,
+        text,
+        error: err instanceof Error ? err.message : 'Scan evaluation failed.',
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-3 text-sm text-navy-900">
+      <label className="block font-semibold">
+        Answers for evaluation
+        <textarea
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setOutcome(undefined);
+          }}
+          disabled={pending}
+          rows={5}
+          className="mt-1 block w-full rounded-lg border border-surface-border p-2 font-normal"
+        />
+      </label>
+      <p className="text-xs text-content-secondary">Correct OCR errors and remove student names and identifiers before sending the answers to Gemini for draft marking.</p>
+      <button
+        type="button"
+        onClick={evaluate}
+        disabled={pending || !assessmentId || !text.trim()}
+        className="rounded-lg bg-navy-900 px-4 py-2 font-semibold text-white disabled:opacity-50"
+      >
+        {pending ? 'Evaluating scan…' : 'Evaluate this scan'}
+      </button>
+      {current?.error && <p role="alert" className="text-rose-700">{current.error}</p>}
+      {summary && (
+        <div className="space-y-2 rounded-lg border border-surface-border p-3">
+          <h4 className="font-semibold">Draft marks · {summary.total_marks_obtained}/{summary.max_possible_marks} ({summary.percentage}%)</h4>
+          {summary.overall_feedback && <p>{summary.overall_feedback}</p>}
+          {summary.needs_teacher_review && <p className="font-semibold text-amber-800">Teacher review required</p>}
+          {summary.review_reasons.map((reason, index) => <p key={index} className="text-amber-800">{reason}</p>)}
+          {current.result?.question_evaluations.map((question) => (
+            <div key={question.question_id} className="border-t border-surface-border pt-2">
+              <p className="font-semibold">Q{question.question_index}. {question.question_text} · {question.awarded_marks}/{question.max_marks}</p>
+              {question.status === 'unattempted' && <p>Unattempted</p>}
+              {question.feedback && <p>{question.feedback}</p>}
+              {question.flag_for_review && <p className="text-amber-800">{question.flag_reason || 'Review required'}</p>}
+              {!!question.step_breakdown.length && (
+                <ul className="ml-5 list-disc">
+                  {question.step_breakdown.map((step, index) => (
+                    <li key={index}>{step.criterion} ({step.marks_awarded}/{step.max})</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -241,6 +241,10 @@ class StudentCompetencySnapshot(Base):
     ct_score = Column(Integer, nullable=False)
     overall_score = Column(Integer, nullable=False)
     notes = Column(Text, nullable=True)
+    # Forward-compatible subject linkage. Historical rows stay NULL (global / unscoped).
+    subject_id = Column(String(64), nullable=True, index=True)
+    source_assessment_id = Column(String(64), nullable=True, index=True)
+    source_submission_id = Column(String(64), nullable=True, index=True)
 
 
 class HomeworkRemediation(Base):

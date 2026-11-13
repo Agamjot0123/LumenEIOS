@@ -54,6 +54,7 @@ if PYDANTIC_AVAILABLE:
             if self.status == "unattempted":
                 self.awarded_marks = 0.0
                 self.competency_score = 0.0
+                self.step_breakdown = []
 
             # 2. Reconcile awarded marks with step breakdown if steps are present
             if self.step_breakdown:

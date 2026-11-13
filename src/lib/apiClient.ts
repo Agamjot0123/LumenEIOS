@@ -252,6 +252,13 @@ function mapBatchOut(b: any) {
   };
 }
 
+export type AssistantTurn = { role: 'user' | 'assistant'; content: string };
+export type AssistantReply = {
+  answer: string;
+  links: { label: string; path: string }[];
+  model_available: boolean;
+};
+
 export const apiClient = {
   homework: {
     call<T = any>(path: string, method = 'GET', body?: unknown) {
@@ -296,6 +303,12 @@ export const apiClient = {
     },
   },
 
+  assistant: {
+    chat: (message: string, history: AssistantTurn[], signal: AbortSignal) =>
+      request<AssistantReply>('/assistant/chat', {
+        method: 'POST', body: JSON.stringify({ message, history }), signal,
+      }),
+  },
   // Authentication
   auth: {
     async login(email: string, password: string) {
@@ -686,6 +699,33 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
+    async evaluateScan(assessmentId: string, extractedText: string) {
+      return request<{
+        scoring_summary: {
+          total_marks_obtained: number;
+          max_possible_marks: number;
+          percentage: number;
+          overall_feedback: string;
+          needs_teacher_review: boolean;
+          review_reasons: string[];
+        };
+        question_evaluations: Array<{
+          question_id: string;
+          question_index: number;
+          question_text: string;
+          status: string;
+          awarded_marks: number;
+          max_marks: number;
+          feedback: string;
+          flag_for_review: boolean;
+          flag_reason: string | null;
+          step_breakdown: Array<{ criterion: string; marks_awarded: number; max: number }>;
+        }>;
+      }>('/ocr/evaluate-scan', {
+        method: 'POST',
+        body: JSON.stringify({ assessment_id: assessmentId, extracted_text: extractedText }),
+      });
+    },
     async history() {
       return request<Array<{ id: string; file_name: string; extracted_text: string; pages_processed: number; created_at: string; assignment_title?: string | null }>>('/ocr/history');
     },

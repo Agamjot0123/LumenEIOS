@@ -181,7 +181,7 @@ The OCR preview runs in the FastAPI backend, not in the browser. The model loads
    ```bash
    python -m pip install -r backend/requirements-ocr.txt
    ```
-3. Start the backend as above. The default model is `Qwen/Qwen2.5-VL-3B-Instruct-AWQ`; override `QWEN_VL_MODEL_ID` in `.env` if needed.
+3. Start the backend as above. Worksheet OCR, AI Question Studio Beta, and Ask LumenEIOS share one model. The default is `Qwen/Qwen2.5-VL-3B-Instruct-AWQ`; override `QWEN_VL_MODEL_ID` in `.env` if needed.
 4. Click **Teacher** under **Switch Persona**, open **Upload** in the sidebar, upload one or more JPG, PNG, or PDF files, and click **Run OCR**. The optional checkbox waits five seconds before each image/page.
 
 The preview displays extracted text only; it does not grade or publish marks. OCR files are removed from temporary backend storage after each request. If CUDA or model dependencies are unavailable, the endpoint reports an error instead of returning simulated text.

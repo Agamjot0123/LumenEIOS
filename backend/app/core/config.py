@@ -75,10 +75,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
-    # Qwen OCR preview + Question Studio Beta (local Ollama / HF stack from teammate frontend).
+    # Qwen OCR preview, Question Studio Beta, and the assistant.
     QWEN_VL_MODEL_ID: str = "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
-    QWEN_QUESTION_STUDIO_MODEL_ID: str = "qwen2.5vl:7b"
-    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
 
     # Optional Neo4j Knowledge Graph
     NEO4J_ENABLED: bool = False
