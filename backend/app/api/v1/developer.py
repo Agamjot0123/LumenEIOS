@@ -17,6 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, oauth2_scheme
 from backend.app.core.config import settings
+from backend.app.services.ai_gateway import (
+    AIGatewayError,
+    AINotConfigured,
+    active_gemini_model,
+    list_gemini_models,
+    select_gemini_model,
+)
 from backend.app.core.security import decode_token
 from backend.app.db.session import AsyncSessionLocal, Base, engine, get_db
 from backend.app.models.entities import (
@@ -399,6 +406,40 @@ async def run_workshop(
     await db.commit()
     await db.refresh(row)
     return {"id": row.id, "kind": row.kind, "status": row.status, "result": result, "created_at": _iso(row.created_at)}
+
+
+class GeminiModelRequest(BaseModel):
+    model: str = Field(min_length=1, max_length=120)
+
+
+@router.get("/gemini/models")
+async def gemini_models(_: User = Depends(require_developer)):
+    try:
+        models = await list_gemini_models()
+    except AINotConfigured as exc:
+        raise HTTPException(status_code=503, detail=exc.public_message) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=502, detail=exc.public_message) from exc
+    current = active_gemini_model()
+    if current not in {item["id"] for item in models}:
+        models.insert(0, {"id": current, "label": current})
+    return {"current": current, "models": models}
+
+
+@router.put("/gemini/model")
+async def choose_gemini_model(body: GeminiModelRequest, _: User = Depends(require_developer)):
+    try:
+        models = await list_gemini_models()
+    except AINotConfigured as exc:
+        raise HTTPException(status_code=503, detail=exc.public_message) from exc
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=502, detail=exc.public_message) from exc
+    allowed = {item["id"] for item in models}
+    allowed.add(settings.GEMINI_MODEL)
+    chosen = body.model.strip()
+    if chosen not in allowed:
+        raise HTTPException(status_code=422, detail="Choose a Gemini model from the list.")
+    return {"current": select_gemini_model(chosen)}
 
 
 @router.get("/releases")

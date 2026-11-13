@@ -166,7 +166,7 @@ async def test_provider_requests_json_and_maps_failures():
     seen = {}
 
     async def ok(model, contents, config):
-        seen.update(model=model, mime=config.response_mime_type, schema=config.response_schema)
+        seen.update(model=model, mime=config.response_mime_type, schema=config.response_json_schema)
         return pytypes.SimpleNamespace(text='{"questions": []}')
 
     async def slow(model, contents, config):
@@ -181,7 +181,9 @@ async def test_provider_requests_json_and_maps_failures():
     from backend.app.services.ai_question_service import _WireResponse
     p = ai_gateway.GeminiProvider("k", "m1", 0.05, client=client(ok))
     assert await p.generate_json(system="s", prompt="p", schema=_WireResponse) == '{"questions": []}'
-    assert seen == {"model": "m1", "mime": "application/json", "schema": _WireResponse}
+    assert seen["model"] == "m1"
+    assert seen["mime"] == "application/json"
+    assert "questions" in seen["schema"]["properties"]
     with pytest.raises(ai_gateway.AIProviderTimeout):
         await ai_gateway.GeminiProvider("k", "m1", 0.05, client=client(slow)).generate_json(system="s", prompt="p", schema=_WireResponse)
     with pytest.raises(ai_gateway.AIProviderError) as info:

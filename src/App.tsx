@@ -36,6 +36,7 @@ import {
   DataQuality,
   DeveloperHome,
   FeatureFlags,
+  GeminiModel,
   ModelWorkshop,
   PlatformHealth,
   ReleaseNotes,
@@ -82,6 +83,7 @@ const MainApp: React.FC = () => (
 
       <Route path="/developer" element={<DeveloperHome />} />
       <Route path="/developer/health" element={<PlatformHealth />} />
+      <Route path="/developer/gemini" element={<GeminiModel />} />
       <Route path="/developer/roster" element={<SampleRoster />} />
       <Route path="/developer/flags" element={<FeatureFlags />} />
       <Route path="/developer/access" element={<AccessLog />} />

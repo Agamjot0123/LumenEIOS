@@ -2,6 +2,7 @@ import pytest
 from pydantic import SecretStr
 
 from backend.app.core.config import settings
+from backend.app.services import ai_gateway
 
 
 @pytest.mark.asyncio
@@ -57,3 +58,34 @@ async def test_developer_portal_requires_root_and_records_role_switches(client, 
     assert log.status_code == 200
     assert any(item["to_role"] == "teacher" and item["from_role"] == "developer" for item in log.json())
     assert (await client.post("/api/v1/developer/roster/reseed", json={"confirm": "no"}, headers=headers)).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_developer_can_choose_a_listed_gemini_model(client, teacher_token, monkeypatch):
+    monkeypatch.setattr(settings, "APP_ENV", "development")
+    monkeypatch.setattr(settings, "DEMO_ROOT_PASSWORD", SecretStr("kvr-test"))
+    ai_gateway.clear_gemini_model_selection()
+
+    async def fake_list():
+        return [
+            {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
+            {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        ]
+
+    monkeypatch.setattr("backend.app.api.v1.developer.list_gemini_models", fake_list)
+    teacher = {"Authorization": f"Bearer {teacher_token}"}
+    assert (await client.get("/api/v1/developer/gemini/models", headers=teacher)).status_code == 403
+
+    login = await client.post("/api/v1/auth/login", json={"email": "LEOFELIX", "password": "kvr-test"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    listed = await client.get("/api/v1/developer/gemini/models", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()["current"] == settings.GEMINI_MODEL
+    assert {item["id"] for item in listed.json()["models"]} >= {"gemini-2.5-flash", "gemini-2.5-pro"}
+
+    chosen = await client.put("/api/v1/developer/gemini/model", json={"model": "gemini-2.5-pro"}, headers=headers)
+    assert chosen.status_code == 200
+    assert chosen.json()["current"] == "gemini-2.5-pro"
+    assert ai_gateway.active_gemini_model() == "gemini-2.5-pro"
+    assert (await client.put("/api/v1/developer/gemini/model", json={"model": "not-a-model"}, headers=headers)).status_code == 422
+    ai_gateway.clear_gemini_model_selection()

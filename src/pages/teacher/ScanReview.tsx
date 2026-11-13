@@ -227,11 +227,11 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           <ScanLine className="h-5 w-5 text-teal-600" />
           <h1 className="text-xl font-bold tracking-tight text-navy-900">{assignment ? 'Upload Beta' : 'Upload'}</h1>
           <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700">
-            Qwen2.5-VL
+            Gemini
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          Upload a photo or PDF to extract text.
+          Upload a photo or PDF to extract text with Google’s Gemini API.
           {!isStudent && ' Review the extracted answers and evaluate them against an assignment.'}
           {isStudent && !assignment && (
             <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
