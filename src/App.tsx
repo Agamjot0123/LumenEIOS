@@ -46,6 +46,17 @@ import { DifferentiatedHomeworkPage } from './pages/homework/DifferentiatedHomew
 import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
 import { CoverageOversight } from './pages/principal/CoverageOversight';
 import { PlanLogs } from './pages/shared/PlanLogs';
+import {
+  EducatorProgressOverviewPage,
+  ParentProgressOverviewPage,
+  StudentProgressOverviewPage,
+} from './pages/progress/ProgressOverviewPage';
+import {
+  EducatorSubjectProgressPage,
+  ParentSubjectProgressPage,
+  StudentSubjectProgressPage,
+} from './pages/progress/SubjectProgressPage';
+import { ParentProgressHomePage } from './pages/progress/ParentProgressHomePage';
 import { getDefaultDashboardPath } from './lib/permissions';
 import { DEMO_MODE } from './lib/runtime';
 
@@ -121,6 +132,11 @@ const MainApp: React.FC = () => (
       <Route path="/teacher/remediation" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/homework" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/student-homework" element={<StudentHomework />} />
+      <Route path="/teacher/students/:studentId/progress" element={<EducatorProgressOverviewPage />} />
+      <Route
+        path="/teacher/students/:studentId/progress/subjects/:subjectId"
+        element={<EducatorSubjectProgressPage />}
+      />
 
       {/* Curriculum Catalogue (Classes VI–VIII Mathematics & Science) */}
       <Route element={<CurriculumModule />}>
@@ -130,12 +146,20 @@ const MainApp: React.FC = () => (
 
       <Route path="/student/dashboard" element={<StudentDashboard />} />
       <Route path="/student/homework" element={<DifferentiatedHomeworkPage />} />
+      <Route path="/student/progress" element={<StudentProgressOverviewPage />} />
+      <Route path="/student/progress/subjects/:subjectId" element={<StudentSubjectProgressPage />} />
       <Route path="/student/history" element={<StudentRecords view="history" />} />
       <Route path="/student/profile" element={<StudentRecords view="profile" />} />
       <Route path="/student/answer-sheets" element={<StudentAnswerSheets />} />
 
       <Route path="/parent/dashboard" element={<ParentDashboard />} />
       <Route path="/parent/homework" element={<DifferentiatedHomeworkPage />} />
+      <Route path="/parent/progress" element={<ParentProgressHomePage />} />
+      <Route path="/parent/students/:studentId/progress" element={<ParentProgressOverviewPage />} />
+      <Route
+        path="/parent/students/:studentId/progress/subjects/:subjectId"
+        element={<ParentSubjectProgressPage />}
+      />
 
       <Route path="/homework" element={<DifferentiatedHomeworkPage />} />
 

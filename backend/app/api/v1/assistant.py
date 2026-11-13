@@ -27,7 +27,8 @@ PAGES = {
         "Audit logs": "/admin/audit-logs",
     },
     "student": {
-        "My progress": "/student/dashboard", "My profile": "/student/profile",
+        "My progress": "/student/dashboard", "Unified progress": "/student/progress",
+        "My profile": "/student/profile",
         "OCR history": "/student/history", "Answer sheets": "/student/answer-sheets",
     },
     "teacher": {
@@ -40,7 +41,10 @@ PAGES = {
         "Performance": "/principal/performance", "Curriculum": "/principal/curriculum",
         "Reports": "/principal/reports", "Teachers": "/principal/teachers",
     },
-    "parent": {"Child progress": "/parent/dashboard"},
+    "parent": {
+        "Child progress": "/parent/dashboard",
+        "Unified progress": "/parent/progress",
+    },
 }
 
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { Student } from '../../types';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
@@ -8,7 +9,7 @@ import { Modal } from '../../components/common/Modal';
 import { ClassHeatmap } from '../../components/charts/ClassHeatmap';
 import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarChart';
 import { CompetencyGroupBadges } from '../../components/common/CompetencyScoreBadge';
-import { Users, GraduationCap, AlertCircle, Sparkles, BookOpen, Clock } from 'lucide-react';
+import { Users, GraduationCap, AlertCircle, Sparkles, BookOpen, Clock, BarChart3 } from 'lucide-react';
 import { recommendDifferentiatedHomework } from '../../lib/calculations';
 
 export const MyClasses: React.FC = () => {
@@ -148,6 +149,13 @@ export const MyClasses: React.FC = () => {
                 <Button variant="secondary" size="sm" onClick={() => setSelectedStudent(null)}>
                   Close
                 </Button>
+                <Link
+                  to={`/teacher/students/${encodeURIComponent(selectedStudent.id)}/progress`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-navy-800 text-white hover:bg-navy-900"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  Unified Progress
+                </Link>
                 <Button
                   variant="teal"
                   size="sm"

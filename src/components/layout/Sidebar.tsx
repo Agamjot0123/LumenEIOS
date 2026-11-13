@@ -143,6 +143,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Teachers', path: '/principal/staff', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Students', path: '/principal/students', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'School Performance', path: '/principal/performance', icon: <BarChart3 className="w-4 h-4" /> },
+          { label: 'Student Progress', path: '/teacher/classes', icon: <Activity className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
@@ -163,6 +164,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         return [
           { label: 'Teacher Dashboard', path: '/teacher/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'My Classes & Heatmap', path: '/teacher/classes', icon: <Users className="w-4 h-4" /> },
+          { label: 'Student Progress', path: '/teacher/classes', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Add Student', path: '/teacher/students/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Daily Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
           {
@@ -190,6 +192,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       case 'student':
         return [
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+          { label: 'Unified Progress', path: '/student/progress', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Differentiated Homework', path: '/student/homework', icon: <Sparkles className="w-4 h-4" /> },
           {
             label: 'Answer Sheet OCR',
@@ -206,8 +209,8 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       case 'parent':
         return [
           { label: 'Family Progress', path: '/parent/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
+          { label: 'Unified Progress', path: '/parent/progress', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Differentiated Homework', path: '/parent/homework', icon: <Sparkles className="w-4 h-4" /> },
-          { label: 'Competency Growth', path: '/parent/dashboard', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Home Learning Guide', path: '/parent/dashboard', icon: <HeartHandshake className="w-4 h-4" /> },
         ];
 
