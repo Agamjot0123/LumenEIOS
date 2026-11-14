@@ -3,6 +3,10 @@
 //   WEB_URL=http://127.0.0.1:5180 API_URL=http://127.0.0.1:8010/api/v1 SHOTS=./e2e-shots/config node e2e/teacher_config_acceptance.mjs
 import { API, WEB, assert, launch, shot } from './lib.mjs';
 const { page, browser, version } = await launch();
+const E = process.env;  // defaults = fresh-database roster; override for another roster
+const T1 = { email: E.T1_EMAIL || 'teacher@lumeneios.demo', id: E.T1_ID || 'user-teacher-garima', name: E.T1_NAME || 'Garima' };
+const T2 = { email: E.T2_EMAIL || 'kamlesh@lumeneios.demo', name: E.T2_NAME || 'Kamlesh', grade: E.T2_GRADE || '6', subject: E.T2_SUBJECT || 'mathematics', count: Number(E.T2_COUNT || 65) };
+const PRINCIPAL = E.PRINCIPAL_EMAIL || 'principal@lumeneios.demo';
 const out = [];
 const log = (id, ok, note) => { out.push({ id, ok, note }); console.log(`${ok ? 'PASS' : 'FAIL'} ${id} ${note}`); };
 const login = async (email) => {
@@ -21,9 +25,9 @@ const run = async (id, fn) => { try { const n = await fn(); log(id, true, n ?? '
 console.log('Browser', version);
 let t1 = {};
 await run('V1 login+open Garima Class VI Science', async () => {
-  await login('teacher@lumeneios.demo'); await open(6, 'science');
+  await login(T1.email); await open(6, 'science');
   const ctx = await page.getByTestId('plan-context').innerText();
-  assert(/Garima/.test(ctx) && /Class VI/.test(ctx) && /Science/.test(ctx), ctx);
+  assert(new RegExp(T1.name).test(ctx) && /Class VI/.test(ctx) && /Science/.test(ctx), ctx);
   await shot(page, 'v1_class6_science'); return ctx.slice(0, 120);
 });
 await run('V2 full syllabus (12 chapters, 65 topics) + controls on every topic', async () => {
@@ -51,24 +55,24 @@ await run('V4 reload keeps changes', async () => {
   assert(await cls(1).inputValue() === t1.c1, 'untouched topic changed'); await shot(page, 'v4_after_reload');
 });
 await run('V5 another teacher (Kamlesh, Mathematics) has an independent, fully configured plan', async () => {
-  await login('kamlesh@lumeneios.demo'); await open(6, 'mathematics');
-  const ctx = await page.getByTestId('plan-context').innerText(); assert(/Kamlesh/.test(ctx), ctx);
-  assert(await page.locator('select[aria-label^="Core or Non-Core"]').count() === 65, 'expected 65 Maths topics');
+  await login(T2.email); await open(T2.grade, T2.subject);
+  const ctx = await page.getByTestId('plan-context').innerText(); assert(new RegExp(T2.name).test(ctx), ctx);
+  assert(await page.locator('select[aria-label^="Core or Non-Core"]').count() === T2.count, `expected ${T2.count} topics`);
   assert(await page.locator('[data-testid^="unconfigured-"]').count() === 0, 'unconfigured topics');
   assert(await pct() === '0%', await pct()); await shot(page, 'v5_second_teacher'); return ctx.slice(0, 100);
 });
 await run('V6 back to Garima: her changes persist', async () => {
-  await login('teacher@lumeneios.demo'); await open(6, 'science');
+  await login(T1.email); await open(6, 'science');
   assert(await cls(0).inputValue() === t1.new0 && await cov(2).inputValue() === 'DONE' && await pct() === t1.pct, 'lost');
 });
 await run('V7 principal sees the same saved plan read-only via ?teacher=', async () => {
-  await login('principal@lumeneios.demo');
-  await page.goto(`${WEB}/curriculum/catalogue/6/science?teacher=user-teacher-garima`);
+  await login(PRINCIPAL);
+  await page.goto(`${WEB}/curriculum/catalogue/6/science?teacher=${T1.id}`);
   await page.waitForSelector('[data-testid="plan-context"]', { timeout: 30000 }); await page.getByText('Expand all').click();
   assert(await pct() === t1.pct, await pct()); assert(await cls(0).isDisabled(), 'should be read-only'); assert(await cls(0).inputValue() === t1.new0, 'differs'); await shot(page, 'v7_principal_view');
 });
 await run('V8 all six class/subject combos load the full syllabus', async () => {
-  await login('teacher@lumeneios.demo'); const exp = { 'science-6': 65, 'science-7': 78, 'science-8': 84 };
+  await login(T1.email); const exp = { 'science-6': 65, 'science-7': 78, 'science-8': 84 };
   for (const [k, n] of Object.entries(exp)) { const [s, g] = k.split('-'); await open(g, s); const c = await page.locator('select[aria-label^="Core or Non-Core"]').count(); assert(c === n, `${k}: ${c} != ${n}`); }
 });
 await browser.close();
