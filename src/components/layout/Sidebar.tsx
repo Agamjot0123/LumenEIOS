@@ -238,7 +238,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         mobile ? 'flex h-full' : 'hidden md:flex min-h-[calc(100vh-4rem)]',
       )}
     >
-      <div className="p-5 border-b border-navy-700/60 flex items-center gap-3">
+      <div className={cn(
+        'border-b border-navy-700/60 flex items-center',
+        navCollapsed ? 'flex-col gap-2 px-2 py-3' : 'gap-3 p-5',
+      )}>
         <div className="w-9 h-9 rounded-xl bg-teal-500 text-navy-950 flex items-center justify-center font-black text-lg shadow-sm shrink-0">
           L
         </div>
@@ -247,13 +250,16 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             <p className="font-bold text-base tracking-tight text-white leading-none">
               Lumen<span className="text-teal-400">EIOS</span>
             </p>
-            <p className="text-[11px] text-gray-400 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
+            <p className="text-[11px] text-gray-200 mt-1 font-medium">Adaptive EdTech NEP 2020</p>
           </div>
         )}
         {analytics && !mobile && (
           <button
             type="button"
-            className="ml-auto p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-navy-700"
+            className={cn(
+              'p-1.5 rounded-md text-gray-200 hover:text-white hover:bg-navy-700 shrink-0',
+              navCollapsed ? '' : 'ml-auto',
+            )}
             aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             onClick={() => {
               const next = !collapsed;
@@ -269,7 +275,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       {!navCollapsed && (
         <div className="px-5 py-3 bg-navy-900/60 border-b border-navy-700/40">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-400">Workspace:</span>
+            <span className="text-gray-200">Workspace:</span>
             <span className="font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
               {getRoleLabel(role)} Portal
             </span>
@@ -293,11 +299,11 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
                   ? 'bg-teal-500 text-white shadow-sm'
                   : item.highlight
                     ? 'text-amber-300 hover:bg-navy-700 hover:text-white bg-amber-500/10'
-                    : 'text-gray-300 hover:bg-navy-700 hover:text-white',
+                    : 'text-white hover:bg-navy-700 hover:text-white',
               )}
             >
               <div className="flex items-center gap-3">
-                <span className={cn('shrink-0', isActive ? 'text-white' : 'text-gray-400 group-hover:text-white')}>
+                <span className={cn('shrink-0', isActive ? 'text-white' : 'text-gray-100 group-hover:text-white')}>
                   {item.icon}
                 </span>
                 {!navCollapsed && <span>{item.label}</span>}
@@ -310,7 +316,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
                       ? 'bg-white/20 text-white'
                       : item.highlight
                         ? 'bg-amber-400 text-navy-950'
-                        : 'bg-navy-700 text-gray-300',
+                        : 'bg-navy-700 text-white',
                   )}
                 >
                   {item.badge}
@@ -324,7 +330,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
       {!navCollapsed && (
         <div className="p-4 m-3 rounded-xl bg-navy-900/80 border border-navy-700 text-xs">
           <p className="font-semibold text-teal-300">Pedagogical Guardrail</p>
-          <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+          <p className="text-[11px] text-gray-200 mt-1 leading-relaxed">
             Protects 60% Core Competencies when calendar disruptions occur.
           </p>
         </div>

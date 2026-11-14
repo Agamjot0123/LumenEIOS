@@ -220,7 +220,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loadStorage('crossCurricularProposals', initialCrossCurricularProposals)
   );
   const [homeworkRemediations, setHomeworkRemediations] = useState<HomeworkRemediation[]>(() =>
-    loadStorage('homeworkRemediations', initialHomeworkRemediations)
+    loadStorage('homeworkRemediationsV2', initialHomeworkRemediations)
   );
   const [answerSheetUploads, setAnswerSheetUploads] = useState<AnswerSheetUpload[]>(() =>
     loadStorage('answerSheetUploads', [])
@@ -249,7 +249,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => saveStorage('curriculumDays', curriculumDays), [curriculumDays]);
   useEffect(() => saveStorage('lostTeachingDays', lostTeachingDays), [lostTeachingDays]);
   useEffect(() => saveStorage('crossCurricularProposals', crossCurricularProposals), [crossCurricularProposals]);
-  useEffect(() => saveStorage('homeworkRemediations', homeworkRemediations), [homeworkRemediations]);
+  useEffect(() => saveStorage('homeworkRemediationsV2', homeworkRemediations), [homeworkRemediations]);
   useEffect(() => saveStorage('answerSheetUploads', answerSheetUploads), [answerSheetUploads]);
   useEffect(() => saveStorage('sheetAssignments', sheetAssignments), [sheetAssignments]);
   useEffect(() => saveStorage('addedTeachers', addedTeachers), [addedTeachers]);
@@ -619,7 +619,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const submitStudentHomework = (id: string) => {
     setHomeworkRemediations((prev) =>
-      prev.map((h) => (h.id === id ? { ...h, status: 'submitted', score: 92 } : h))
+      prev.map((h) => (h.id === id ? { ...h, status: 'submitted', submittedAt: new Date().toISOString(), score: 92 } : h))
     );
     addAuditLog('Student Homework Submitted', `Student completed remediation task #${id}.`, 'assessment');
   };

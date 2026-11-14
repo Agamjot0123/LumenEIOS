@@ -11,7 +11,7 @@ export const SchoolPerformancePage: React.FC = () => {
       <div className="bg-white p-5 rounded-2xl border border-surface-border shadow-subtle">
         <h1 className="text-xl font-bold text-navy-900 tracking-tight">School performance</h1>
         <p className="mt-1 text-sm text-content-secondary">
-          Benchmark scores for the school you lead. Click a student’s name to open their monthly performance.
+          Benchmark scores for the school you lead. Choose a class, then click a student’s name to open their performance.
         </p>
       </div>
       <SchoolPerformance schoolId={schoolId} />
