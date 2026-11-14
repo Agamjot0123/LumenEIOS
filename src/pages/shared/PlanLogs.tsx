@@ -99,7 +99,7 @@ export const PlanLogs: React.FC = () => {
               {data.items.map((e) => (
                 <React.Fragment key={e.id}>
                   <tr className="cursor-pointer hover:bg-surface-bg" onClick={() => setOpen(open === e.id ? null : e.id)} data-testid="log-row">
-                    <td className={tdCls}>{e.occurred_at.slice(0, 16).replace('T', ' ')}</td>
+                    <td className={tdCls}>{e.occurred_at.slice(0, 16).replace('T', ' ')} UTC</td>
                     <td className={tdCls}>{CATEGORY_LABEL[e.category] ?? e.category}</td>
                     <td className={tdCls}>{e.summary}</td>
                     <td className={tdCls}>{e.actor_name}</td>

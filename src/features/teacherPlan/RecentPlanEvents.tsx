@@ -17,7 +17,7 @@ export const RecentPlanEvents: React.FC<{ limit?: number; filters?: Record<strin
         <ul className="space-y-0.5" aria-label="Recent planning events">
           {data.items.map((e) => (
             <li key={e.id}>
-              {e.occurred_at.slice(0, 16).replace('T', ' ')} · <b>{e.actor_name}</b> ({e.actor_role}) · {CATEGORY_LABEL[e.category] ?? e.category} · {e.summary}
+              {e.occurred_at.slice(0, 16).replace('T', ' ')} UTC · <b>{e.actor_name}</b> ({e.actor_role}) · {CATEGORY_LABEL[e.category] ?? e.category} · {e.summary}
             </li>
           ))}
         </ul>

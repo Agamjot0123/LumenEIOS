@@ -35,7 +35,7 @@ export const AuditLogs: React.FC = () => {
       .then((r) => {
         if (cancelled) return;
         setLiveError('');
-        setLive(r.items.map((e) => ({ id: e.id, timestamp: e.occurred_at.slice(0, 16).replace('T', ' '), sortKey: e.occurred_at.replace('T', ' '), action: CATEGORY_LABEL[e.category] ?? e.category, category: 'planning', operator: `${e.actor_name} (${e.actor_role})`, details: e.summary, source: 'planning' as const })));
+        setLive(r.items.map((e) => ({ id: e.id, timestamp: `${e.occurred_at.slice(0, 16).replace('T', ' ')} UTC`, sortKey: e.occurred_at.replace('T', ' '), action: CATEGORY_LABEL[e.category] ?? e.category, category: 'planning', operator: `${e.actor_name} (${e.actor_role})`, details: e.summary, source: 'planning' as const })));
       })
       .catch((err) => !cancelled && setLiveError(describeError(err).message));
     return () => {

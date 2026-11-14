@@ -70,4 +70,16 @@ def validate_schedule(lessons: Any, config: Any, subject: Any, previous: Optiona
             old = before.get(str(lesson.get("nodeId"))) if isinstance(lesson, dict) else None
             if old and old.get("corePeriods") is not None and (lesson.get("corePeriods") or 0) < old["corePeriods"]:
                 v.append(f"{label}: approved Core requirement of {lesson.get('nodeId')} was reduced.")
+        # Core conservation: every Core period of the previous schedule must still be either placed in a Core slot or explicitly
+        # reported as unscheduled Core. A client can no longer keep the declared `corePeriods` while flipping Core slots to Non-Core.
+        def core_accounted(items: Any) -> int:
+            total = 0
+            for x in items:
+                if isinstance(x, dict):
+                    total += sum(1 for sl in (x.get("slots") or []) if isinstance(sl, dict) and sl.get("kind") == "CORE")
+                    total += int(x.get("coreUnscheduled") or 0)
+            return total
+        if core_accounted(lessons) < core_accounted(previous):
+            v.append(f"{label}: Core periods were silently reduced ({core_accounted(lessons)} accounted for, {core_accounted(previous)} before); "
+                     "a Core period must stay scheduled or be reported as unresolved.")
     return v

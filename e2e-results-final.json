@@ -1,0 +1,206 @@
+[
+ {
+  "id": "F0",
+  "what": "fresh DB initialised: 415 topics, 6 plans, no duplicates, 76/353/102 in the dataset",
+  "ok": true,
+  "note": "garima:6S=65 garima:7S=78 garima:8S=84 kamlesh:6M=65 kamlesh:7M=65 kamlesh:8M=58"
+ },
+ {
+  "id": "C1",
+  "what": "coverage NOT_DONE -> IN_PROGRESS persists, audited with before/after",
+  "ok": false,
+  "note": "{\"id\":\"f5fabacc-e298-4a5f-a18e-eea314882df5\",\"occurred_at\":\"2026-11-14T17:19:12.514244\",\"actor_id\":\"user-teacher-garima\",\"actor_name\":\"Garima\",\"actor_role\":\"teacher\",\"school_id\":\"school-1\",\"teacher_id\":\"user-teacher-garima\",\"grade\":6,\"subject\":\"Science\",\"topic_keys\":[\"ncert-review-section_src_554cd7"
+ },
+ {
+  "id": "C2",
+  "what": "coverage IN_PROGRESS -> DONE persists, audited with before/after",
+  "ok": false,
+  "note": "{\"id\":\"cda38236-9fbd-42dc-ad12-9e395732f7fd\",\"occurred_at\":\"2026-11-14T17:19:13.719745\",\"actor_id\":\"user-teacher-garima\",\"actor_name\":\"Garima\",\"actor_role\":\"teacher\",\"school_id\":\"school-1\",\"teacher_id\":\"user-teacher-garima\",\"grade\":6,\"subject\":\"Science\",\"topic_keys\":[\"ncert-review-section_src_554cd7"
+ },
+ {
+  "id": "C3",
+  "what": "coverage DONE -> IN_PROGRESS persists, audited with before/after",
+  "ok": false,
+  "note": "{\"id\":\"cc54e265-e41a-4456-8e46-665495404fac\",\"occurred_at\":\"2026-11-14T17:19:14.805968\",\"actor_id\":\"user-teacher-garima\",\"actor_name\":\"Garima\",\"actor_role\":\"teacher\",\"school_id\":\"school-1\",\"teacher_id\":\"user-teacher-garima\",\"grade\":6,\"subject\":\"Science\",\"topic_keys\":[\"ncert-review-section_src_554cd7"
+ },
+ {
+  "id": "C4",
+  "what": "coverage IN_PROGRESS -> NOT_DONE persists, audited with before/after",
+  "ok": false,
+  "note": "{\"id\":\"56f07f34-b12c-4ffe-9ab0-145e49a2a9af\",\"occurred_at\":\"2026-11-14T17:19:15.909724\",\"actor_id\":\"user-teacher-garima\",\"actor_name\":\"Garima\",\"actor_role\":\"teacher\",\"school_id\":\"school-1\",\"teacher_id\":\"user-teacher-garima\",\"grade\":6,\"subject\":\"Science\",\"topic_keys\":[\"ncert-review-section_src_554cd7"
+ },
+ {
+  "id": "C5",
+  "what": "coverage NOT_DONE -> DONE persists, audited with before/after",
+  "ok": false,
+  "note": "locator.inputValue: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "C6",
+  "what": "coverage DONE -> NOT_DONE persists, audited with before/after",
+  "ok": false,
+  "note": "locator.inputValue: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "C7",
+  "what": "coverage percentage equals persisted Done / 65 (all back to 0 done)",
+  "ok": true,
+  "note": "0% / 65"
+ },
+ {
+  "id": "K1",
+  "what": "classification mixed -> non_core: periods redistributed (total 4 kept) and persisted",
+  "ok": true,
+  "note": "mixed->non_core core=0 non-core=4"
+ },
+ {
+  "id": "K2",
+  "what": "classification non_core -> core: periods redistributed (total 4 kept) and persisted",
+  "ok": true,
+  "note": "non_core->core core=4 non-core=0"
+ },
+ {
+  "id": "K3",
+  "what": "classification core -> mixed: periods redistributed (total 4 kept) and persisted",
+  "ok": true,
+  "note": "core->mixed core=3 non-core=1"
+ },
+ {
+  "id": "K4",
+  "what": "classification mixed -> core: periods redistributed (total 4 kept) and persisted",
+  "ok": true,
+  "note": "mixed->core core=4 non-core=0"
+ },
+ {
+  "id": "K5",
+  "what": "classification core -> non_core: periods redistributed (total 4 kept) and persisted",
+  "ok": true,
+  "note": "core->non_core core=0 non-core=4"
+ },
+ {
+  "id": "K6",
+  "what": "reload keeps Core/Non-Core and capacity total unchanged",
+  "ok": true,
+  "note": "allocation valid, proposed_total=234"
+ },
+ {
+  "id": "T0",
+  "what": "Academic Configuration: 2 Science periods/day saved (admin, versioned)",
+  "ok": true,
+  "note": "calendar v0->v1"
+ },
+ {
+  "id": "T1",
+  "what": "Time-Aware (Garima, VI Science) renders saved requirements; no \"Not configured\"; day counts present",
+  "ok": true,
+  "note": "DAYS COMPLETED 163 DAYS REMAINING 98 | CORE PERIODS 163 configured"
+ },
+ {
+  "id": "T2",
+  "what": "Generate draft (teacher) then principal approves -> schedule v1",
+  "ok": true,
+  "note": "plan plan-7e5 v1, lessons=65"
+ },
+ {
+  "id": "L1",
+  "what": "record TWO periods on the SAME date -> 2 lost periods but ONE lost day",
+  "ok": false,
+  "note": "locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "R1",
+  "what": "a recovery proposal is generated automatically; v1 stays authoritative; Core not dropped",
+  "ok": false,
+  "note": "proposal/versions"
+ },
+ {
+  "id": "R2",
+  "what": "principal reviews proposal in UI; rejection needs a reason; v1 unchanged",
+  "ok": false,
+  "note": "locator.waitFor: Timeout 20000ms exceeded."
+ },
+ {
+  "id": "L2",
+  "what": "a third loss on a different date -> 3 lost periods, 2 lost days",
+  "ok": false,
+  "note": "locator.click: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "R3",
+  "what": "server REJECTS an invalid proposal that drops a lesson (validation)",
+  "ok": false,
+  "note": "no pending proposal"
+ },
+ {
+  "id": "R4",
+  "what": "principal approves the proposal in UI -> schedule v2 linked to it, v1 untouched",
+  "ok": false,
+  "note": "locator.waitFor: Timeout 20000ms exceeded."
+ },
+ {
+  "id": "R5",
+  "what": "v2 invariants: same Core total as v1 (nothing silently dropped), no duplicate slot",
+  "ok": false,
+  "note": "Cannot read properties of undefined (reading 'lessons')"
+ },
+ {
+  "id": "O1",
+  "what": "Planning Oversight (API) equals the teacher record: lost days/periods, version, approval",
+  "ok": false,
+  "note": "{\"teacher_id\":\"user-teacher-garima\",\"teacher_name\":\"Garima\",\"grade\":6,\"subject\":\"Science\",\"config_status\":\"within_capacity\",\"teaching_days_completed\":163,\"teaching_days_remaining\":98,\"lost_days\":0,\"lost_periods\":0,\"required_periods\":234,\"scheduled_periods\":196,\"taught_periods\":0,\"outstanding_core_pe"
+ },
+ {
+  "id": "O2",
+  "what": "Coverage Oversight (API+UI) equals Course Curriculum for the same teacher",
+  "ok": false,
+  "note": "locator.selectOption: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "O3",
+  "what": "Planning Oversight UI lists the teacher with the same figures",
+  "ok": true,
+  "note": "Garima row present"
+ },
+ {
+  "id": "G1",
+  "what": "Central Logs (API): actor, timestamp and before/after on classification, coverage, loss, rejection and approval",
+  "ok": false,
+  "note": "missing category recovery_proposal; have coverage_status,schedule_version,plan_approval,plan_draft,period_requirement,topic_classification"
+ },
+ {
+  "id": "G2",
+  "what": "Central Logs page renders the events",
+  "ok": true,
+  "note": "rendered"
+ },
+ {
+  "id": "I1",
+  "what": "a teacher cannot read or change another teacher's plan (403/404), nothing leaks",
+  "ok": true,
+  "note": "read 403, writes 403/403; Kamlesh plan untouched"
+ },
+ {
+  "id": "I2",
+  "what": "school isolation: each principal's oversight and logs contain only their school",
+  "ok": true,
+  "note": "P1 sees 5 teacher(s), P2 sees 3; cross-school reads 404/404"
+ },
+ {
+  "id": "I3",
+  "what": "UI: second teacher (Kamlesh) opens VI Maths: own plan, separate values",
+  "ok": true,
+  "note": "Kamlesh 0%"
+ },
+ {
+  "id": "I4",
+  "what": "Garima's edits persist across logout/login and a fresh browser context",
+  "ok": false,
+  "note": "locator.inputValue: Timeout 30000ms exceeded."
+ },
+ {
+  "id": "I5",
+  "what": "protected-looking ineligible teachers (English, Chemistry) have no plan rows",
+  "ok": true,
+  "note": "0 rows"
+ }
+]
