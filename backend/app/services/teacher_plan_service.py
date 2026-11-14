@@ -133,7 +133,8 @@ async def build_plan(db: AsyncSession, school_id: str, teacher_id: str, year: st
                      "prerequisites": [r.prerequisite_key for r in rels if r.topic_key == c.topic_key]})
     check = alloc.validate_requirements(rows, cap["topic_capacity"])
     check["unallocated_topics"] = sum(1 for r in rows if r["core_periods"] + r["non_core_periods"] == 0)
-    return {"school_id": school_id, "teacher_id": teacher_id, "academic_year": year, "grade": grade, "subject": subject,
+    owner = (await db.execute(select(User.name).filter_by(id=teacher_id))).scalar()
+    return {"school_id": school_id, "teacher_id": teacher_id, "teacher_name": owner, "academic_year": year, "grade": grade, "subject": subject,
             "calendar_version": cal["version"], "capacity": cap, "allocation": check, "topics": rows,
             "topic_count": len(topics), "configured_topic_count": len(cfgs),
             "coverage": coverage_stats(r["coverage"] for r in rows)}

@@ -21,11 +21,15 @@ import type { PlanningSubject } from '../../../lib/planning/calendar';
 import { defaultDatasetFor, syllabusFor, SCHEDULABLE_KINDS, type SyllabusNode } from '../../../lib/planning/syllabus';
 import { usePlanning } from '../../../lib/planning/usePlanning';
 import { describeError } from '../../../lib/teacherPlanApi';
-import { useTeacherCoverage } from '../../teacherPlan/useTeacherCoverage';
+import { nodeIdOf, useTeacherCoverage } from '../../teacherPlan/useTeacherCoverage';
 import { ROMAN, SUBJECT_LABEL, type GradeNumber, type SubjectKey } from '../types';
 
 /** The catalogue's subject keys map onto the planning engine's subject names (same subjects, same topics). */
 export const toPlanningSubject = (s: SubjectKey): PlanningSubject => (s === 'science' ? 'Science' : 'Mathematics');
+
+type ClassValue = 'core' | 'mixed' | 'non_core';
+const CLASS_VALUES: ClassValue[] = ['core', 'mixed', 'non_core'];
+const CLASS_LABEL: Record<ClassValue, string> = { core: 'Core', mixed: 'Core + Non-Core (2:1)', non_core: 'Non-Core' };
 
 export const CoverageDot: React.FC<{ status: CoverageStatus; testId?: string }> = ({ status, testId }) => (
   <span aria-hidden="true" data-testid={testId} data-status={status} className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COVERAGE_COLOR[status] }} />
@@ -71,12 +75,31 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
 
   const summary = useMemo(() => summarizeStatuses(view.units.map((u) => statusOf(coverage, u.id))), [view, coverage]);
 
+  const planRows = useMemo(() => new Map((tc.plan?.topics ?? []).map((t) => [nodeIdOf(t.topic_key), t])), [tc.plan]);
+  const [savedNote, setSavedNote] = useState('');
+  const changeClassification = async (node: SyllabusNode, value: ClassValue) => {
+    const current = planRows.get(node.id);
+    if (!canEdit || saving[node.id] || !current || current.classification === value) return;
+    setError('');
+    setSavedNote('');
+    setSaving((s) => ({ ...s, [node.id]: true }));
+    try {
+      await tc.setClassification(node.id, value);
+      setSavedNote(`Saved: ${node.number ? node.number + ' ' : ''}${node.title} is now ${CLASS_LABEL[value]}.`);
+    } catch (e) {
+      setError(describeError(e).message);
+    }
+    setSaving((s) => ({ ...s, [node.id]: false }));
+  };
+
   const change = async (node: SyllabusNode, status: CoverageStatus) => {
     if (!canEdit || saving[node.id] || statusOf(coverage, node.id) === status) return;
     setError('');
+    setSavedNote('');
     setSaving((s) => ({ ...s, [node.id]: true }));
     try {
       await tc.set(node.id, status, 'MANUAL');
+      setSavedNote(`Saved: ${node.number ? node.number + ' ' : ''}${node.title} is now ${COVERAGE_LABEL[status]}.`);
     } catch (e) {
       setError(describeError(e).message);
     }
@@ -103,6 +126,11 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
           <h2 className="text-base font-bold text-navy-900">Class {ROMAN[grade]} · {subjectName}</h2>
           <p className="text-sm text-navy-900"><span className="font-bold text-2xl" data-testid="coverage-percent">{summary.percent}%</span> covered</p>
         </div>
+        {tc.plan && (
+          <p className="text-xs text-content-secondary" data-testid="plan-context">
+            Editing the plan of <b data-testid="plan-teacher">{tc.plan.teacher_name || tc.teacherId}</b> · Class {ROMAN[grade]} (grade {grade}) · {subjectName} · academic year {tc.plan.academic_year || '—'}. Every Core / Non-Core and coverage value below is the saved value.
+          </p>
+        )}
         <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden" role="progressbar" aria-valuenow={summary.percent} aria-valuemin={0} aria-valuemax={100} aria-label="Syllabus coverage">
           <div className="h-full rounded-full" style={{ width: `${summary.percent}%`, backgroundColor: COVERAGE_COLOR.DONE }} />
         </div>
@@ -116,6 +144,7 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
       </div>
 
       {error && <p className="text-xs text-rose-700" role="alert">{error}</p>}
+      {savedNote && <p className="text-xs text-teal-700" role="status" data-testid="saved-note">{savedNote}</p>}
 
       {structure.length === 0 ? (
         <div className="bg-white p-5 rounded-2xl border border-surface-border text-sm text-content-secondary" data-testid="empty-syllabus">
@@ -157,8 +186,29 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
                             <span className={eligible ? 'text-sm text-navy-900' : 'text-sm font-semibold text-navy-900'}>{node.number ? `${node.number} ` : ''}{node.title}</span>
                             {eligible && rec?.source === 'EXECUTION' && <span className="block text-[11px] text-content-muted">Coverage from classroom teaching records.</span>}
                             {eligible && rec?.source === 'MANUAL' && <span className="block text-[11px] text-content-muted">Manual coverage{ev?.taughtPeriods ? ` · ${ev.taughtPeriods} classroom period(s) recorded` : ' · no classroom periods recorded'}.</span>}
+                            {eligible && planRows.get(node.id)?.origin === 'demo_default' && <span className="block text-[11px] text-content-muted" data-testid={`basis-${node.id}`}>Initial planning default, not an official NCERT classification. Change it here.</span>}
                             {eligible && ev?.complete && status !== 'DONE' && <span className="block text-[11px] text-amber-800">Classroom records show this topic as taught.</span>}
                           </span>
+                          {eligible && (
+                            <span className="inline-flex items-center gap-2" data-testid={`class-${node.id}`} data-classification={planRows.get(node.id)?.classification ?? 'none'}>
+                              {planRows.get(node.id) ? (
+                                <select
+                                  aria-label={`Core or Non-Core for ${node.number ? node.number + ' ' : ''}${node.title}`}
+                                  className="text-xs rounded-lg border border-surface-border bg-white px-2 py-1.5 font-medium disabled:opacity-60"
+                                  value={planRows.get(node.id)!.classification}
+                                  disabled={!canEdit || !!saving[node.id]}
+                                  title={canEdit ? '' : 'Only the owning teacher can change classifications.'}
+                                  onChange={(e) => changeClassification(node, e.target.value as ClassValue)}
+                                >
+                                  {CLASS_VALUES.map((v) => (
+                                    <option key={v} value={v}>{CLASS_LABEL[v]}</option>
+                                  ))}
+                                </select>
+                              ) : tc.plan ? (
+                                <span className="text-xs font-semibold text-rose-700" data-testid={`unconfigured-${node.id}`} title="No saved configuration exists for this topic in this teacher's plan.">Not configured</span>
+                              ) : null}
+                            </span>
+                          )}
                           {eligible && (
                             <span className="inline-flex items-center gap-2" data-testid={`status-${node.id}`} data-status={status}>
                               <CoverageDot status={status} testId={`dot-${node.id}`} />

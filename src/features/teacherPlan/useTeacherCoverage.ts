@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import type { Coverage as LibCoverage, CoverageStatus } from '../../lib/planning/coverage';
+import { invalidateRequirements } from './requirementsStore';
 import { describeError, teacherPlanApi, type Coverage as ApiCoverage, type TeacherPlan } from '../../lib/teacherPlanApi';
 
 /** Syllabus node ids (CH-<book>-S<n>) and relational topic keys (XW-<book>-S<n>) differ only by prefix. */
@@ -69,5 +70,27 @@ export function useTeacherCoverage(grade: number, subject: string) {
     },
     [teacherId, grade, subject, reload],
   );
-  return { teacherId, own, plan, coverage, loading, error, reload, set, canEdit: own };
+  /**
+   * Persist a topic's Core / Non-Core / Mixed classification. The topic's saved total stays the same (capacity-neutral): Core
+   * puts every period in Core, Non-Core every period in Non-Core, Mixed splits 2:1 (Core rounded up). The server re-validates.
+   */
+  const setClassification = useCallback(
+    async (nodeId: string, value: 'core' | 'non_core' | 'mixed') => {
+      const key = topicKeyOf(nodeId);
+      const row = plan?.topics.find((t) => t.topic_key === key);
+      if (!row) throw new Error('This topic has no saved configuration yet.');
+      const total = row.core_periods + row.non_core_periods;
+      const core = value === 'core' ? total : value === 'non_core' ? 0 : Math.ceil((total * 2) / 3);
+      await teacherPlanApi.saveRequirements(teacherId, {
+        grade,
+        subject,
+        reason: 'Teacher changed topic classification',
+        items: [{ topic_key: key, core_periods: core, non_core_periods: total - core, classification: value }],
+      });
+      invalidateRequirements();
+      await reload();
+    },
+    [plan, teacherId, grade, subject, reload],
+  );
+  return { teacherId, own, plan, coverage, loading, error, reload, set, setClassification, canEdit: own };
 }

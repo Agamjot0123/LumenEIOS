@@ -73,6 +73,8 @@ export interface RelationshipItem {
 export interface CoverageStats { eligible: number; done: number; in_progress: number; not_done: number; percent: number }
 export interface TeacherPlan {
   teacher_id: string;
+  teacher_name?: string | null;
+  academic_year?: string;
   grade: number;
   subject: string;
   calendar_version: number;

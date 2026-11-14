@@ -14,6 +14,10 @@ from backend.app.api.v1.router import api_router
 from backend.app.seed.seed_data import ensure_classic_demo_student_link, seed_database_if_empty
 
 
+class _SkipSeed(Exception):
+    pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from pathlib import Path
@@ -31,6 +35,18 @@ async def lifespan(app: FastAPI):
             await seed_database_if_empty(session)
             # Older classic demo DBs may lack StudentAccountLink; repair without reseeding.
             await ensure_classic_demo_student_link(session)
+        # Full syllabus + default teacher plans: additive and idempotent (only fills what is missing), so every clone and every
+        # upgraded database converges on the same curriculum without touching teacher edits or coverage.
+        try:
+            if not settings.AUTO_SEED_CURRICULUM:
+                raise _SkipSeed
+            from backend.app.services.syllabus_seed import initialise_curriculum
+            async with AsyncSessionLocal() as session:
+                logger.info("Curriculum initialisation: %s", await initialise_curriculum(session))
+        except _SkipSeed:
+            logger.info("Curriculum auto-initialisation disabled (AUTO_SEED_CURRICULUM=false).")
+        except Exception:  # never block startup; the explicit command backend.scripts.init_curriculum reports the failure
+            logger.exception("Curriculum initialisation failed; run `python -m backend.scripts.init_curriculum`.")
     logger.info("LumenEIOS Backend successfully started.")
     yield
     logger.info("LumenEIOS Backend shutting down.")

@@ -102,7 +102,7 @@ def _read(path: Path) -> str:
 
 def test_only_the_workspace_endpoint_and_the_one_time_import_touch_workspace_revisions():
     """No relational service reads or writes the legacy document. Allowed: the model, its endpoint, the import, the demo-seed guard."""
-    allowed = {"models/planning_workspace.py", "db/base.py", "api/v1/planning.py", "services/workspace_import.py", "seed/teacher_plan_demo.py"}
+    allowed = {"models/planning_workspace.py", "db/base.py", "api/v1/planning.py", "services/workspace_import.py", "seed/teacher_plan_demo.py", "services/syllabus_seed.py"}
     offenders = []
     for f in APP.rglob("*.py"):
         rel = f.relative_to(APP).as_posix()

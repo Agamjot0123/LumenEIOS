@@ -89,6 +89,9 @@ class Settings(BaseSettings):
 
     # Demo mode: seeds sample accounts (password demo123) and enables demo shortcuts.
     DEMO_MODE: bool = True
+    # Fill any missing syllabus topics / default teacher plans at startup (additive, idempotent). Tests that exercise the small
+    # research crosswalk switch it off; the explicit command backend.scripts.init_curriculum works either way.
+    AUTO_SEED_CURRICULUM: bool = True
     # Development root login: LEOFELIX or leofelix@lumeneios.demo.
     # Defaults to the password shown on the sign-in page. Blank or production disables it.
     DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")

@@ -7,6 +7,7 @@ import type { Coverage, LostRow, RelationshipItem, RequirementItem, TeacherPlan 
 interface Cell { status: Coverage; source: 'MANUAL' | 'EXECUTION' }
 export const fakeStore = {
   coverage: new Map<string, Map<string, Cell>>(),
+  classes: new Map<string, Map<string, { classification: string; core: number; non: number }>>(),
   requirements: new Map<string, RequirementItem[]>(),
   relationships: new Map<string, RelationshipItem[]>(),
   calendar: [] as { version: number; config: any; reason: string; created_by: string; created_by_name: string; created_by_role: string; created_at: string; capacity: Record<string, never> }[],
@@ -26,6 +27,7 @@ export const fakeStore = {
   events: [] as { teacher: string; topic_key: string; from: Coverage; to: Coverage; source: string }[],
   reset() {
     this.coverage.clear();
+    this.classes.clear();
     this.events.length = 0;
     this.requirements.clear();
     this.relationships.clear();
@@ -203,8 +205,8 @@ export function makeFakeTeacherPlanApi() {
       allocation: { proposed_total: 0, topic_capacity: 90, remaining: 90, deficit: 0, valid: true, errors: [] },
       topic_count: rows.length, configured_topic_count: rows.length,
       topics: rows.map(([k, c]) => ({
-        topic_key: k, chapter_number: '1', chapter_title: 't', section: k, classification: 'mixed' as const, core_periods: 1,
-        non_core_periods: 1, teaching_mode: 'INDEPENDENT' as const, independent_periods: 0, classroom_periods: 2, origin: 'demo_default' as const, version: 1, coverage: c.status, coverage_source: c.source,
+        topic_key: k, chapter_number: '1', chapter_title: 't', section: k, classification: (fakeStore.classes.get(teacher)?.get(k)?.classification ?? 'mixed') as 'core' | 'mixed' | 'non_core', core_periods: fakeStore.classes.get(teacher)?.get(k)?.core ?? 1,
+        non_core_periods: fakeStore.classes.get(teacher)?.get(k)?.non ?? 1, teaching_mode: 'INDEPENDENT' as const, independent_periods: 0, classroom_periods: 2, origin: 'demo_default' as const, version: 1, coverage: c.status, coverage_source: c.source,
         coverage_updated_at: null, prerequisites: [],
       })),
       coverage: { eligible: rows.length, done: 0, in_progress: 0, not_done: 0, percent: 0 },
@@ -234,7 +236,12 @@ export function makeFakeTeacherPlanApi() {
       if (before !== body.status) fakeStore.events.push({ teacher, topic_key: body.topic_key, from: before, to: body.status, source: body.source ?? 'MANUAL' });
       return {};
     },
-    saveRequirements: async () => ({ changed: [] }),
+    saveRequirements: async (teacher: string, body: { items: { topic_key: string; core_periods: number; non_core_periods: number; classification?: 'core' | 'mixed' | 'non_core' }[] }) => {
+      const m = fakeStore.classes.get(teacher) ?? new Map();
+      for (const i of body.items) m.set(i.topic_key, { classification: i.classification ?? 'mixed', core: i.core_periods, non: i.non_core_periods });
+      fakeStore.classes.set(teacher, m);
+      return { changed: body.items.map((i) => i.topic_key) };
+    },
     lost: async (teacher: string, grade: number, subject: string) => {
       const records = (fakeStore.lost.get(teacher) ?? []).filter((r) => r.grade === grade && r.subject === subject);
       const active = records.filter((r) => r.status === 'active');

@@ -108,7 +108,7 @@ describe('Curriculum Catalogue: select class -> select subject -> syllabus', () 
     cleanup();
     open('/curriculum/catalogue/6/mathematics', 'student');
     expect(screen.queryByTestId('syllabus-view')).toBeNull();
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByLabelText(/^Coverage status/)).toBeNull();
     cleanup();
     open('/curriculum/catalogue', 'student');
     expect(screen.queryByRole('button', { name: 'Class VI' })).toBeNull();
@@ -144,7 +144,7 @@ describe('Curriculum Catalogue: select class -> select subject -> syllabus', () 
       screen.getByTestId('demo-notice').textContent,
       screen.getByTestId('coverage-overview').textContent,
       ...screen.getAllByRole('radiogroup').map((g) => g.textContent),
-      ...within(screen.getAllByRole('combobox')[0]).getAllByRole('option').map((o) => o.textContent),
+      ...within(screen.getAllByLabelText(/^Coverage status/)[0]).getAllByRole('option').map((o) => o.textContent),
     ].join(' ');
     expect(chrome).not.toMatch(BANNED);
     // the old review controls are gone
@@ -154,7 +154,7 @@ describe('Curriculum Catalogue: select class -> select subject -> syllabus', () 
 });
 
 describe('inline coverage status in the catalogue', () => {
-  const firstSelect = () => screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+  const firstSelect = () => screen.getAllByLabelText(/^Coverage status/)[0] as HTMLSelectElement;
 
   it('offers exactly Done, Not done and In progress', () => {
     open('/curriculum/catalogue/6/mathematics');
@@ -168,7 +168,7 @@ describe('inline coverage status in the catalogue', () => {
     expandAll();
     const target = units[0];
     const dot = () => screen.getByTestId(`dot-${target.id}`);
-    const select = () => within(screen.getByTestId(`topic-${target.id}`)).getByRole('combobox') as HTMLSelectElement;
+    const select = () => within(screen.getByTestId(`topic-${target.id}`)).getByLabelText(/^Coverage status/) as HTMLSelectElement;
     expect(dot()).toHaveStyle({ backgroundColor: '#9CA3AF' });
 
     fireEvent.change(select(), { target: { value: 'IN_PROGRESS' } });
@@ -206,6 +206,26 @@ describe('inline coverage status in the catalogue', () => {
     expect(screen.getByTestId(`dot-${target.id}`)).toHaveAttribute('data-status', 'DONE');
   });
 
+  it('every teachable topic shows a saved Core/Non-Core control and a coverage control; a classification change persists per teacher', async () => {
+    const units = syllabusFor(VERIFIED_DATASET, 7, 'Mathematics').units;
+    for (const u of units) fakeStore.preload('user-teacher-1', u.id.replace('CH-', 'XW-'), 'not_done', 'MANUAL'); // the plan's persisted rows
+    const view = open('/curriculum/catalogue/7/mathematics');
+    expandAll();
+    await waitFor(() => expect(screen.getAllByLabelText(/^Core or Non-Core for/)).toHaveLength(units.length));
+    expect(screen.getAllByLabelText(/^Coverage status for/)).toHaveLength(units.length);
+    expect(screen.queryAllByTestId(/^unconfigured-/)).toHaveLength(0);
+    expect(screen.getByTestId('plan-context')).toHaveTextContent(/Class VII \(grade 7\) · Mathematics/);
+    const sel = () => within(screen.getByTestId(`topic-${units[0].id}`)).getByLabelText(/^Core or Non-Core for/) as HTMLSelectElement;
+    fireEvent.change(sel(), { target: { value: 'non_core' } });
+    await waitFor(() => expect(sel().value).toBe('non_core'));
+    expect(screen.getByTestId('saved-note')).toBeInTheDocument();
+    expect(fakeStore.classes.get('user-teacher-1')?.get(units[0].id.replace('CH-', 'XW-'))).toMatchObject({ classification: 'non_core', core: 0, non: 2 });
+    view.unmount();
+    open('/curriculum/catalogue/7/mathematics');
+    expandAll();
+    await waitFor(() => expect(sel().value).toBe('non_core')); // reloaded from the store
+  });
+
   it('chapter status is calculated: mixture is In progress, all Done is Done, none is Not done', async () => {
     open('/curriculum/catalogue/7/mathematics');
     const view = syllabusFor(VERIFIED_DATASET, 7, 'Mathematics');
@@ -215,7 +235,7 @@ describe('inline coverage status in the catalogue', () => {
     expect(status()).toHaveAttribute('data-status', 'NOT_DONE');
     expandAll();
     const set = async (id: string, value: string) => {
-      fireEvent.change(within(screen.getByTestId(`topic-${id}`)).getByRole('combobox'), { target: { value } });
+      fireEvent.change(within(screen.getByTestId(`topic-${id}`)).getByLabelText(/^Coverage status/), { target: { value } });
       await waitFor(() => expect(screen.getByTestId(`dot-${id}`)).toHaveAttribute('data-status', value));
     };
     await set(inChapter[0].id, 'DONE');
@@ -248,16 +268,16 @@ describe('permissions', () => {
   it('only the owning teacher edits; principals and admins see read-only coverage', async () => {
     open('/curriculum/catalogue/6/mathematics', 'principal');
     expandAll();
-    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    expect(screen.getAllByLabelText(/^Coverage status/)[0]).toBeDisabled();
     expect(screen.getByText('Coverage is read-only: only the owning teacher can change it.')).toBeInTheDocument();
     cleanup();
     open('/curriculum/catalogue/6/mathematics', 'admin');
     expandAll();
-    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    expect(screen.getAllByLabelText(/^Coverage status/)[0]).toBeDisabled();
     cleanup();
     open('/curriculum/catalogue/6/mathematics', 'teacher');
     expandAll();
-    await waitFor(() => expect(screen.getAllByRole('combobox')[0]).toBeEnabled());
+    await waitFor(() => expect(screen.getAllByLabelText(/^Coverage status/)[0]).toBeEnabled());
   });
 
   it('a Principal opening ?teacher=<id> sees that teacher’s coverage, read-only, and another teacher’s stays separate', async () => {
@@ -266,7 +286,7 @@ describe('permissions', () => {
     open(`/curriculum/catalogue/6/mathematics?teacher=user-teacher-2`, 'principal');
     expandAll();
     await waitFor(() => expect(screen.getByTestId(`dot-${topic.id}`)).toHaveAttribute('data-status', 'DONE'));
-    expect(screen.getAllByRole('combobox')[0]).toBeDisabled();
+    expect(screen.getAllByLabelText(/^Coverage status/)[0]).toBeDisabled();
     cleanup();
     open('/curriculum/catalogue/6/mathematics', 'teacher'); // user-teacher-1: untouched
     expandAll();
@@ -303,8 +323,8 @@ describe('data shape: resources, parent headings and the same topics as the Time
     expect(screen.getByText(/Sub Beta/)).toBeInTheDocument();
     expect(screen.getByText(/Leaf Topic/)).toBeInTheDocument();
     expect(screen.getByText(/Parent Heading/)).toBeInTheDocument();
-    expect(within(screen.getByTestId('topic-t1')).queryByRole('combobox')).toBeNull();
-    expect(screen.getAllByRole('combobox')).toHaveLength(3);
+    expect(within(screen.getByTestId('topic-t1')).queryByLabelText(/^Coverage status/)).toBeNull();
+    expect(screen.getAllByLabelText(/^Coverage status/)).toHaveLength(3);
     expect(screen.queryByText(/Fold the paper activity|Exercise set one/)).toBeNull();
   });
 
