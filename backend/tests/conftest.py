@@ -129,6 +129,11 @@ def pytest_unconfigure(config):
 async def prepare_database():
     _assert_isolated(engine.url, storage_service.upload_dir)
     await init_db()
+    from backend.app.modules.learnsphere.models import LearningTopic
+    from backend.app.db.session import Base
+    async with engine.begin() as connection:
+        await connection.run_sync(lambda sync: Base.metadata.create_all(sync, tables=[
+            t for t in Base.metadata.sorted_tables if t.name.startswith("learning_")]))
     async with AsyncSessionLocal() as session:
         await seed_database_if_empty(session)
     yield
@@ -153,6 +158,37 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+def isolate_automatic_stage_inference(monkeypatch):
+    """New submission hooks must never send synthetic fixtures to a real model."""
+    from backend.app.services.llm_service import qwen_question_studio
+    import backend.app.services.panchapadi as stage_worker
+    monkeypatch.setattr(stage_worker,"GUIDANCE_RETRY_DELAYS",(0,0))
+    from backend.app.schemas.panchapadi import StageClassification
+    async def no_unmeasured_stages(questions, answers, outcomes):
+        return StageClassification(questions=[{"position": q["position"], "mappings": []} for q in questions])
+    monkeypatch.setattr(qwen_question_studio, "classify_panchapadi", no_unmeasured_stages)
+    from backend.app.schemas.assessment_learning import LearningDrafts
+    from backend.app.services.llm_service import QwenQuestionStudioUnavailable
+    async def no_live_written(question, response):
+        raise QwenQuestionStudioUnavailable("Isolated test: no live model")
+    async def isolated_drafts(evidence):
+        position = (evidence.get("required_gap_positions") or [evidence["questions"][0]["position"]])[0]
+        return LearningDrafts(drafts=[{"kind":kind,"positions":[position],"stage":"Bodh",
+            "title":"Synthetic "+kind,"explanation":"Fixture evidence reference.","learning_tip":"Explain the method.",
+            "scenario":"Safe classroom task.","instructions":"Explain the idea in your own words.",
+            "expected_submission":"A written explanation.","objective":"Explain the concept.","rubric":"Check the reasoning."}
+            for kind in ("support","teach_back","mission")])
+    monkeypatch.setattr(qwen_question_studio, "mark_written_answer", no_live_written)
+    monkeypatch.setattr(qwen_question_studio, "generate_assessment_learning", isolated_drafts)
+    from backend.app.schemas.assessment_learning import QuestionGuidance
+    async def isolated_question_guidance(question,response,outcome,stages):
+        return QuestionGuidance(expected_concept="Explain the assessed concept." if question.get("correct_answer") else None,
+            misunderstanding="A response-specific gap." if outcome.get("score") is not None and outcome["score"]<outcome["maximum"] else None,
+            explanation="Explain the reasoning used for "+question["text"],activity="Try another example and explain each step.",practice_question="How would you justify your method?")
+    monkeypatch.setattr(qwen_question_studio,"assessment_question_guidance",isolated_question_guidance)
 
 
 @pytest.fixture

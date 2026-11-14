@@ -1,3 +1,8 @@
+import { LearnSphereLayout } from './pages/learnsphere/LearnSphereLayout';
+import { LearningSupport } from './pages/learnsphere/LearningSupport';
+import { LearningJourney } from './pages/learnsphere/LearningJourney';
+import { TeachBackChallenge } from './pages/learnsphere/TeachBackChallenge';
+import { RealLifeMissions } from './pages/learnsphere/RealLifeMissions';
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -88,6 +93,13 @@ const MainApp: React.FC = () => (
         </ProtectedRoute>
       }
     >
+      <Route path="/learnsphere" element={<LearnSphereLayout />}>
+        <Route index element={<Navigate to="support" replace />} />
+        <Route path="support" element={<LearningSupport />} />
+        <Route path="journey" element={<LearningJourney />} />
+        <Route path="teach-back" element={<TeachBackChallenge />} />
+        <Route path="missions" element={<RealLifeMissions />} />
+      </Route>
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/admin/schools" element={<SchoolsManagement />} />
       <Route path="/admin/schools/add" element={<OnboardingPage key="school" kind="School" />} />

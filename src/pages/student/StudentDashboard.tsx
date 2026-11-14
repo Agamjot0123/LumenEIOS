@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { StudentAssessments } from '../../components/common/StudentAssessments';
 import { useData } from '../../context/DataContext';
 import { demoMode, useAuth } from '../../context/AuthContext';
 import { ApiError, apiClient } from '../../lib/apiClient';
@@ -75,6 +76,7 @@ function StudentDashboardContent({ student }: { student: Student }) {
 
   return (
     <div className={`space-y-6 ${isLowBandwidth ? 'grayscale contrast-125' : ''}`}>
+      <StudentAssessments />
       {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 bg-navy-900 text-white px-4 py-3 rounded-xl shadow-modal border border-teal-500/40 text-xs flex items-center gap-2">

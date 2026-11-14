@@ -219,7 +219,7 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     }
   };
 
-  const navItems = getNavItems().filter((item) => {
+  const navItems = getNavItems().concat({ label: 'LearnSphere', path: '/learnsphere', icon: <BookOpen className="w-4 h-4" /> }).filter((item) => {
     if (item.path === '/teacher/assessments-beta' && !flags.questionStudio) return false;
     if (item.path === '/upload-beta' && !flags.uploadBeta) return false;
     if (item.path === '/student/answer-sheets' && !flags.answerSheetOcr) return false;

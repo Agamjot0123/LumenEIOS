@@ -1,6 +1,6 @@
 import os
 from typing import List
-from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator, Field
 from pathlib import Path
 from urllib.parse import urlsplit
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -67,6 +67,10 @@ class Settings(BaseSettings):
 
     # LLM Provider
     LLM_PROVIDER: str = "deterministic"  # "deterministic", "huggingface", "hosted"
+    LEARNSPHERE_MIN_OBSERVATIONS: int = Field(default=3, ge=1, le=1000)
+    LEARNSPHERE_MIN_ACTIVITIES: int = Field(default=2, ge=1, le=1000)
+    LEARNSPHERE_RECENT_OBSERVATIONS: int = Field(default=20, ge=1, le=1000)
+    LEARNSPHERE_SUPPORT_THRESHOLD: float = Field(default=65, ge=0, le=100)
     LLM_API_KEY: str = ""
 
     # Gemini (AI question generation preview). Read from the environment only; the key is a
