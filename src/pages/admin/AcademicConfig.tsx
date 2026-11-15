@@ -87,14 +87,14 @@ export const AcademicConfig: React.FC = () => {
     setSaving(true);
     setSaveError('');
     try {
-      // The calendar is saved as a new version by the backend (validated, audited). Teacher requirements and approved schedules are not rewritten.
+      // The calendar is saved as a new version by the backend (validated, audited). The backend recalculates the remaining untaught allocations; taught periods, Done topics and classifications are kept.
       const res = await teacherPlanApi.saveCalendar({ config: draft, reason: why, expected_version: baseVersion });
       await reloadCalendar(currentSchoolId);
       invalidateRequirements();
       setTouched(false);
       setReason('');
       setMessage(
-        `Calendar version ${res.version} saved.${res.teachers_needing_review ? ` ${res.teachers_needing_review} teacher plan(s) no longer fit the new capacity and are flagged for their teacher.` : ''} The Time-Aware Engine now uses it; approved plans keep their calendar snapshot until a recalculation is approved.`,
+        `Calendar version ${res.version} saved. The remaining (untaught) syllabus was recalculated for ${res.plans_recalculated ?? 0} teacher plan(s) (${res.topics_changed ?? 0} topic allocation(s) changed); completed teaching and classifications were kept.${res.teachers_needing_review ? ` ${res.teachers_needing_review} plan(s) cannot fit the remaining syllabus: the shortfall is shown in their Time-Aware Engine.` : ''} Approved schedules keep their calendar snapshot until a recalculation is approved.`,
       );
     } catch (err) {
       const status = (err as { status?: number })?.status;

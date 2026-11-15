@@ -113,31 +113,27 @@ async def test_preview_math_reserve_and_eligible_days(cal):
 
 
 @pytest.mark.asyncio
-async def test_preview_shows_allocations_and_flags_teachers_without_changing_anything(cal, db_session):
+async def test_preview_shows_recalculated_allocations_without_changing_anything(cal, db_session):
     before = [(c.teacher_id, c.topic_key, c.core_periods, c.non_core_periods, c.version) for c in (await db_session.execute(select(TeacherTopicConfig).filter_by(school_id=cal.sid))).scalars().all()]
     versions_before = len((await db_session.execute(select(SchoolPlanCalendar).filter_by(school_id=cal.sid))).scalars().all())
     r = await cal.c.post(f"{BASE_URL}/preview", json={"config": {**BASE, "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1}}}, headers=cal.h(cal.pr))
     rows = {(i["teacher_id"], i["subject"]): i for i in r.json()["impact"]}
     row = rows[(cal.t0, "Mathematics")]
-    assert row["saved_total"] == 36 and row["capacity_after"]["topic_capacity"] == 18 and row["remaining_after"] == -18 and row["deficit_after"] == 18
-    assert row["needs_teacher_review"] is True and row["remaining_before"] == 0
-    # equal-weight defaults under the new calendar: 18 over two topics = 9 + 9 (largest remainder, sums exactly to T)
-    assert [t["default_after"] for t in row["topics"]] == [9, 9] and sum(t["default_after"] for t in row["topics"]) == 18
-    assert [t["default_before"] for t in row["topics"]] == [18, 18]
-    assert [t["allocation_change"] for t in row["topics"]] == [-9, -9]
-    assert all(t["is_affected"] for t in row["topics"])
-    assert row["periods_gained_or_lost"] == -18
-    assert row["core_requirements_fit"] is False and row["core_shortfall"] > 0
-    assert row["insufficient_capacity"] is True
-    assert sum(t["revised_allocation"] for t in row["topics"]) == row["capacity_after"]["topic_capacity"]
+    assert row["saved_total"] == 36 and row["capacity_after"]["topic_capacity"] == 18 and row["periods_gained_or_lost"] == -18
+    # the remaining allocation is recalculated to FIT the new capacity: 18 over two open topics = 9 + 9 (largest remainder, exact)
+    assert row["recalculated_total"] == 18 and row["remaining_after"] == 0 and row["deficit_after"] == 0 and row["needs_teacher_review"] is False
+    assert [t["default_after"] for t in row["topics"]] == [9, 9] and sum(t["revised_allocation"] for t in row["topics"]) == 18
+    assert [t["default_before"] for t in row["topics"]] == [18, 18] and [t["allocation_change"] for t in row["topics"]] == [-9, -9]
+    assert all(t["is_affected"] for t in row["topics"]) and row["topics_changed"] == 2
+    assert row["core_requirements_fit"] is True and row["core_shortfall"] == 0 and row["insufficient_capacity"] is False
     assert all(t["original_classroom"] + t["original_independent"] == t["original_allocation"] for t in row["topics"])
     assert all(t["revised_classroom"] + t["revised_independent"] == t["revised_allocation"] for t in row["topics"])
-    assert all(t["classification"] in ("core", "non_core", "mixed") for t in row["topics"])
+    assert all(t["classification"] in ("core", "non_core", "mixed") for t in row["topics"])  # classifications are preserved
     assert row["approved_schedule"] is None  # no approved plan yet: reported as such, not invented
-    assert r.json()["teacher_configurations_changed"] is False
+    assert r.json()["teacher_configurations_changed"] is False and r.json()["will_recalculate_remaining_syllabus"] is True
     after = [(c.teacher_id, c.topic_key, c.core_periods, c.non_core_periods, c.version) for c in (await db_session.execute(select(TeacherTopicConfig).filter_by(school_id=cal.sid))).scalars().all()]
     await db_session.rollback()
-    assert sorted(before) == sorted(after)
+    assert sorted(before) == sorted(after)  # a preview writes nothing
     assert len((await db_session.execute(select(SchoolPlanCalendar).filter_by(school_id=cal.sid))).scalars().all()) == versions_before
 
 
@@ -154,7 +150,7 @@ async def test_preview_scope_roles_and_validation(cal):
 
 
 @pytest.mark.asyncio
-async def test_save_creates_versions_audits_and_never_rewrites_teacher_work(cal, db_session):
+async def test_save_creates_versions_audits_and_recalculates_the_remaining_syllabus(cal, db_session):
     new = {**BASE, "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1}}
     assert (await cal.c.put(BASE_URL, json={"config": new, "reason": "Timetable revised"}, headers=cal.h(cal.t0))).status_code == 403  # teachers inspect only
     assert (await cal.c.put(BASE_URL, json={"config": new, "reason": ""}, headers=cal.h(cal.pr))).status_code == 422  # a reason is required
@@ -162,28 +158,25 @@ async def test_save_creates_versions_audits_and_never_rewrites_teacher_work(cal,
     assert (await cal.c.put(BASE_URL, json={"config": {**BASE, "weekdays": []}, "reason": "bad"}, headers=cal.h(cal.pr))).status_code == 422
     assert (await cal.c.put(BASE_URL, json={"config": new, "reason": "stale", "expected_version": 7}, headers=cal.h(cal.pr))).status_code == 409
     ok = await cal.c.put(BASE_URL, json={"config": new, "reason": "Timetable revised", "expected_version": 1}, headers=cal.h(cal.pr))
-    assert ok.status_code == 200 and ok.json() == {"version": 2, "teachers_needing_review": 2}
+    assert ok.status_code == 200 and ok.json()["version"] == 2 and ok.json()["teachers_needing_review"] == 0 and ok.json()["plans_recalculated"] == 2 and ok.json()["topics_changed"] == 4
     h = (await cal.c.get(f"{BASE_URL}/history", headers=cal.h(cal.t1))).json()["versions"]  # teachers may read the history
     assert [v["version"] for v in h] == [1, 2] and h[0]["config"] == BASE and h[1]["config"] == new and h[1]["reason"] == "Timetable revised"
     assert h[0]["capacity"]["Mathematics"]["topic_capacity"] == 36 and h[1]["capacity"]["Mathematics"]["topic_capacity"] == 18
     ev = (await db_session.execute(select(PlanAuditEvent).filter_by(school_id=cal.sid, category="calendar_change"))).scalars().all()
     assert len(ev) == 1 and ev[0].previous_value["capacity"]["Mathematics"]["topic_capacity"] == 36 and ev[0].new_value["capacity"]["Mathematics"]["topic_capacity"] == 18
-    assert ev[0].reason == "Timetable revised" and ev[0].actor_id == cal.pr and len(ev[0].new_value["teachers_needing_review"]) == 2
-    # teacher requirements are exactly as saved (36 periods) even though only 18 now fit: flagged, not silently changed
+    assert ev[0].reason == "Timetable revised" and ev[0].actor_id == cal.pr and ev[0].new_value["teachers_needing_review"] == [] and ev[0].new_value["plans_recalculated"] == 2
+    # the remaining (untaught) allocation was recalculated automatically to the 18 periods that now fit; classifications are preserved
     plan = (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}", params=MATH, headers=cal.h(cal.t0))).json()
-    assert plan["allocation"]["proposed_total"] == 36 and plan["capacity"]["topic_capacity"] == 18 and plan["allocation"]["valid"] is False
-    # and they stay blocked until the teacher fixes them; raising is refused, fitting is accepted
+    assert plan["allocation"]["proposed_total"] == 18 == plan["capacity"]["topic_capacity"] and plan["allocation"]["valid"] is True
+    assert [t["core_periods"] + t["non_core_periods"] for t in plan["topics"]] == [9, 9]
+    assert plan["summary"]["periods_per_day"] == 1 and plan["summary"]["remaining_capacity"] == 18 and plan["summary"]["unallocated_capacity"] == 0 and plan["summary"]["fits"] is True
+    rec = (await db_session.execute(select(PlanAuditEvent).filter_by(school_id=cal.sid, teacher_id=cal.t0, category="calendar_recalculation"))).scalars().all()
+    assert len(rec) == 1 and rec[0].previous_value["core"] + rec[0].previous_value["non_core"] == 36 and rec[0].new_value["core"] + rec[0].new_value["non_core"] == 18
     topics = plan["topics"]
     over = {**MATH, "items": [{"topic_key": topics[0]["topic_key"], "core_periods": topics[0]["core_periods"] + 1, "non_core_periods": topics[0]["non_core_periods"]}]}
     assert (await cal.c.put(f"/api/v1/teacher-plans/{cal.t0}/requirements", json=over, headers=cal.h(cal.t0))).status_code == 422
-    split = {"core": (9, 0), "non_core": (0, 9), "mixed": (6, 3)}  # 9 periods per topic, 2 topics = exactly the 18 that now fit
-    fit = {**MATH, "items": [{"topic_key": t["topic_key"], "core_periods": split[t["classification"]][0], "non_core_periods": split[t["classification"]][1], "classification": t["classification"]} for t in topics]}
-    fitted = await cal.c.put(f"/api/v1/teacher-plans/{cal.t0}/requirements", json=fit, headers=cal.h(cal.t0))
-    assert fitted.status_code == 200, fitted.text
-    again = (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}", params=MATH, headers=cal.h(cal.t0))).json()
-    assert again["allocation"]["valid"] is True and again["allocation"]["proposed_total"] == 18 == again["capacity"]["topic_capacity"]
     other = (await cal.c.get(f"/api/v1/teacher-plans/{cal.t1}", params=MATH, headers=cal.h(cal.t1))).json()
-    assert other["allocation"]["proposed_total"] == 36 and other["allocation"]["valid"] is False  # the other teacher's work is untouched
+    assert other["allocation"]["proposed_total"] == 18 and other["allocation"]["valid"] is True  # every plan in the school is recalculated, each independently
 
 
 @pytest.mark.asyncio
@@ -195,7 +188,7 @@ async def test_teacher_calendar_impact_compares_current_with_previous_version(ca
     assert imp["current_version"] == 2 and imp["previous_version"] == 1 and imp["reason"] == "Winter break day"
     row = imp["impact"]
     assert row["capacity_before"]["topic_capacity"] == 36 and row["capacity_after"]["topic_capacity"] == 34
-    assert row["saved_total"] == 36 and row["deficit_after"] == 2 and row["needs_teacher_review"] is True
+    assert row["saved_total"] == 34 and row["deficit_after"] == 0 and row["needs_teacher_review"] is False  # already recalculated to the 34 that fit
     # another teacher cannot read it, a principal can
     assert (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}/calendar-impact", params=MATH, headers=cal.h(cal.t1))).status_code == 403
     assert (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}/calendar-impact", params=MATH, headers=cal.h(cal.pr))).status_code == 200

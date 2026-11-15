@@ -226,20 +226,19 @@ async def test_teacher_sees_only_own_logs_and_filters_work(client):
 
 
 @pytest.mark.asyncio
-async def test_calendar_change_versions_and_never_rewrites_teacher_config(client):
+async def test_calendar_change_versions_and_recalculates_untaught_allocations_preserving_classification(client):
     before = await plan(client, T1, T1[0])
     cal = (await client.get("/api/v1/plan-calendar", headers=hdr(*P1))).json()
     cfg = {**cal["config"], "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1}}
     pv = await client.post("/api/v1/plan-calendar/preview", json={"config": cfg, "reason": "x"}, headers=hdr(*P1))
     assert pv.status_code == 200 and pv.json()["teacher_configurations_changed"] is False
-    assert any(i["needs_teacher_review"] for i in pv.json()["impact"] if i["subject"] == "Mathematics")
     assert (await client.put("/api/v1/plan-calendar", json={"config": cfg, "reason": "x"}, headers=hdr(*T1))).status_code == 403
     put = await client.put("/api/v1/plan-calendar", json={"config": cfg, "reason": "Timetable revised"}, headers=hdr(*P1))
     assert put.json()["version"] == cal["version"] + 1
     after = await plan(client, T1, T1[0])
     assert after["capacity"]["topic_capacity"] < before["capacity"]["topic_capacity"]
-    assert [t["core_periods"] + t["non_core_periods"] for t in after["topics"]] == [t["core_periods"] + t["non_core_periods"] for t in before["topics"]]
-    assert after["allocation"]["valid"] is False  # flagged for teacher review, not silently changed
+    assert after["allocation"]["valid"] is True and after["allocation"]["proposed_total"] == after["capacity"]["topic_capacity"]  # recalculated to fit
+    assert [t["classification"] for t in after["topics"]] == [t["classification"] for t in before["topics"]]  # classifications preserved
     await client.put("/api/v1/plan-calendar", json={"config": cal["config"], "reason": "restore"}, headers=hdr(*P1))
 
 

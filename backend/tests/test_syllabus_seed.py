@@ -41,7 +41,7 @@ def test_source_file_has_the_full_structure():
 @pytest.mark.asyncio
 async def test_fresh_database_gets_whole_syllabus_and_every_topic_configured(db):
     out = await ss.initialise_curriculum(db)
-    assert out["plan_topics_added"] == 415 and out["eligible_plans"] == 6
+    assert out["plan_topics_added"] == 415 and out["eligible_plans"] == 6 and out["plans_recalculated"] == 0  # defaults already match the 2+2 calendar
     per = (await db.execute(select(PlanTopic.grade, PlanTopic.subject, func.count()).group_by(PlanTopic.grade, PlanTopic.subject))).all()
     assert sorted(per) == [(6, "Mathematics", 65), (6, "Science", 65), (7, "Mathematics", 65), (7, "Science", 78), (8, "Mathematics", 58), (8, "Science", 84)]
     assert await count(db, TeacherTopicConfig) == 415 == await count(db, TeacherTopicCoverage)
@@ -79,7 +79,7 @@ async def test_rerun_creates_no_duplicates_and_keeps_teacher_edits(db):
     await svc.set_coverage(db, actor, cfg.school_id, cfg.teacher_id, cfg.academic_year, 6, "Science", cfg.topic_key, "done", None)
     await db.commit()
     again = await ss.initialise_curriculum(db)
-    assert again == {"plan_topics_added": 0, "workspace_datasets_added": 0, "eligible_plans": 6, "plans_filled": 0}
+    assert again == {"plan_topics_added": 0, "workspace_datasets_added": 0, "eligible_plans": 6, "plans_filled": 0, "calendars_aligned": 0, "plans_recalculated": 0}
     assert await count(db, TeacherTopicConfig) == 415 and await count(db, PlanTopic) == 415
     kept = (await db.execute(select(TeacherTopicConfig).filter_by(id=cfg.id))).scalars().one()
     await db.refresh(kept)

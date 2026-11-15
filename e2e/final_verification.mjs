@@ -97,12 +97,9 @@ await run('K6', 'reload keeps Core/Non-Core and capacity total unchanged', async
 await shot(page, 'k_classification');
 
 // ---------- 3. Time-Aware / lost periods / recovery (Science needs 2 periods a day for same-date losses) ----------
-await run('T0', 'Academic Configuration: 2 Science periods/day saved (admin, versioned)', async () => {
-  const cur = (await api('GET', '/plan-calendar', tok[ADMIN])).json;
-  const cfg = { ...cur.config, subjectPeriodsPerDay: { ...(cur.config.subjectPeriodsPerDay || {}), Science: 2 } };
-  const r = await api('PUT', '/plan-calendar', tok[ADMIN], { config: cfg, reason: 'Final verification: two Science periods per day', expected_version: cur.version });
-  assert(r.status === 200 || r.status === 201, `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`);
-  const after = (await api('GET', '/plan-calendar', tok[ADMIN])).json; assert(after.config.subjectPeriodsPerDay.Science === 2 && after.version === cur.version + 1, 'not versioned'); return `calendar v${cur.version}->v${after.version}`;
+await run('T0', 'default Academic Configuration is already 2 Maths + 2 Science periods/day (no manual setup needed)', async () => {
+  const cur = (await api('GET', '/plan-calendar', tok[ADMIN])).json; const spd = cur.config.subjectPeriodsPerDay;
+  assert(spd.Science === 2 && spd.Mathematics === 2, JSON.stringify(spd)); return `calendar v${cur.version}: ${JSON.stringify(spd)}`;
 });
 await run('T1', 'Time-Aware (Garima, VI Science) renders saved requirements; no "Not configured"; day counts present', async () => {
   await lessonTimeAware(G.email, 6, 'Science'); const t = (await page.innerText('body')).replace(/\s+/g, ' ');

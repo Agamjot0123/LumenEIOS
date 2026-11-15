@@ -84,11 +84,12 @@ export const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: Reac
   );
 };
 
-const classText = (value: ClassValue | 'PENDING' | null | undefined) => (value === 'CORE' ? 'Core' : value === 'MIXED' ? 'Core + Non-Core' : 'Non-Core');
+// The same words Course Curriculum uses for the same persisted classification.
+const classText = (value: ClassValue | 'PENDING' | null | undefined) => (value === 'CORE' ? 'Core' : value === 'MIXED' ? 'Core + Non-Core (2:1)' : 'Non-Core');
 
 export const ClassBadge: React.FC<{ value: ClassValue | 'PENDING' | null | undefined; status?: ReviewStatus }> = ({ value, status }) => {
-  if (status === 'DEMO_DEFAULT') return <Badge size="sm" variant="info">Planning baseline · {classText(value)} (not reviewed)</Badge>;
-  if (status === 'TEACHER_CUSTOM') return <Badge size="sm" variant="teal">Teacher-configured {classText(value)}</Badge>;
+  if (status === 'DEMO_DEFAULT') return <Badge size="sm" variant="info">{classText(value)} · planning default</Badge>;
+  if (status === 'TEACHER_CUSTOM') return <Badge size="sm" variant="teal">{classText(value)} · set by teacher</Badge>;
   if (status && status !== 'APPROVED') {
     return (
       <Badge size="sm" variant={status === 'REJECTED' ? 'danger' : status === 'PROPOSED' ? 'info' : 'default'}>

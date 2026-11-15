@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Cpu, Send, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
@@ -16,6 +16,10 @@ import { RelationshipsPanel } from './RelationshipsPanel';
 import { DayTracker } from './DayTracker';
 import { LostPeriodRecorder } from './LostPeriodRecorder';
 import { TeacherLostDays } from '../../features/teacherPlan/TeacherLostDays';
+import { PlanCapacitySummary } from '../../features/teacherPlan/PlanCapacitySummary';
+import { invalidateRequirements, useStoreVersion } from '../../features/teacherPlan/requirementsStore';
+import { useRemote } from '../../features/teacherPlan/useRemote';
+import { teacherPlanApi } from '../../lib/teacherPlanApi';
 
 type Tab = 'planner' | 'tracker' | 'requirements' | 'relationships';
 
@@ -56,6 +60,32 @@ export const TimeAwareEngine: React.FC = () => {
   const completion = approved ? planProgress(approved) : null;
   const requirementGaps = pace?.topicsWithoutRequirement ?? result?.metrics.pending.units ?? 0;
   const canSubmit = !!result && !!view.units.length && !result.conflicts.some((c) => c.code === 'REQUIREMENT_MISSING' || c.code === 'PREREQUISITE_ORDER') && p.mode !== 'loading';
+
+  const [, setSearch] = useSearchParams();
+  const storeVersion = useStoreVersion();
+  // A Principal/Admin has no plan of their own: the page needs a teacher context, exactly like Course Curriculum (?teacher=<id>).
+  const teachersForCombo = useRemote(() => (p.isReviewer ? teacherPlanApi.planningOversight({ grade, subject }) : Promise.resolve({ rows: [] })), [p.isReviewer, grade, subject]);
+  const comboTeachers = useMemo(() => (teachersForCombo.data?.rows ?? []).map((r) => ({ id: r.teacher_id, name: r.teacher_name })), [teachersForCombo.data]);
+  useEffect(() => {
+    if (!p.isReviewer || teachersForCombo.loading) return;
+    if (!comboTeachers.some((t) => t.id === p.teacherId)) {
+      setSearch(comboTeachers.length ? { teacher: comboTeachers[0].id } : {}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.isReviewer, teachersForCombo.loading, comboTeachers, p.teacherId]);
+  const needsTeacher = p.isReviewer && !p.teacherId;
+  const capacityPlan = useRemote(() => (p.teacherId ? teacherPlanApi.plan(p.teacherId, grade, subject) : Promise.resolve(null)), [p.teacherId, grade, subject, storeVersion]);
+  // A teacher opening a class/subject for the first time gets their own persisted copy of the deterministic defaults (as Course Curriculum does).
+  const initialised = useRef('');
+  useEffect(() => {
+    const key = `${p.teacherId}|${grade}|${subject}`;
+    const covered = view.units.filter((u) => p.ctx.classifications[u.id]).length;
+    if (p.ownsPlan && view.units.length > 0 && covered < view.units.length && initialised.current !== key) {
+      initialised.current = key;
+      teacherPlanApi.initialize(p.teacherId, grade, subject).then(() => invalidateRequirements()).catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.ownsPlan, p.teacherId, grade, subject, view.units, p.ctx.classifications]);
 
   if (!['admin', 'principal', 'teacher'].includes(p.role)) return <PageHeader title="Time-Aware Engine" subtitle="Curriculum planning requires school staff access." />;
 
@@ -137,6 +167,17 @@ export const TimeAwareEngine: React.FC = () => {
             ))}
           </select>
         </label>
+        {p.isReviewer && (
+          <label>
+            <span className={labelCls}>Teacher</span>
+            <select aria-label="Teacher" className={selectCls} value={p.teacherId} onChange={(e) => setSearch({ teacher: e.target.value })} disabled={!comboTeachers.length}>
+              {!comboTeachers.length && <option value="">No teacher has a plan for this class and subject</option>}
+              {comboTeachers.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <div className="flex flex-wrap gap-1 lg:ml-auto p-1 rounded-lg bg-surface-bg border border-surface-border" role="tablist" aria-label="Time-Aware Engine sections">
           {(
             [
@@ -153,13 +194,24 @@ export const TimeAwareEngine: React.FC = () => {
         </div>
       </div>
 
+      {needsTeacher && (
+        <div className="bg-white p-4 rounded-xl border border-surface-border text-xs text-content-secondary" data-testid="select-teacher-notice">
+          {teachersForCombo.loading ? 'Loading teachers…' : 'No teacher has a plan for this class and subject yet, so there are no requirements to show.'}
+        </div>
+      )}
+      {capacityPlan.data && !needsTeacher && (
+        <SectionCard title="Annual capacity and remaining syllabus" subtitle="Persisted required, taught and remaining periods for this teacher's plan">
+          <PlanCapacitySummary plan={capacityPlan.data} />
+        </SectionCard>
+      )}
+
       {p.isTeacher && <TeacherLostDays grade={grade} subject={subject} />}
 
       {tab === 'requirements' && <SyllabusPanel dataset={dataset} grade={grade} subject={subject} />}
       {tab === 'relationships' && <RelationshipsPanel grade={grade} />}
       {tab === 'tracker' && <DayTracker grade={grade} subject={subject} />}
 
-      {tab === 'planner' && (
+      {tab === 'planner' && !needsTeacher && (
         <>
           {configErrors.length > 0 ? (
             <SectionCard title="Academic Configuration is not valid">

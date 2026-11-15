@@ -75,6 +75,15 @@ def available_periods(config: dict, subject: str) -> int:
     return sum(subject_periods_for_date(config, subject, d) for d in instructional_dates(config, apply_horizon=False))
 
 
+def remaining_periods(config: dict, subject: str, after: str) -> int:
+    """Subject periods on instructional days STRICTLY AFTER `after` (the planning date). Days already gone are not capacity."""
+    return sum(subject_periods_for_date(config, subject, d) for d in instructional_dates(config, apply_horizon=False) if d > after)
+
+
+def remaining_days(config: dict, after: str) -> int:
+    return sum(1 for d in instructional_dates(config, apply_horizon=False) if d > after)
+
+
 def reserve_periods(p: int) -> int:
     """R = ceil(0.10 * P), computed with integers."""
     if p < 0:

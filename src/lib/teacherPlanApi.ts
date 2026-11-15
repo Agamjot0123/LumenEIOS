@@ -71,7 +71,15 @@ export interface RelationshipItem {
   origin: 'teacher' | 'approved_import'; created_by: string; created_at: string | null;
 }
 export interface CoverageStats { eligible: number; done: number; in_progress: number; not_done: number; percent: number }
+export interface PlanSummary {
+  periods_per_day: number; instructional_days: number; required_core: number; required_non_core: number; taught_periods: number;
+  done_topics: number; open_topics: number; remaining_required_core: number; remaining_required_non_core: number;
+  window: { after: string; days_left: number; periods_left: number; reserve_left: number; capacity_left: number };
+  remaining_capacity: number; unallocated_capacity: number; core_shortfall: number; total_shortfall: number; fits: boolean;
+  last_recalculation: { at: string; summary: string; previous: unknown; new: unknown; reason: string | null } | null;
+}
 export interface TeacherPlan {
+  summary?: PlanSummary;
   teacher_id: string;
   teacher_name?: string | null;
   academic_year?: string;
@@ -139,7 +147,7 @@ export const teacherPlanApi = {
   calendarHistory: () => apiRequest<{ versions: CalendarVersion[] }>(`/plan-calendar/history`),
   previewCalendar: (config: unknown) => apiRequest<CalendarPreview>(`/plan-calendar/preview`, { method: 'POST', body: JSON.stringify({ config }) }),
   saveCalendar: (body: { config: unknown; reason: string; expected_version?: number }) =>
-    apiRequest<{ version: number; teachers_needing_review: number }>(`/plan-calendar`, { method: 'PUT', body: JSON.stringify(body) }),
+    apiRequest<{ version: number; teachers_needing_review: number; plans_recalculated?: number; topics_changed?: number }>(`/plan-calendar`, { method: 'PUT', body: JSON.stringify(body) }),
   calendarImpact: (teacher: string, grade: number, subject: string) => apiRequest<TeacherCalendarImpact>(`/teacher-plans/${teacher}/calendar-impact${q({ grade, subject })}`),
   initialize: (teacher: string, grade: number, subject: string) => apiRequest<{ created: boolean }>(`/teacher-plans/${teacher}/initialize${q({ grade, subject })}`, { method: 'POST' }),
   saveRequirements: (teacher: string, body: { grade: number; subject: string; reason?: string; items: { topic_key: string; core_periods: number; non_core_periods: number; classification?: Classification }[] }) =>

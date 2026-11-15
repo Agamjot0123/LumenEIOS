@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     # Fill any missing syllabus topics / default teacher plans at startup (additive, idempotent). Tests that exercise the small
     # research crosswalk switch it off; the explicit command backend.scripts.init_curriculum works either way.
     AUTO_SEED_CURRICULUM: bool = True
+    # Fixed planning date (YYYY-MM-DD) for tests/demos; unset = the server's current date. Remaining-syllabus recalculation counts only
+    # instructional days after this date.
+    PLANNING_TODAY: Optional[str] = None
     # Development root login: LEOFELIX or leofelix@lumeneios.demo.
     # Defaults to the password shown on the sign-in page. Blank or production disables it.
     DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")

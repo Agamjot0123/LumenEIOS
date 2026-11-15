@@ -1,6 +1,7 @@
 """Teacher-scoped plan operations. Every mutation writes its audit event in the same transaction."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
@@ -8,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.entities import User, generate_uuid
 from backend.app.models.teacher_planning import (
-    PlanAuditEvent, PlanTopic, SchoolPlanCalendar, TeacherLostPeriod, TeacherTopicConfig, TeacherTopicCoverage,
-    TeacherTopicRelationship,
+    PlanAuditEvent, PlanTopic, SchoolPlanCalendar, TeacherLostPeriod, TeacherPlan, TeacherPlanExecution, TeacherTopicConfig,
+    TeacherTopicCoverage, TeacherTopicRelationship,
 )
 from backend.app.services import annual_allocation as alloc
+from backend.app.services import recalculation as recalc
 
 DEFAULT_CALENDAR = {
     "year": "2026-2027", "start": "2026-04-01", "end": "2027-03-31", "weekdays": [1, 2, 3, 4, 5], "entries": [],
-    "periodsPerDay": 8, "periodMinutes": 40, "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1}, "horizonDays": None,
+    "periodsPerDay": 8, "periodMinutes": 40, "subjectPeriodsPerDay": {"Mathematics": 2, "Science": 2}, "horizonDays": None,
 }
 SUBJECTS = {"Mathematics", "Science"}
 CLASSIFICATIONS = {"core", "non_core", "mixed"}
@@ -85,7 +87,8 @@ async def ensure_defaults(db: AsyncSession, actor: User, school_id: str, teacher
     topic_cap = alloc.capacity(p)["topic_capacity"]
     preserved_total = sum(c.core_periods + c.non_core_periods for c in existing.values()
                           if c.topic_key in {t.topic_key for t in topics})
-    remaining_capacity = max(0, topic_cap - preserved_total)
+    # Initial defaults divide only the capacity that is still real: the annual room, limited to the periods left after today.
+    remaining_capacity = max(0, min(topic_cap - preserved_total, remaining_window(cal["config"], subject, planning_today())["capacity_left"]))
     rows = {r["topic_key"]: r for r in alloc.topic_allocations(
         [{"topic_key": t.topic_key, "weight": 1} for t in ordered if t.topic_key not in existing], p,
         topic_capacity_override=remaining_capacity)}
@@ -105,6 +108,85 @@ async def ensure_defaults(db: AsyncSession, actor: User, school_id: str, teacher
               new={"capacity": alloc.capacity(p), "config_rows_added": len(missing), "coverage_rows_added": len(missing_coverage),
                    "note": DEMO_NOTE}, reason=DEMO_NOTE)
     return True
+
+
+TAUGHT_STATUSES = ("TAUGHT", "PARTIAL")
+
+
+def planning_today() -> str:
+    """The planning date: the configured PLANNING_TODAY override (tests/demos) or the server's current date."""
+    from backend.app.core.config import settings
+    return getattr(settings, "PLANNING_TODAY", None) or date.today().isoformat()
+
+
+def remaining_window(cfg: Dict[str, Any], subject: str, today: str) -> Dict[str, int]:
+    """P_rem, R_rem = ceil(0.10 P_rem), T_rem = P_rem - R_rem for the instructional days after `today`."""
+    p_rem = alloc.remaining_periods(cfg, subject, today)
+    cap = alloc.capacity(p_rem)
+    return {"after": today, "days_left": alloc.remaining_days(cfg, today), "periods_left": p_rem, "reserve_left": cap["reserved_periods"], "capacity_left": cap["topic_capacity"]}
+
+
+async def taught_by_topic(db: AsyncSession, school_id: str, teacher_id: str, year: str, grade: int, subject: str) -> Dict[str, int]:
+    """Periods ACTUALLY taught per topic, from this teacher's classroom execution records (corrections supersede; homework and
+    deferrals are never teaching). Scheduled periods are not counted here."""
+    plan_ids = [pid for (pid,) in (await db.execute(select(TeacherPlan.id).filter_by(school_id=school_id, teacher_id=teacher_id, academic_year=year,
+                                                                                    grade=grade, subject=subject))).all()]
+    if not plan_ids:
+        return {}
+    events = (await db.execute(select(TeacherPlanExecution).where(TeacherPlanExecution.plan_id.in_(plan_ids)))).scalars().all()
+    replaced = {e.supersedes for e in events if e.supersedes}
+    out: Dict[str, int] = {}
+    for e in events:
+        if e.id in replaced or e.status not in TAUGHT_STATUSES:
+            continue
+        out[e.node_key] = out.get(e.node_key, 0) + (e.periods_taught or 0)
+    return out
+
+
+async def recalculation_inputs(db: AsyncSession, school_id: str, teacher_id: str, year: str, grade: int, subject: str) -> List[Dict[str, Any]]:
+    """Persisted configuration + coverage + taught periods of one teacher plan, in syllabus order (the recalculation's only input)."""
+    topics = await topics_for(db, grade, subject)
+    key = dict(school_id=school_id, teacher_id=teacher_id, academic_year=year, grade=grade, subject=subject)
+    cfgs = {c.topic_key: c for c in (await db.execute(select(TeacherTopicConfig).filter_by(**key))).scalars().all()}
+    cov = {c.topic_key: c.status for c in (await db.execute(select(TeacherTopicCoverage).filter_by(**key))).scalars().all()}
+    taught = await taught_by_topic(db, school_id, teacher_id, year, grade, subject)
+    return [{"topic_key": t.topic_key, "section": t.section_label, "classification": cfgs[t.topic_key].classification,
+             "core": cfgs[t.topic_key].core_periods, "non_core": cfgs[t.topic_key].non_core_periods,
+             "independent": cfgs[t.topic_key].independent_periods, "teaching_mode": cfgs[t.topic_key].teaching_mode,
+             "origin": cfgs[t.topic_key].origin, "coverage": cov.get(t.topic_key, "not_done"), "taught": taught.get(t.topic_key, 0)}
+            for t in sorted(topics, key=lambda t: (t.sort_order, t.topic_key)) if t.topic_key in cfgs]
+
+
+async def recalculate_plan(db: AsyncSession, actor: User, school_id: str, teacher_id: str, year: str, grade: int, subject: str,
+                           cfg: Dict[str, Any], reason: str, write: bool = True, today: Optional[str] = None) -> Dict[str, Any]:
+    """Recompute the remaining (untaught) allocation of one teacher plan for calendar `cfg`. Done topics, taught periods and every
+    persisted classification are preserved. With write=False nothing is stored (preview)."""
+    inputs = await recalculation_inputs(db, school_id, teacher_id, year, grade, subject)
+    cap = alloc.capacity(alloc.available_periods(cfg, subject))
+    window = remaining_window(cfg, subject, today or planning_today())
+    res = recalc.compute(inputs, cap["topic_capacity"], window["capacity_left"])
+    res["capacity"] = cap
+    res["window"] = window
+    changed = [r for r in res["rows"] if r["changed"]]
+    res["topics_changed"] = len(changed)
+    if write and changed:
+        key = dict(school_id=school_id, teacher_id=teacher_id, academic_year=year, grade=grade, subject=subject)
+        cfgs = {c.topic_key: c for c in (await db.execute(select(TeacherTopicConfig).filter_by(**key))).scalars().all()}
+        for r in changed:
+            c = cfgs[r["topic_key"]]
+            c.core_periods, c.non_core_periods, c.independent_periods = r["new_core"], r["new_non_core"], r["new_independent"]
+            c.version, c.updated_by = c.version + 1, actor.id
+    if write and (changed or not res["fits"]):
+        audit(db, actor, school_id, "calendar_recalculation",
+              f"Remaining syllabus recalculated for Class {grade} {subject}: topic capacity {cap['topic_capacity']}, {res['topics_changed']} untaught topic(s) changed"
+              + ("" if res["fits"] else f"; SHORTFALL core={res['core_shortfall']} total={res['total_shortfall']}"),
+              teacher_id=teacher_id, grade=grade, subject=subject, topic_keys=[r["topic_key"] for r in changed][:200],
+              previous={"core": res["before"]["core"], "non_core": res["before"]["non_core"]},
+              new={"core": res["after"]["core"], "non_core": res["after"]["non_core"], "capacity": cap, "window": window, "pool": res["pool"],
+                   "done_topics_preserved": res["done_topics"], "taught_floor_periods": res["taught_floor_periods"],
+                   "core_shortfall": res["core_shortfall"], "total_shortfall": res["total_shortfall"]},
+              reason=reason)
+    return res
 
 
 async def build_plan(db: AsyncSession, school_id: str, teacher_id: str, year: str, grade: int, subject: str) -> Dict:
@@ -131,12 +213,31 @@ async def build_plan(db: AsyncSession, school_id: str, teacher_id: str, year: st
                      "coverage_source": cov_rows[c.topic_key].source if c.topic_key in cov_rows else "MANUAL",
                      "coverage_updated_at": cov_rows[c.topic_key].updated_at.isoformat() if c.topic_key in cov_rows and cov_rows[c.topic_key].updated_at else None,
                      "prerequisites": [r.prerequisite_key for r in rels if r.topic_key == c.topic_key]})
+    inputs = await recalculation_inputs(db, school_id, teacher_id, year, grade, subject)
+    window = remaining_window(cal["config"], subject, planning_today())
+    comp = recalc.compute(inputs, cap["topic_capacity"], window["capacity_left"])
+    by_key = {r["topic_key"]: r for r in comp["rows"]}
+    for r in rows:
+        x = by_key.get(r["topic_key"], {})
+        r["taught_periods"] = x.get("taught", 0)
+        r["remaining_core"], r["remaining_non_core"] = x.get("remaining_core", 0), x.get("remaining_non_core", 0)
+    summary = {
+        "periods_per_day": int((cal["config"].get("subjectPeriodsPerDay") or {}).get(subject, 0) or 0),
+        "instructional_days": len(alloc.instructional_dates(cal["config"], apply_horizon=False)),
+        "required_core": sum(r["core_periods"] for r in rows), "required_non_core": sum(r["non_core_periods"] for r in rows),
+        "taught_periods": sum(r["taught_periods"] for r in rows), "done_topics": comp["done_topics"], "open_topics": comp["open_topics"],
+        "remaining_required_core": sum(r["remaining_core"] for r in rows), "remaining_required_non_core": sum(r["remaining_non_core"] for r in rows),
+        "window": window, "remaining_capacity": comp["pool"], "unallocated_capacity": cap["topic_capacity"] - sum(r["core_periods"] + r["non_core_periods"] for r in rows), "core_shortfall": comp["core_shortfall"], "total_shortfall": comp["total_shortfall"], "fits": comp["fits"],
+    }
+    last = (await db.execute(select(PlanAuditEvent).filter_by(school_id=school_id, teacher_id=teacher_id, grade=grade, subject=subject,
+                                                              category="calendar_recalculation").order_by(PlanAuditEvent.occurred_at.desc()).limit(1))).scalars().first()
+    summary["last_recalculation"] = None if not last else {"at": last.occurred_at.isoformat(), "summary": last.summary, "previous": last.previous_value, "new": last.new_value, "reason": last.reason}
     check = alloc.validate_requirements(rows, cap["topic_capacity"])
     check["unallocated_topics"] = sum(1 for r in rows if r["core_periods"] + r["non_core_periods"] == 0)
     owner = (await db.execute(select(User.name).filter_by(id=teacher_id))).scalar()
     return {"school_id": school_id, "teacher_id": teacher_id, "teacher_name": owner, "academic_year": year, "grade": grade, "subject": subject,
             "calendar_version": cal["version"], "capacity": cap, "allocation": check, "topics": rows,
-            "topic_count": len(topics), "configured_topic_count": len(cfgs),
+            "topic_count": len(topics), "configured_topic_count": len(cfgs), "summary": summary,
             "coverage": coverage_stats(r["coverage"] for r in rows)}
 
 

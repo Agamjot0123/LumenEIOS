@@ -58,6 +58,9 @@ async function configureCalendar() {
   click(/Add examination period/);
   fireEvent.change(screen.getByLabelText('Entry 2 description'), { target: { value: 'Periodic test' } });
   fireEvent.change(screen.getByLabelText('Entry 2 from'), { target: { value: '2026-04-06' } });
+  // This journey's expected dates assume one period a day (the default timetable is now 2+2).
+  fireEvent.change(screen.getByLabelText('Mathematics periods per instructional day'), { target: { value: '1' } });
+  fireEvent.change(screen.getByLabelText('Science periods per instructional day'), { target: { value: '1' } });
   fireEvent.change(screen.getByLabelText('Curriculum planning horizon'), { target: { value: '60' } });
   expect(screen.getByText('Configuration is valid.')).toBeInTheDocument();
   click('Save Academic Configuration');

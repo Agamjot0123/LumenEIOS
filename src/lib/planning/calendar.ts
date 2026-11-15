@@ -62,7 +62,7 @@ export const DEFAULT_CONFIG: AcademicConfig = {
   entries: [],
   periodsPerDay: 8,
   periodMinutes: 40,
-  subjectPeriodsPerDay: { Mathematics: 1, Science: 1 },
+  subjectPeriodsPerDay: { Mathematics: 2, Science: 2 }, // default timetable: two Maths and two Science periods per instructional day
   horizonDays: null,
 };
 

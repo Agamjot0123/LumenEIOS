@@ -105,6 +105,7 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{(TEST_DIR / 'test.db').as_po
 os.environ["STORAGE_LOCAL_DIR"] = str(TEST_DIR / "uploads")
 os.environ["DEMO_MODE"] = "true"  # Exercise the legacy demo paths in the isolated test app.
 os.environ["AUTO_SEED_CURRICULUM"] = "false"  # tests build their own topic sets; the seed has its own tests (test_syllabus_seed.py).
+os.environ["PLANNING_TODAY"] = "2026-03-31"  # fixed planning date: fixtures use calendars that start on 1 April 2026
 
 # Guard phase 1: config.py only reads settings, so nothing has been written or connected yet.
 from backend.app.core.config import settings  # noqa: E402

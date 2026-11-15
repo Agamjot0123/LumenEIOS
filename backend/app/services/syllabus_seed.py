@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models.entities import ClassSection, School, SchoolMembership, User
 from backend.app.models.ncert_catalogue import NAMESPACE
 from backend.app.models.planning_workspace import PlanningWorkspaceRevision
-from backend.app.models.teacher_planning import PlanTopic, TeacherTopicConfig
+from backend.app.models.teacher_planning import PlanTopic, SchoolPlanCalendar, TeacherTopicConfig
 from backend.app.services import teacher_plan_service as svc
 
 DATASET_PATH = Path(__file__).resolve().parents[1] / "seed" / "data" / "ncert_review_batch01_structure.json"
@@ -166,9 +166,51 @@ async def seed_teacher_plans(db: AsyncSession, year: str = YEAR) -> Dict[str, in
     return {"eligible_plans": plans, "plans_filled": filled}
 
 
+DEFAULT_PER_DAY = {"Mathematics": 2, "Science": 2}
+SEEDED_BY = {"system-seed", "system-curriculum-seed"}
+
+
+async def align_default_calendars(db: AsyncSession) -> Dict[str, int]:
+    """Bring demonstration/default calendars to the default timetable (2 Mathematics + 2 Science periods per instructional day).
+
+    Only calendars that are still the unmodified seeded demonstration default are touched (latest version written by the seed);
+    a calendar a school's Admin/Principal saved is a customisation and is never changed. A school with no saved calendar uses the
+    backend default (now 2+2) directly. Every affected teacher plan's remaining allocation is then recalculated, so required
+    periods always match the capacity. Idempotent: once a school is on 2+2 nothing happens."""
+    aligned = recalculated = 0
+    schools = [s for (s,) in (await db.execute(select(School.id).order_by(School.id))).all()]
+    for school_id in schools:
+        latest = (await db.execute(select(SchoolPlanCalendar).filter_by(school_id=school_id, academic_year=YEAR)
+                                   .order_by(SchoolPlanCalendar.version.desc()).limit(1))).scalars().first()
+        has_plans = (await db.execute(select(TeacherTopicConfig.id).filter_by(school_id=school_id, academic_year=YEAR).limit(1))).first()
+        if latest is None:
+            if not has_plans:
+                continue
+            # No saved calendar: record the default (2+2) as version 1 once, so this correction can never run again for the school.
+            cfg = {**svc.DEFAULT_CALENDAR, "year": YEAR}
+            db.add(SchoolPlanCalendar(school_id=school_id, academic_year=YEAR, version=1, config=cfg, created_by=SYSTEM.id,
+                                      reason="Default timetable: 2 Mathematics + 2 Science periods per instructional day"))
+            await db.flush()
+            aligned += 1
+        elif latest.created_by in SEEDED_BY and (latest.config.get("subjectPeriodsPerDay") or {}) != DEFAULT_PER_DAY:
+            cfg = {**latest.config, "subjectPeriodsPerDay": dict(DEFAULT_PER_DAY)}
+            db.add(SchoolPlanCalendar(school_id=school_id, academic_year=YEAR, version=latest.version + 1, config=cfg, created_by=SYSTEM.id,
+                                      reason="Default timetable corrected to 2 Mathematics + 2 Science periods per instructional day"))
+            await db.flush()
+            aligned += 1
+        else:
+            continue  # a customised school calendar is preserved
+        for tid, grade, subject in sorted((await db.execute(select(TeacherTopicConfig.teacher_id, TeacherTopicConfig.grade, TeacherTopicConfig.subject)
+                                                            .filter_by(school_id=school_id, academic_year=YEAR).distinct())).all()):
+            res = await svc.recalculate_plan(db, SYSTEM, school_id, tid, YEAR, grade, subject, cfg, "Default timetable is 2 Mathematics + 2 Science periods per day")
+            recalculated += 1 if res["topics_changed"] else 0
+    return {"calendars_aligned": aligned, "plans_recalculated": recalculated}
+
+
 async def initialise_curriculum(db: AsyncSession) -> Dict[str, int]:
     out = await seed_syllabus(db)
     out.update(await seed_teacher_plans(db))
+    out.update(await align_default_calendars(db))
     await db.commit()
     return out
 

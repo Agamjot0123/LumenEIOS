@@ -1,10 +1,10 @@
 """School academic calendar versions, validation, recalculation previews and teacher-facing impact.
 
 The calendar (term dates, holidays/exams/events, timetable periods per subject per day) lives only in school_plan_calendars:
-append-only versions, each with who/when/why and an audit event holding the capacity before and after. A new version never
-rewrites anything a teacher saved or any approved schedule: previews show what would change, teachers whose saved
-requirements no longer fit are flagged and must adjust them (saving any over-capacity requirement stays blocked), and approved
-schedules keep the calendar snapshot they were approved against until a recalculation proposal is approved.
+append-only versions, each with who/when/why and an audit event holding the capacity before and after. Saving a version
+automatically recalculates the REMAINING (untaught) period requirements of every teacher plan (services/recalculation.py): Done topics,
+taught periods and classifications are preserved, any shortfall is reported, and approved schedules keep the calendar snapshot they were
+approved against until a recalculation proposal is approved. Previews run the identical function without writing.
 
 Allocation rules are those of annual_allocation.py and are not duplicated here:
 P = scheduled subject periods on instructional days, R = ceil(10% of P), T = P - R, equal weights, largest remainder, 2:1 mixed split.
@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models.entities import User
 from backend.app.models.teacher_planning import SchoolPlanCalendar, TeacherPlan, TeacherTopicConfig
 from backend.app.services import annual_allocation as alloc
-from backend.app.services.teacher_plan_service import DEFAULT_CALENDAR, PlanError, SUBJECTS, audit, get_calendar, topics_for
+from backend.app.services.teacher_plan_service import DEFAULT_CALENDAR, PlanError, SUBJECTS, audit, get_calendar, recalculate_plan, topics_for
 
 SUBJECT_LIST = sorted(SUBJECTS)
 ENTRY_TYPES = {"HOLIDAY", "VACATION", "EXAM", "EVENT"}
@@ -136,54 +136,40 @@ async def _combos(db: AsyncSession, school_id: str, year: str, teacher_id: Optio
 
 
 async def _impact_rows(db: AsyncSession, school_id: str, year: str, old_cfg: Dict[str, Any], new_cfg: Dict[str, Any], teacher_id: Optional[str]) -> List[Dict[str, Any]]:
-    """Per teacher plan: capacity before/after, what they saved, the equal-weight defaults under the new calendar, approved-schedule impact."""
+    """Per teacher plan: capacity before/after and the recalculated remaining allocation under the new calendar (read-only; the same
+    function `save` applies). Done topics, taught periods and classifications are preserved by the recalculation itself."""
     out: List[Dict[str, Any]] = []
     names = {u.id: u.name for u in (await db.execute(select(User).filter(User.school_id == school_id))).scalars().all()}
     plans = (await db.execute(select(TeacherPlan).filter_by(school_id=school_id, academic_year=year, status="APPROVED"))).scalars().all()
     for tid, grade, subject in await _combos(db, school_id, year, teacher_id):
-        cfgs = (await db.execute(select(TeacherTopicConfig).filter_by(school_id=school_id, teacher_id=tid, academic_year=year, grade=grade, subject=subject))).scalars().all()
-        topics = {t.topic_key: t for t in await topics_for(db, grade, subject)}
-        cfgs = [c for c in cfgs if c.topic_key in topics]
+        res = await recalculate_plan(db, None, school_id, tid, year, grade, subject, new_cfg, "preview", write=False)
+        rows = res["rows"]
         before = alloc.capacity(alloc.available_periods(old_cfg, subject))
-        after = alloc.capacity(alloc.available_periods(new_cfg, subject))
-        total = sum(c.core_periods + c.non_core_periods for c in cfgs)
-        ordered = sorted(cfgs, key=lambda c: (topics[c.topic_key].sort_order, c.topic_key))
-        allocation_specs = [{"topic_key": c.topic_key, "classification": c.classification,
-                             "teaching_mode": c.teaching_mode,
-                             "weight": max(1, c.core_periods + c.non_core_periods)
-                             if c.origin in ("teacher", "approved_import") else 1} for c in ordered]
-        defaults_after = alloc.topic_allocations(allocation_specs, after["available_periods"])
-        saved_core = sum(c.core_periods for c in ordered)
-        revised_core = sum(d["core"] for d in defaults_after)
+        after = res["capacity"]
+        total = sum(r["core"] + r["non_core"] for r in rows)
+        new_total = sum(r["new_core"] + r["new_non_core"] for r in rows)
         approved = next((p for p in plans if p.teacher_id == tid and p.grade == grade and p.subject == subject), None)
         out.append({
             "teacher_id": tid, "teacher_name": names.get(tid, tid), "grade": grade, "subject": subject,
-            "capacity_before": before, "capacity_after": after, "saved_total": total,
-            "remaining_before": before["topic_capacity"] - total, "remaining_after": after["topic_capacity"] - total,
-            "deficit_after": max(0, total - after["topic_capacity"]), "needs_teacher_review": total > after["topic_capacity"],
+            "capacity_before": before, "capacity_after": after, "saved_total": total, "recalculated_total": new_total,
+            "remaining_before": before["topic_capacity"] - total, "remaining_after": after["topic_capacity"] - new_total,
+            "deficit_after": res["total_shortfall"], "needs_teacher_review": not res["fits"],
             "periods_gained_or_lost": after["topic_capacity"] - before["topic_capacity"],
-            "core_requirements_fit": revised_core >= saved_core,
-            "core_shortfall": max(0, saved_core - revised_core),
-            "insufficient_capacity": total > after["topic_capacity"],
+            "core_requirements_fit": res["core_shortfall"] == 0, "core_shortfall": res["core_shortfall"], "total_shortfall": res["total_shortfall"],
+            "insufficient_capacity": not res["fits"], "pool": res["pool"], "done_topics_preserved": res["done_topics"],
+            "taught_floor_periods": res["taught_floor_periods"], "topics_changed": res["topics_changed"],
             "topics": [{
-                "topic_key": c.topic_key, "section": topics[c.topic_key].section_label,
-                "classification": c.classification, "teaching_mode": c.teaching_mode, "origin": c.origin,
-                "original_allocation": c.core_periods + c.non_core_periods,
-                "default_before": c.core_periods + c.non_core_periods,
-                "revised_allocation": new["allocation"],
-                "allocation_change": new["allocation"] - (c.core_periods + c.non_core_periods),
-                "original_classroom": c.core_periods + c.non_core_periods - c.independent_periods,
-                "revised_classroom": new["classroom_periods"],
-                "classroom_change": new["classroom_periods"] - (c.core_periods + c.non_core_periods - c.independent_periods),
-                "original_independent": c.independent_periods,
-                "revised_independent": new["independent_periods"],
-                "independent_change": new["independent_periods"] - c.independent_periods,
-                "saved": c.core_periods + c.non_core_periods, "saved_core": c.core_periods,
-                "default_after": new["allocation"],
-                "is_affected": (new["classroom_periods"] != c.core_periods + c.non_core_periods - c.independent_periods
-                                or new["independent_periods"] != c.independent_periods),
-                "customization_conflict": c.origin == "teacher" and (new["allocation"] != c.core_periods + c.non_core_periods),
-            } for c, new in zip(ordered, defaults_after)],
+                "topic_key": r["topic_key"], "section": r["section"], "classification": r["classification"], "teaching_mode": r["teaching_mode"], "origin": r["origin"],
+                "state": r["state"], "coverage": r["coverage"], "taught": r.get("taught", 0),
+                "original_allocation": r["core"] + r["non_core"], "default_before": r["core"] + r["non_core"],
+                "revised_allocation": r["new_core"] + r["new_non_core"], "allocation_change": r["new_core"] + r["new_non_core"] - (r["core"] + r["non_core"]),
+                "original_classroom": r["core"] + r["non_core"] - r["independent"], "revised_classroom": r["new_core"] + r["new_non_core"] - r["new_independent"],
+                "classroom_change": (r["new_core"] + r["new_non_core"] - r["new_independent"]) - (r["core"] + r["non_core"] - r["independent"]),
+                "original_independent": r["independent"], "revised_independent": r["new_independent"], "independent_change": r["new_independent"] - r["independent"],
+                "saved": r["core"] + r["non_core"], "saved_core": r["core"], "revised_core": r["new_core"], "revised_non_core": r["new_non_core"],
+                "default_after": r["new_core"] + r["new_non_core"], "is_affected": r["changed"],
+                "customization_conflict": r["origin"] == "teacher" and r["changed"],
+            } for r in rows],
             "approved_schedule": None if approved is None else {
                 "plan_id": approved.id, "calendar_differs": not same_config(approved.config, new_cfg),
                 "capacity_conflict": (approved.draft.get("metrics", {}).get("requiredPeriods", 0) > after["topic_capacity"]),
@@ -201,7 +187,7 @@ async def preview(db: AsyncSession, user: User, school_id: str, year: str, new_c
     rows = await _impact_rows(db, school_id, year, cur["config"], new_cfg, user.id if user.role == "teacher" else None)
     return {"current_version": cur["version"], "proposed_version": cur["version"] + 1, "unchanged": same_config(cur["config"], new_cfg),
             "capacity_before": capacity_by_subject(cur["config"]), "capacity_after": capacity_by_subject(new_cfg), "impact": rows,
-            "teacher_configurations_changed": False}
+            "teacher_configurations_changed": False, "will_recalculate_remaining_syllabus": True}
 
 
 async def save(db: AsyncSession, user: User, school_id: str, year: str, new_cfg: Dict[str, Any], reason: str, expected_version: Optional[int]) -> Dict[str, Any]:
@@ -219,13 +205,21 @@ async def save(db: AsyncSession, user: User, school_id: str, year: str, new_cfg:
         raise PlanError(422, "A reason for the calendar change is required.")
     number = cur["version"] + 1
     db.add(SchoolPlanCalendar(school_id=school_id, academic_year=year, version=number, config=new_cfg, reason=reason.strip(), created_by=user.id))
-    impacted = [r for r in await _impact_rows(db, school_id, year, cur["config"], new_cfg, None)
-                if r["needs_teacher_review"] or r["core_shortfall"] or r["approved_schedule"] and r["approved_schedule"]["capacity_conflict"]]
+    await db.flush()
+    # Automatic recalculation of every teacher plan's REMAINING (untaught) allocation under the new calendar.
+    recalculated: List[Dict[str, Any]] = []
+    for tid, grade, subject in await _combos(db, school_id, year, None):
+        res = await recalculate_plan(db, user, school_id, tid, year, grade, subject, new_cfg, f"Calendar version {number}: {reason.strip()}", write=True)
+        recalculated.append({"teacher_id": tid, "grade": grade, "subject": subject, "topics_changed": res["topics_changed"], "topic_capacity": res["capacity"]["topic_capacity"],
+                             "core_shortfall": res["core_shortfall"], "total_shortfall": res["total_shortfall"], "fits": res["fits"]})
+    impacted = [r for r in recalculated if not r["fits"]]
     audit(db, user, school_id, "calendar_change", f"Calendar version {number} saved ({reason.strip()})",
           previous={"version": cur["version"], "capacity": capacity_by_subject(cur["config"])},
-          new={"version": number, "capacity": capacity_by_subject(new_cfg), "teachers_needing_review": [f"{r['teacher_id']}:{r['grade']}:{r['subject']}" for r in impacted]},
+          new={"version": number, "capacity": capacity_by_subject(new_cfg), "teachers_needing_review": [f"{r['teacher_id']}:{r['grade']}:{r['subject']}" for r in impacted],
+               "plans_recalculated": len(recalculated), "topics_changed": sum(r["topics_changed"] for r in recalculated)},
           reason=reason.strip(), schedule_version=None)
-    return {"version": number, "teachers_needing_review": len(impacted)}
+    return {"version": number, "teachers_needing_review": len(impacted), "plans_recalculated": len(recalculated),
+            "topics_changed": sum(r["topics_changed"] for r in recalculated), "recalculated": recalculated}
 
 
 async def teacher_impact(db: AsyncSession, school_id: str, year: str, teacher_id: str, grade: int, subject: str) -> Dict[str, Any]:

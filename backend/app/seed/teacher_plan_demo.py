@@ -58,7 +58,7 @@ async def seed_teacher_plan_demo(db: AsyncSession) -> Dict[str, int]:
         latest = (await db.execute(select(PlanningWorkspaceRevision).filter_by(school_id=school_id).order_by(PlanningWorkspaceRevision.revision.desc()).limit(1))).scalars().first()
         has_real = bool(latest and (latest.state or {}).get("configHistory"))
         if not has_real and not (await db.execute(select(SchoolPlanCalendar.id).filter_by(school_id=school_id, academic_year=YEAR))).first():
-            cfg = {**svc.DEFAULT_CALENDAR, "entries": entries, "subjectPeriodsPerDay": {"Mathematics": 2, "Science": 1}}
+            cfg = {**svc.DEFAULT_CALENDAR, "entries": entries, "subjectPeriodsPerDay": {"Mathematics": 2, "Science": 2}}
             db.add(SchoolPlanCalendar(school_id=school_id, academic_year=YEAR, version=1, config=cfg,
                                       reason="Hypothetical demonstration calendar", created_by="system-seed"))
     await db.flush()

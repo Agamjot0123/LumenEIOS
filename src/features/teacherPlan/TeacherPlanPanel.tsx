@@ -7,6 +7,7 @@ import { inputCls, tdCls, thCls } from '../../pages/time-aware/planningUi';
 import { invalidateRequirements } from './requirementsStore';
 import { useRemote } from './useRemote';
 import { TeacherCalendarImpactPanel } from './CalendarImpact';
+import { PlanCapacitySummary } from './PlanCapacitySummary';
 
 const SUBJECT_NAME = { mathematics: 'Mathematics', science: 'Science' } as const;
 
@@ -84,6 +85,7 @@ export const TeacherPlanPanel: React.FC<{ grade: number; subject: 'mathematics' 
           </div>
         ))}
       </dl>
+      <PlanCapacitySummary plan={plan} />
       <TeacherCalendarImpactPanel teacherId={teacherId} grade={grade} subject={subjectName} />
       {remaining < 0 && (
         <p role="alert" className="text-xs text-rose-700" data-testid="capacity-error">
