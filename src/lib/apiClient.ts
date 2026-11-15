@@ -116,6 +116,19 @@ function progressOverviewPath(scope: { role: string; studentId?: string }) {
   return progressBase(scope);
 }
 
+/** Browsers report every dropped/refused connection as "Failed to fetch"; say what it means. */
+const NETWORK_FAILURE = 'Could not reach the LumenEIOS server, or it stopped while working on this request. '
+  + 'Check that the backend window is still open (start-lumeneios). If an OCR or AI step was running, the '
+  + 'local Qwen model may have run out of GPU memory: stop every LumenEIOS server (stop-lumeneios), start '
+  + 'again, or choose Gemini (fallback).';
+
+function networkError(err: any): ApiError {
+  const message = String(err?.message || '');
+  if (err?.name === 'AbortError') return new ApiError(0, 'The request was cancelled.');
+  return new ApiError(0, !message || /failed to fetch|networkerror|network error|load failed|err_/i.test(message)
+    ? NETWORK_FAILURE : message);
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   if (DEMO_MODE) throw new ApiError(0, 'Offline demonstration: live API access is disabled.');
   const token = localStorage.getItem('lumeneios_token');
@@ -143,7 +156,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     return await response.json();
   } catch (err: any) {
     if (err instanceof ApiError) throw err;
-    throw new ApiError(0, err.message || 'Network connection to LumenEIOS backend failed');
+    if (err instanceof SyntaxError) throw new ApiError(0, 'The server sent an unreadable response.');
+    throw networkError(err);
   }
 }
 
@@ -157,7 +171,7 @@ async function postEventStream<T>(
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers: authHeaders(options) });
   } catch (err: any) {
-    throw new ApiError(0, err.message || 'Network connection to LumenEIOS backend failed');
+    throw networkError(err);
   }
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ detail: response.statusText }));
@@ -171,7 +185,13 @@ async function postEventStream<T>(
   let result: T | undefined;
   let failed: ApiError | undefined;
   while (true) {
-    const { value, done } = await reader.read();
+    let chunk: ReadableStreamReadResult<Uint8Array>;
+    try {
+      chunk = await reader.read();
+    } catch (err: any) {
+      throw networkError(err);  // the server went away mid-job (e.g. the model crashed)
+    }
+    const { value, done } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const chunks = buffer.split('\n\n');
@@ -186,7 +206,7 @@ async function postEventStream<T>(
     }
   }
   if (failed) throw failed;
-  if (result === undefined) throw new ApiError(0, 'The server closed the progress stream before finishing.');
+  if (result === undefined) throw new ApiError(0, 'The server stopped before finishing. ' + NETWORK_FAILURE.split('. ').slice(1).join('. '));
   return result;
 }
 /** Shared typed request helper (auth header + school context) for feature service modules. */

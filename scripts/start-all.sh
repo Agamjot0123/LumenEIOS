@@ -99,6 +99,16 @@ else
   warn "No NVIDIA GPU visible: Qwen will be unavailable. Choose 'Gemini (fallback)' in Scan Review."
 fi
 
+# --- leftover servers ------------------------------------------------------------------------
+# Every backend process loads its own copy of Qwen. Two or three left running from earlier sessions
+# fill an 8 GB GPU and make OCR stall or fail ("Failed to fetch" / CUDA errors), so call them out.
+others="$(bash scripts/stop-all.sh --list 2>/dev/null | grep '^  backend' | awk -v p="$BACKEND_PORT" '$3 != p && $3 != "-"')"
+if [ -n "$others" ]; then
+  warn "Other LumenEIOS backends are already running and may be holding GPU memory:"
+  printf '%s\n' "$others"
+  warn "If OCR or the Question Studio stalls, double-click stop-lumeneios.bat, then start again."
+fi
+
 # --- backend ---------------------------------------------------------------------------------
 if up "http://127.0.0.1:$BACKEND_PORT/health"; then
   say "Backend is already running on port $BACKEND_PORT - reusing it."
@@ -152,7 +162,8 @@ if [ "${WARM_MODEL:-1}" = "1" ]; then
 fi
 
 if ((${#PIDS[@]})); then
-  say "Keep this window open. Press Ctrl+C or close it to stop the servers."
+  say "Keep this window open. To shut everything down (frees the GPU): press Ctrl+C here or close this"
+  say "window. If anything is left running, double-click stop-lumeneios.bat."
   wait "${PIDS[@]}"
 else
   say "Everything was already running. You can close this window."
