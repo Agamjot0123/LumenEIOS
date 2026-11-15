@@ -11,7 +11,6 @@ Safety rules enforced here:
 - Callers are responsible for not putting personal data in prompts (see ai_question_service).
 """
 import asyncio
-import json
 import logging
 from typing import Protocol, Type
 
@@ -30,10 +29,6 @@ class AIGatewayError(Exception):
 
 class AINotConfigured(AIGatewayError):
     public_message = "AI features are not configured on this server (GEMINI_API_KEY is not set)."
-
-
-class QwenUnavailable(AINotConfigured):
-    public_message = "Qwen is not available on this server. Choose Gemini, or install the Qwen model."
 
 
 class AIProviderTimeout(AIGatewayError):
@@ -79,7 +74,7 @@ class GeminiProvider:
             system_instruction=system,
             response_mime_type="application/json",
             response_json_schema=_gemini_json_schema(schema),
-            temperature=schema_temperature(schema),
+            temperature=0.7,
         )
         return await self._generate(prompt, config)
 
@@ -153,52 +148,6 @@ def select_gemini_model(model: str) -> str:
 def clear_gemini_model_selection() -> None:
     global _selected_model
     _selected_model = None
-
-
-class QwenTextProvider:
-    """JSON generation through the existing local Qwen vision model."""
-
-    name = "qwen"
-
-    def __init__(self) -> None:
-        self.model = settings.QWEN_VL_MODEL_ID
-
-    async def generate_json(self, *, system: str, prompt: str, schema: Type[BaseModel]) -> str:
-        instruction = (
-            f"{system}\n\n{prompt}\n\n"
-            "Return only one JSON object matching this schema:\n"
-            + json.dumps(_gemini_json_schema(schema))
-        )
-        try:
-            from backend.app.services.ocr_service import (
-                QwenOCRInferenceError,
-                QwenOCRUnavailableError,
-                qwen_model,
-            )
-            return await asyncio.to_thread(
-                qwen_model.generate,
-                [{"role": "user", "content": [{"type": "text", "text": instruction}]}],
-                2048,
-            )
-        except QwenOCRUnavailableError:
-            logger.warning("Qwen model is unavailable.")
-            raise QwenUnavailable() from None
-        except QwenOCRInferenceError:
-            logger.warning("Qwen generation failed.")
-            raise AIProviderError() from None
-
-
-DEFAULT_TEMPERATURE = 0.7
-
-
-def schema_temperature(schema: Type[BaseModel]) -> float:
-    """Sampling temperature for a response schema.
-
-    A schema opts in with `ai_temperature: ClassVar[float]`. Marking and mapping schemas use a low
-    value so the same answer gets the same marks on every run; question writing uses a higher one
-    for variety."""
-    value = getattr(schema, "ai_temperature", DEFAULT_TEMPERATURE)
-    return float(value) if isinstance(value, (int, float)) else DEFAULT_TEMPERATURE
 
 
 def get_ai_provider() -> GeminiProvider:

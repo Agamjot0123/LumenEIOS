@@ -265,9 +265,6 @@ class SavedDraftSummaryOut(BaseModel):
     total_marks: int
     created_at: datetime
     updated_at: datetime
-    # Display labels for teacher lists; None when the record no longer exists.
-    student_name: Optional[str] = None
-    subject_name: Optional[str] = None
 
 
 class SavedDraftOut(SavedDraftSummaryOut):
@@ -312,8 +309,6 @@ class AssignmentSummaryOut(BaseModel):
     due_at: Optional[datetime]
     question_count: int
     total_marks: int
-    student_name: Optional[str] = None
-    subject_name: Optional[str] = None
 
 
 class AssignmentOut(AssignmentSummaryOut):

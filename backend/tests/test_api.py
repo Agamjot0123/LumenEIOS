@@ -171,7 +171,7 @@ async def test_qwen_ocr_preview_accepts_multiple_files_and_passes_buffer(client,
     response = await client.post(
         "/api/v1/ocr/extract-preview",
         headers={"Authorization": f"Bearer {teacher_token}"},
-        data={"wait_before_each_image": "true", "provider": "gemini"},
+        data={"wait_before_each_image": "true"},
         files=[
             ("files", ("first.png", b"first image", "image/png")),
             ("files", ("second.jpg", b"second image", "image/jpeg")),
@@ -200,7 +200,6 @@ async def test_qwen_ocr_preview_reports_unavailable_gpu_and_cleans_upload(
     response = await client.post(
         "/api/v1/ocr/extract-preview",
         headers={"Authorization": f"Bearer {teacher_token}"},
-        data={"provider": "gemini"},
         files=[("files", ("answer.png", b"image bytes", "image/png"))],
     )
 

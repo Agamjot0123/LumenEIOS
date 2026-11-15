@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { apiClient } from '../../lib/apiClient';
 import { Button } from '../../components/common/Button';
-import { MathText } from '../../components/common/MathText';
-import { BLOOM, COMPETENCY_NAMES, CompetencyTag, Empty, MATH_HINT, MathPreview, Messages, OptionsEditor, Section, inputClass, labelClass, useRunner } from './ui';
+import { COMPETENCY_NAMES, CompetencyTag, Empty, Messages, Section, inputClass, labelClass, useRunner } from './ui';
+
+const BLOOM = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'];
 const TYPES: [string, string][] = [['mcq', 'Multiple choice (MCQ)'], ['short', 'Short answer'], ['descriptive', 'Long answer']];
 const LANGUAGES = ['English', 'Hindi', 'Bengali', 'Marathi', 'Tamil', 'Telugu', 'Kannada', 'Gujarati', 'Punjabi'];
 
@@ -11,8 +12,8 @@ let nextKey = 1;
 
 /** Gemini question generation: parameters -> preview -> edit -> approve & save. Nothing is saved
  * until the teacher clicks "Save approved". Saved questions are flagged AI-generated in the bank. */
-export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject: string; onSaved: () => Promise<void>; subjectName?: (id: string) => string }> =
-  ({ subjects, defaultSubject, onSaved, subjectName = id => id }) => {
+export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject: string; onSaved: () => Promise<void> }> =
+  ({ subjects, defaultSubject, onSaved }) => {
   const { busy, error, notice, run } = useRunner();
   const [params, setParams] = useState({
     subject_id: defaultSubject, grade: 8, topic: '', competency: 'AU', bloom_level: 'Apply', question_type: 'mcq',
@@ -51,7 +52,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <label><span className={labelClass}>Subject</span>
         <select aria-label="AI subject" className={inputClass} value={subject} disabled={busy} onChange={e => set({ subject_id: e.target.value })}>
-          {subjects.map(s => <option key={s} value={s}>{subjectName(s)}</option>)}</select></label>
+          {subjects.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
       <label><span className={labelClass}>Class / grade</span>
         <input aria-label="AI grade" type="number" min={1} max={12} className={inputClass} value={params.grade} disabled={busy} onChange={e => set({ grade: Number(e.target.value) })} /></label>
       <label className="sm:col-span-2 lg:col-span-3"><span className={labelClass}>Topic or chapter</span>
@@ -76,7 +77,6 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
         <input aria-label="AI instructions" className={inputClass} maxLength={1000} placeholder="e.g. Use Indian real-life contexts; avoid trigonometry" value={params.instructions}
           disabled={busy} onChange={e => set({ instructions: e.target.value })} /></label>
     </div>
-    <p className="text-[11px] text-content-secondary">The AI writes formulas as LaTeX and they are shown typeset. {MATH_HINT}</p>
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="teal" disabled={busy || !subject || params.topic.trim().length < 2} loading={busy && regenerating === null} onClick={generate}>
         {busy && regenerating === null ? 'Generating with Gemini...' : drafts.length ? 'Regenerate all' : 'Generate'}</Button>
@@ -86,7 +86,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
     {meta && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-content-secondary">
       <p data-testid="ai-provenance"><span className="font-semibold text-amber-800">New questions generated just now by {meta.provider} / {meta.model}</span>{' - '}
         {meta.generated} of {meta.requested} requested, from {meta.attempts} AI request(s). Checked against {meta.checked_against} existing
-        {' '}{subjectName(subject)} bank question(s): none of the questions below are copies of them.
+        {' '}{subject} bank question(s): none of the questions below are copies of them.
         {meta.discarded > 0 && ` Rejected: ${meta.rejected_duplicates} bank duplicate(s), ${meta.rejected_repeats} repeat(s), ${meta.rejected_invalid} invalid.`}</p>
       {meta.warnings.length > 0 && <ul className="ml-4 list-disc">{meta.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>}
     </div>}
@@ -106,14 +106,16 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
       </div>
       <label className="mt-2 block"><span className={labelClass}>Question</span>
         <textarea aria-label={`AI question ${index + 1} text`} rows={2} className={inputClass} value={d.q.text} onChange={e => update(d.key, { text: e.target.value })} /></label>
-      <MathPreview text={d.q.text} />
-      {d.q.question_type === 'mcq' && <div className="mt-2">
-        <OptionsEditor idPrefix={`ai-${d.key}`} labelPrefix={`AI question ${index + 1} option`} options={d.q.options} correct={d.q.correct_answer}
-          onChange={(options, correct_answer) => update(d.key, { options, correct_answer })} />
-        {d.q.options.some((o: string) => /\\[([a-zA-Z]/.test(o)) && <div className="mt-1 flex flex-wrap gap-2 text-sm">{d.q.options.map((o: string, i: number) =>
-          <span key={i} className={'rounded border px-2 py-0.5 ' + (o === d.q.correct_answer ? 'border-emerald-300 bg-emerald-50' : 'border-surface-border')}>
-            {String.fromCharCode(65 + i)}. <MathText text={o} /></span>)}</div>}
-      </div>}
+      {d.q.question_type === 'mcq' && <div className="mt-2 grid gap-2 sm:grid-cols-2">{d.q.options.map((o: string, i: number) =>
+        <label key={i} className="flex items-center gap-2 text-sm">
+          <input type="radio" name={`ai-correct-${d.key}`} aria-label={`Option ${String.fromCharCode(65 + i)} is correct`} checked={d.q.correct_answer === o}
+            onChange={() => update(d.key, { correct_answer: o })} />
+          <span className="w-4 font-semibold">{String.fromCharCode(65 + i)}</span>
+          <input aria-label={`AI question ${index + 1} option ${String.fromCharCode(65 + i)}`} className={inputClass} value={o} onChange={e => {
+            const options = [...d.q.options]; options[i] = e.target.value;
+            update(d.key, { options, ...(d.q.correct_answer === o ? { correct_answer: e.target.value } : {}) });
+          }} /></label>)}
+        <p className="text-xs text-content-secondary sm:col-span-2">Select the radio button of the correct option.</p></div>}
       <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_6rem]">
         {d.q.question_type !== 'mcq' && <label><span className={labelClass}>Correct answer</span>
           <textarea aria-label={`AI question ${index + 1} answer`} rows={2} className={inputClass} value={d.q.correct_answer} onChange={e => update(d.key, { correct_answer: e.target.value })} /></label>}
@@ -122,15 +124,13 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
         <label><span className={labelClass}>Marks</span>
           <input aria-label={`AI question ${index + 1} marks`} type="number" min={1} max={20} className={inputClass} value={d.q.marks} onChange={e => update(d.key, { marks: Number(e.target.value) })} /></label>
       </div>
-      {d.q.explanation && <p className="mt-1 text-xs text-content-secondary">Explanation (saved with the rubric): <MathText text={d.q.explanation} /></p>}
+      {d.q.explanation && <p className="mt-1 text-xs text-content-secondary">Explanation (saved with the rubric): {d.q.explanation}</p>}
     </li>)}</ol>
     {drafts.length > 0 && <div className="flex flex-wrap items-center gap-2 border-t border-surface-border pt-3">
       <Button variant="primary" disabled={busy || approved.length === 0} onClick={() => run(async () => {
-        const unkeyed = approved.findIndex(d => d.q.question_type === 'mcq' && !d.q.options.includes(d.q.correct_answer));
-        if (unkeyed >= 0) throw new Error(`Question ${drafts.indexOf(approved[unkeyed]) + 1}: choose its correct option before saving.`);
         const res = await apiClient.assessments.aiSaveQuestions(subject, approved.map(d => d.q), meta?.model);
         setDrafts(ds => ds.filter(d => !d.approved)); await onSaved();
-        return `${res.saved_count} approved question(s) saved to the ${subjectName(subject)} question bank.`;
+        return `${res.saved_count} approved question(s) saved to the ${subject} question bank.`;
       })}>Save {approved.length} approved to question bank</Button>
       <span className="text-xs text-content-secondary">Unapproved questions stay here and are not saved.</span>
     </div>}

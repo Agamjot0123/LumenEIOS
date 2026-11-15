@@ -107,27 +107,6 @@ test('teacher marking workspace keeps AI suggestions optional and non-finalizing
   assert.ok(!/generateAiSuggestions[\s\S]{0,200}finalize/.test(source));
   assert.ok(!/rerunAiSuggestions[\s\S]{0,200}release/.test(source));
   assert.ok(source.includes('never finalize or release') || source.includes('are not saved marks'));
-  // Create flow defaults AI bank items off and supports My Classes deep-link.
-  assert.ok(source.includes('include_ai_generated: includeAI'));
-  assert.ok(source.includes("useState(false)"));
-  assert.ok(source.includes("searchParams.get('studentId')"));
-});
-
-test('My Classes opens live Differentiated Homework instead of legacy remediation assign',()=>{
-  const source=readFileSync(new URL('../src/pages/teacher/MyClasses.tsx',import.meta.url),'utf8');
-  assert.ok(source.includes("navigate(`/teacher/homework?${params.toString()}`)"));
-  assert.ok(source.includes('Open Differentiated Homework'));
-  assert.ok(!source.includes('assignHomeworkRemediation'));
-});
-
-test('Student dashboard exposes live Differentiated Homework workspace entry',()=>{
-  const source=readFileSync(new URL('../src/pages/student/StudentDashboard.tsx',import.meta.url),'utf8');
-  assert.ok(source.includes("navigate('/student/homework')"));
-  assert.ok(source.includes('Open Differentiated Homework') || source.includes('Open homework'));
-  const app=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
-  assert.ok(app.includes('path="/student/homework"'));
-  assert.ok(app.includes('path="/teacher/homework"'));
-  assert.ok(app.includes('DifferentiatedHomeworkPage'));
 });
 
 for(const status of [401,403,404,409,422]) test(`HTTP ${status} remains an error, without demo fallback`,async()=>{

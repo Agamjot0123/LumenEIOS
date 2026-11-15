@@ -1,5 +1,4 @@
 import React, {useEffect,useState} from 'react';
-import { MathText } from './MathText';
 import {useAuth} from '../../context/AuthContext';
 import {assessmentResults} from '../../lib/assessmentResults';
 import {learnsphere} from '../../lib/learnsphere';
@@ -36,7 +35,7 @@ function Review({result,onSaved}:{result:AssessmentResult;onSaved:(r:AssessmentR
     {result.evaluation_warnings?.map(w=><p key={w} role="status">{w}</p>)}
     <p>Automatic marks and feedback are provisional. Correct marks and mappings to recalculate stage percentages; a stage score is derived from eligible marks and cannot be replaced by an unsupported percentage.</p>
     <AssessmentPerformanceSummary outcomes={result.outcomes} verified={result.status==='teacher_reviewed'}/>
-    {result.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-lg p-3 space-y-2"><legend>{i+1}. <MathText text={q.text} /> · {q.competency}</legend><p>Response: <MathText text={result.answers[i]?.answer_text??q.options[result.answers[i]?.selected_option_index??-1]} /></p><p>Stored key: <MathText text={q.correct_answer||'No key'} /> · Rubric: <MathText text={q.marking_rubric||'No rubric'} /></p>
+    {result.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-lg p-3 space-y-2"><legend>{i+1}. {q.text} · {q.competency}</legend><p>Response: {result.answers[i]?.answer_text??q.options[result.answers[i]?.selected_option_index??-1]}</p><p>Stored key: {q.correct_answer||'No key'} · Rubric: {q.marking_rubric||'No rubric'}</p>
       <label>Verified marks (maximum {q.marks})<input required className="block border rounded p-2" type="number" min={0} max={q.marks} step={1} value={rows[i].score} onChange={e=>update(i,'score',e.target.value)}/></label>
       <label>Correctness<select className="block border rounded p-2" value={rows[i].correct} onChange={e=>update(i,'correct',e.target.value)}><option value="">Not recorded</option><option value="true">Correct</option><option value="false">Incorrect</option></select></label>
       <label>Question feedback<textarea required className="block border rounded p-2 w-full" value={rows[i].feedback} onChange={e=>update(i,'feedback',e.target.value)}/></label>

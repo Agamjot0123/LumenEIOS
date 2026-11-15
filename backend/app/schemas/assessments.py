@@ -42,19 +42,6 @@ class RegenerateQuestionRequest(BaseModel):
     custom_instruction: Optional[str] = None
 
 
-class QuestionCreateRequest(BaseModel):
-    """A teacher-written question-bank item (no AI involved)."""
-    subject_id: str
-    text: str
-    type: str = "mcq"
-    options: List[str] = []
-    correct_answer: str = ""
-    marking_rubric: str = ""
-    marks: int = 1
-    competency: str = "CU"
-    bloom_level: str = "Understand"
-
-
 class QuestionUpdateRequest(BaseModel):
     text: Optional[str] = None
     type: Optional[str] = None

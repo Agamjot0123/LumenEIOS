@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { Student } from '../../types';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
@@ -13,8 +13,7 @@ import { Users, GraduationCap, AlertCircle, Sparkles, BookOpen, Clock, BarChart3
 import { recommendDifferentiatedHomework } from '../../lib/calculations';
 
 export const MyClasses: React.FC = () => {
-  const navigate = useNavigate();
-  const { classes, students } = useData();
+  const { classes, students, assignHomeworkRemediation } = useData();
 
   const [selectedClassId, setSelectedClassId] = useState('class-8a');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -29,21 +28,24 @@ export const MyClasses: React.FC = () => {
     setIsRemediationModalOpen(true);
   };
 
-  /** Open the live Differentiated Homework workspace (central bank + assign), not legacy remediation. */
-  const handleOpenLiveHomework = (student: Student) => {
-    const params = new URLSearchParams({
-      classId: student.classId,
-      studentId: student.id,
-    });
-    navigate(`/teacher/homework?${params.toString()}`);
-  };
-
   const handleConfirmRemediation = () => {
     if (!selectedStudent) return;
-    // Prefer the live DH workspace; keep this modal as a navigational confirm only.
+    const rec = recommendDifferentiatedHomework(selectedStudent);
+    assignHomeworkRemediation({
+      studentId: selectedStudent.id,
+      studentName: selectedStudent.name,
+      classId: selectedStudent.classId,
+      subjectId: 'sub-math',
+      title: rec.title,
+      competencyTarget: rec.competency,
+      reason: rec.rationale,
+      description: rec.description,
+      dueDate: '2026-10-18',
+      status: 'assigned',
+    });
+
     setIsRemediationModalOpen(false);
-    handleOpenLiveHomework(selectedStudent);
-    setNotificationMsg(`Opening Differentiated Homework for ${selectedStudent.name}…`);
+    setNotificationMsg(`Differentiated homework successfully assigned to ${selectedStudent.name}!`);
     setTimeout(() => setNotificationMsg(null), 4000);
   };
 
@@ -224,8 +226,8 @@ export const MyClasses: React.FC = () => {
         <Modal
           isOpen={isRemediationModalOpen}
           onClose={() => setIsRemediationModalOpen(false)}
-          title={`Open Differentiated Homework for ${selectedStudent.name}`}
-          subtitle="Uses the live Differentiated Homework workspace (question bank → assemble → assign)"
+          title={`Generate Differentiated Remediation for ${selectedStudent.name}`}
+          subtitle="Deterministic rule-based pedagogical homework recommendation"
           maxWidth="lg"
           footer={
             <div className="flex items-center justify-end gap-2.5 w-full">
@@ -233,7 +235,7 @@ export const MyClasses: React.FC = () => {
                 Cancel
               </Button>
               <Button variant="teal" size="sm" onClick={handleConfirmRemediation}>
-                Open Differentiated Homework
+                Confirm & Assign Task
               </Button>
             </div>
           }
@@ -245,16 +247,35 @@ export const MyClasses: React.FC = () => {
                 <div className="p-3.5 bg-teal-50 border border-teal-200 rounded-xl">
                   <div className="flex items-center gap-2 text-teal-900 font-bold">
                     <Sparkles className="w-4 h-4 text-teal-600" />
-                    <span>Suggested focus: {rec.competency} ({rec.title})</span>
+                    <span>Targeted Dimension: {rec.competency} ({rec.title})</span>
                   </div>
                   <p className="text-[11px] text-teal-800 mt-1 leading-relaxed">{rec.rationale}</p>
                 </div>
-                <p className="text-content-secondary leading-relaxed">
-                  Continue in Differentiated Homework to browse the central question bank, assemble
-                  an assignment, and assign it to this student. AI question generation and AI
-                  evaluation remain optional there.
-                </p>
-                <p className="text-[11px] text-content-secondary leading-relaxed">{rec.description}</p>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-content-primary">Worksheet / Activity Description</label>
+                  <p className="p-3 bg-surface-bg rounded-lg border border-surface-border text-content-secondary leading-relaxed">
+                    {rec.description}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-content-primary">Due Date</label>
+                    <input
+                      type="date"
+                      defaultValue="2026-10-18"
+                      className="w-full mt-1 px-3 py-1.5 bg-white border border-surface-border rounded-lg text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-content-primary">Delivery Channel</label>
+                    <select className="w-full mt-1 px-3 py-1.5 bg-white border border-surface-border rounded-lg text-xs">
+                      <option>Digital Tablet Portal + Offline Printable Slip</option>
+                      <option>Physical Printed Worksheet</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             );
           })()}

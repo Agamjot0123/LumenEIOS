@@ -31,7 +31,6 @@ import {
   FlaskConical,
   ShieldAlert,
   Megaphone,
-  Network,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -55,12 +54,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     badge?: string;
     highlight?: boolean;
   }
-
-  const knowledgeComponentsItem: NavItem = {
-    label: 'Knowledge Components',
-    path: '/teacher/knowledge-components',
-    icon: <Network className="w-4 h-4" />,
-  };
 
   const uploadItem: NavItem = {
     label: 'Upload',
@@ -136,7 +129,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             badge: 'Pacing',
           },
           curriculumCatalogue,
-          knowledgeComponentsItem,
           centralLogs,
           { ...differentiatedHomework, path: '/homework' },
           { label: 'Audit & Security', path: '/admin/audit-logs', icon: <ShieldCheck className="w-4 h-4" /> },
@@ -156,7 +148,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
           curriculumCatalogue,
-          knowledgeComponentsItem,
           centralLogs,
           {
             label: 'Time-Aware Engine',
@@ -184,7 +175,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
             badge: 'Pacing',
           },
           curriculumCatalogue,
-          knowledgeComponentsItem,
           centralLogs,
           questionStudioItem,
           questionStudioBetaItem,

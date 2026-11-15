@@ -47,7 +47,7 @@ async def test_teacher_evaluates_reviewed_scan(client, db_session, monkeypatch, 
     async def evaluate(token, extracted_text="Q1: 12 [unclear]"):
         return await client.post(
             "/api/v1/ocr/evaluate-scan", headers={"Authorization": f"Bearer {token}"},
-            json={"assessment_id": "scan-evaluation-paper", "extracted_text": extracted_text, "provider": "gemini"},
+            json={"assessment_id": "scan-evaluation-paper", "extracted_text": extracted_text},
         )
 
     assert (await evaluate(student_token)).status_code == 403
@@ -143,7 +143,7 @@ async def test_assignment_audience_and_ocr_upload(client, db_session, monkeypatc
     assert calls == []
 
     streamed = await client.post(
-        f"{ocr_url}/stream", headers=student, files=files, data={"assessment_id": eligible_id, "provider": "gemini"},
+        f"{ocr_url}/stream", headers=student, files=files, data={"assessment_id": eligible_id},
     )
     events = [json.loads(line[6:]) for line in streamed.text.splitlines() if line.startswith("data: ")]
     assert events[-1]["kind"] == "complete"

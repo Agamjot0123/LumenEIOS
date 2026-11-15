@@ -33,8 +33,7 @@ export default defineConfig(({command,mode}) => {
       // browser cannot reach the FastAPI process on :8000 directly.
       proxy:{
         '/api':{
-          // scripts/start-all.sh sets this when the backend runs on a non-default port.
-          target:process.env.LUMENEIOS_BACKEND_URL || 'http://127.0.0.1:8000',
+          target:'http://127.0.0.1:8000',
           changeOrigin:true,
         },
       },

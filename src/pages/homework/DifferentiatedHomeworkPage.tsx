@@ -1,5 +1,4 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { DEMO_MODE } from '../../lib/runtime';
@@ -43,21 +42,13 @@ export const DifferentiatedHomeworkPage: React.FC = () => {
 
   return (
     <div className="space-y-4" key={`${currentUser.id}:${currentSchoolId}`}>
-      <header className="flex items-start gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-navy-700 text-white shadow-md">
-          <Sparkles className="h-5 w-5" />
-        </span>
-        <div>
-          <h1 className="text-xl font-bold text-navy-800">Differentiated Homework</h1>
-          <p className="text-sm text-content-secondary">
-            {EDUCATOR_ROLES.includes(currentUser.role)
-              ? 'Homework personalised to each student’s weakest competencies. Create, review, assign and mark it here.'
-              : currentUser.role === 'student'
-                ? 'Homework your teacher chose for you. Save as you go and submit when you are done.'
-                : 'Homework assigned to your child and the results their teacher has released.'}
-          </p>
-        </div>
-      </header>
+      <div>
+        <h1 className="text-xl font-bold text-navy-800">Differentiated Homework</h1>
+        <p className="text-sm text-content-secondary">
+          Gap-aware homework, teacher review, student submission and parent results — using your current
+          school session.
+        </p>
+      </div>
       {body}
     </div>
   );

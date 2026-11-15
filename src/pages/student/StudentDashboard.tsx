@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { StudentAssessments } from '../../components/common/StudentAssessments';
-import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { demoMode, useAuth } from '../../context/AuthContext';
 import { ApiError, apiClient } from '../../lib/apiClient';
@@ -11,7 +10,6 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarChart';
-import { KnowledgeComponentGraph } from './KnowledgeComponentGraph';
 import {
   GraduationCap,
   Sparkles,
@@ -55,7 +53,6 @@ function StudentProfile({ showDemo }: { showDemo: boolean }) {
 }
 
 function StudentDashboardContent({ student }: { student: Student }) {
-  const navigate = useNavigate();
   const { homeworkRemediations, submitStudentHomework } = useData();
   const myHomework = homeworkRemediations.filter((h) => h.studentId === student.id);
 
@@ -120,27 +117,26 @@ function StudentDashboardContent({ student }: { student: Student }) {
           <Button
             variant="teal"
             size="sm"
-            onClick={() => navigate('/student/homework')}
-            icon={<BookOpen className="w-3.5 h-3.5" />}
+            onClick={() => setIsQuizModalOpen(true)}
+            icon={<Sparkles className="w-3.5 h-3.5" />}
           >
-            Open Differentiated Homework
+            Start Today's Quiz
           </Button>
         </div>
       </div>
 
-      {/* Live Differentiated Homework entry (not the demo remediation list below) */}
+      {/* Today's Learning Mission Card */}
       <div className="p-5 rounded-2xl bg-gradient-to-r from-navy-800 to-navy-900 text-white shadow-card flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <span className="text-[11px] font-bold uppercase tracking-wider text-teal-400 flex items-center gap-1.5">
-            <BookOpen className="w-4 h-4" />
-            <span>Differentiated Homework</span>
+            <Award className="w-4 h-4" />
+            <span>Today's Adaptive Mission (Day 104)</span>
           </span>
           <h2 className="text-lg font-bold text-white">
-            View assigned homework, answer questions, and check released feedback
+            Mensuration: Practical Surface Areas & Water Tank Volumes
           </h2>
           <p className="text-xs text-gray-300 max-w-xl leading-relaxed">
-            This opens your live homework workspace. Submitting answers does not require AI.
-            Teacher feedback appears here after your teacher releases evaluation results.
+            Learn to calculate volume in cubic meters and convert to household liters. Visual animations tailored for your learning preference!
           </p>
         </div>
 
@@ -148,10 +144,10 @@ function StudentDashboardContent({ student }: { student: Student }) {
           variant="teal"
           size="md"
           className="shrink-0"
-          onClick={() => navigate('/student/homework')}
+          onClick={() => setIsQuizModalOpen(true)}
           icon={<ArrowRight className="w-4 h-4" />}
         >
-          Open homework
+          Launch Interactive Lab
         </Button>
       </div>
 
@@ -241,8 +237,6 @@ function StudentDashboardContent({ student }: { student: Student }) {
           </div>
         </div>
       </div>
-
-      <KnowledgeComponentGraph />
 
       {/* Assigned Homework & Quizzes */}
       <Card id="practice" className="scroll-mt-6">
