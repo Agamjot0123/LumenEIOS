@@ -42,6 +42,7 @@ def test_source_file_has_the_full_structure():
 async def test_fresh_database_gets_whole_syllabus_and_every_topic_configured(db):
     out = await ss.initialise_curriculum(db)
     assert out["plan_topics_added"] == 415 and out["eligible_plans"] == 6 and out["plans_recalculated"] == 0  # defaults already match the 2+2 calendar
+    assert out["calendars_aligned"] == 2  # the default 2+2 calendar is recorded once, on the very first run
     per = (await db.execute(select(PlanTopic.grade, PlanTopic.subject, func.count()).group_by(PlanTopic.grade, PlanTopic.subject))).all()
     assert sorted(per) == [(6, "Mathematics", 65), (6, "Science", 65), (7, "Mathematics", 65), (7, "Science", 78), (8, "Mathematics", 58), (8, "Science", 84)]
     assert await count(db, TeacherTopicConfig) == 415 == await count(db, TeacherTopicCoverage)

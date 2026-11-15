@@ -178,6 +178,7 @@ async def align_default_calendars(db: AsyncSession) -> Dict[str, int]:
     backend default (now 2+2) directly. Every affected teacher plan's remaining allocation is then recalculated, so required
     periods always match the capacity. Idempotent: once a school is on 2+2 nothing happens."""
     aligned = recalculated = 0
+    await db.flush()  # the session does not autoflush: make plan rows added earlier in this run visible to the queries below
     schools = [s for (s,) in (await db.execute(select(School.id).order_by(School.id))).all()]
     for school_id in schools:
         latest = (await db.execute(select(SchoolPlanCalendar).filter_by(school_id=school_id, academic_year=YEAR)
