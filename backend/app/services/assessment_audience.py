@@ -42,6 +42,13 @@ async def upload_assignments(
         (assessment, section, subject) for assessment, section, subject in rows
         if subject.id in section.subject_ids_json
     ]
+    if actor.role == "teacher" and assessment_id is None:
+        # A teacher's list shows the classes and subjects they teach (when the timetable allocation exists).
+        from backend.app.models.entities import TeacherAssignment
+        taught = {(a.class_id, a.subject_id) for a in (await db.execute(
+            select(TeacherAssignment).filter(TeacherAssignment.teacher_id == actor.id))).scalars().all()}
+        if taught:
+            eligible = [row for row in eligible if (row[0].class_id, row[0].subject_id) in taught]
     if assessment_id is not None and not eligible:
         raise HTTPException(status_code=404, detail="This assignment is unavailable for your class and subject.")
     return student, eligible

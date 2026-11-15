@@ -62,6 +62,27 @@ export type DemoWalkthrough = {
   };
 };
 
+export interface AssignmentUploads {
+  assessment: {
+    id: string; title: string; date: string; status: string; total_marks: number; class_id: string;
+    class_name: string | null; subject_id: string; subject_name: string | null;
+    questions: { index: number; text: string; marks: number; competency: string; type: string; options: string[];
+      correct_answer?: string | null; marking_rubric?: string | null; topic?: string | null }[];
+  };
+  students: {
+    student_id: string; name: string; roll_no: number;
+    uploads: { history_id: string; file_name: string; extracted_text: string; pages_processed: number; uploaded_at: string | null }[];
+    grade: { submission_id: string; marks_obtained: number; total_marks: number; percentage: number; feedback: string | null; graded_on: string } | null;
+  }[];
+  summary: { students: number; uploaded: number; graded: number };
+}
+
+export interface PublishedGrade {
+  submission_id: string; student_id: string; student_name: string; marks_obtained: number; total_marks: number;
+  percentage: number; competency_scores: Record<string, number>; regraded: boolean;
+  parameters_before: Record<string, number>; parameters_after: Record<string, number>;
+}
+
 export type UploadAssignment = {
   id: string;
   title: string;
@@ -781,6 +802,19 @@ export const apiClient = {
     uploadAssignments() {
       return request<UploadAssignment[]>('/assessments/upload-assignments');
     },
+    /** Teacher: the class roster for an assignment with each student's uploaded handwritten work. */
+    uploads(assessmentId: string) {
+      return request<AssignmentUploads>(`/assessments/${encodeURIComponent(assessmentId)}/uploads`);
+    },
+    /** Teacher: publish confirmed marks; updates the student's parameters and notifies student and parents. */
+    publishGrade(assessmentId: string, body: {
+      student_id: string; history_id?: string; overall_feedback?: string; evaluated_by?: string;
+      items: { question_index: number; awarded_marks: number; feedback?: string }[];
+    }) {
+      return request<PublishedGrade>(`/assessments/${encodeURIComponent(assessmentId)}/grade`, {
+        method: 'POST', body: JSON.stringify(body),
+      });
+    },
     async getAll() {
       return request<any[]>('/assessments');
     },
@@ -1003,7 +1037,7 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
-    async evaluateScan(assessmentId: string, extractedText: string, provider: 'gemini' | 'qwen' = 'qwen') {
+    async evaluateScan(assessmentId: string, extractedText: string, provider: 'gemini' | 'qwen' = 'qwen', historyId?: string) {
       return request<{
         scoring_summary: {
           total_marks_obtained: number;
@@ -1027,7 +1061,7 @@ export const apiClient = {
         }>;
       }>('/ocr/evaluate-scan', {
         method: 'POST',
-        body: JSON.stringify({ assessment_id: assessmentId, extracted_text: extractedText, provider }),
+        body: JSON.stringify({ assessment_id: assessmentId, extracted_text: extractedText, provider, ...(historyId ? { history_id: historyId } : {}) }),
       });
     },
     async history() {

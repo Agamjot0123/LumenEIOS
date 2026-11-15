@@ -49,7 +49,7 @@ from backend.app.services.ai_gateway import (
     active_gemini_model,
     get_ai_provider,
 )
-from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
+from backend.app.services.evaluation_service import build_evaluation_messages, harden_evaluation, parse_and_validate_evaluation
 from backend.app.services.kc_graph_service import record_knowledge_graph
 from backend.app.services.gemini_ocr_service import OCRInputError, extract_gemini_text
 from backend.app.services.ocr_service import (
@@ -168,6 +168,7 @@ async def evaluate_scan(
             item.question_text = question["text"]
             ordered.append(item)
         result.question_evaluations = ordered
+        result = harden_evaluation(result, questions, extracted_text)
         result.student_info = StudentInfo()
         await record_knowledge_graph(db, graph_context, result)
         return result

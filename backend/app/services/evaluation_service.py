@@ -80,41 +80,36 @@ Evaluate the student's submission and return the result strictly in this JSON fo
   }},
   "question_evaluations": [
     {{
-      "question_index": 1,
+      "question_index": <1, 2, 3 ... in order>,
       "question_id": "<id from questions_json>",
       "question_text": "<text>",
       "competency": "<LU|CU|AU|CT>",
-      "max_marks": 4,
-      "student_answer_extracted": "<mapped student answer in text/LaTeX>",
-      "status": "attempted",
-      "awarded_marks": 3,
-      "competency_score": 75,
+      "max_marks": <max_marks of THIS question from questions_json>,
+      "student_answer_extracted": "<the student's answer to THIS question, copied from the OCR text>",
+      "status": "<attempted | partially_attempted | unattempted>",
+      "awarded_marks": <number from 0 to max_marks>,
+      "competency_score": <0-100>,
       "step_breakdown": [
-        {{"criterion": "Formula $V = L \\times B \\times H$ stated", "marks_awarded": 1, "max": 1}},
-        {{"criterion": "Calculation $4 \\times 3 \\times 2 = 24\\text{{ m}}^3$", "marks_awarded": 1, "max": 1}},
-        {{"criterion": "Conversion to 24,000 Liters", "marks_awarded": 1, "max": 1}},
-        {{"criterion": "Time calculation with correct units", "marks_awarded": 0, "max": 1}}
+        {{"criterion": "<a rubric criterion of THIS question>", "marks_awarded": <number>, "max": <number>}}
       ],
-      "feedback": "Correct volume and liter conversion; final calculation step for time was omitted.",
-      "flag_for_review": false,
-      "flag_reason": null
+      "feedback": "<one sentence about what THIS student wrote for THIS question>",
+      "flag_for_review": <true|false>,
+      "flag_reason": "<reason or null>"
     }}
   ],
   "scoring_summary": {{
-    "total_marks_obtained": 11,
-    "max_possible_marks": 15,
-    "percentage": 73,
-    "competency_scores": {{
-      "LU": 80,
-      "CU": 85,
-      "AU": 70,
-      "CT": 60
-    }},
-    "overall_feedback": "Strong conceptual and formula grasp. Needs focus on complete multi-step problem execution.",
-    "needs_teacher_review": false,
-    "review_reasons": []
+    "total_marks_obtained": <sum of awarded_marks>,
+    "max_possible_marks": <sum of max_marks>,
+    "percentage": <0-100>,
+    "competency_scores": {{"LU": <0-100 or null>, "CU": <0-100 or null>, "AU": <0-100 or null>, "CT": <0-100 or null>}},
+    "overall_feedback": "<two sentences about THIS student's work: one strength, one next step>",
+    "needs_teacher_review": <true|false>,
+    "review_reasons": ["<reason>"]
   }}
 }}
+Rules: replace every <...> with real values. Never copy wording from this template. A multiple-choice answer earns
+full marks only if the option the student chose is the answer key; otherwise 0. If the OCR text has no answer for a
+question, mark it unattempted with 0 marks.
 <|im_end|>
 <|im_start|>assistant"""
 
@@ -152,11 +147,11 @@ Generate the authoritative answer key in this JSON format:
   "subject": "{subject_name}",
   "generated_answer_key": [
     {{
-      "question_index": 1,
+      "question_index": <1, 2, 3 ... in order>,
       "question_id": "<id>",
       "question_text": "<text>",
       "competency": "<LU|CU|AU|CT>",
-      "max_marks": 4,
+      "max_marks": <max_marks of THIS question from questions_json>,
       "model_solution": "<ideal solution with complete steps in LaTeX>",
       "marking_rubric": [
         {{"criterion": "Correct formula identification", "marks": 1}},
@@ -397,3 +392,125 @@ def build_answer_key_prompt(
         questions_without_key_json=questions_json,
     )
     return f"{ANSWER_KEY_SYSTEM_PROMPT}\n{user_part}"
+
+
+# ============================================================================
+# DETERMINISTIC CHECKS ON MODEL OUTPUT
+# ============================================================================
+# Small local models copy template wording, mark MCQs generously and invent answers for blank questions.
+# These checks run on every evaluator result before a teacher sees it; the teacher still confirms every mark.
+
+_ANSWER_START = re.compile(r"^\s*(?:Q(?:uestion)?\s*\.?\s*|Ans(?:wer)?\s*\.?\s*)?(\d{1,2})\s*[).:\-]\s*(.*)$", re.IGNORECASE)
+_TEMPLATE_PHRASES = ("correct volume and liter conversion", "strong conceptual and formula grasp",
+                     "final calculation step for time was omitted", "multi-step problem execution")
+
+
+def split_numbered_answers(text: str) -> Dict[int, str]:
+    """'Q1. ...' / '1) ...' / 'Ans 2: ...' blocks -> {1: '...', 2: '...'}. Continuation lines join their answer."""
+    answers: Dict[int, str] = {}
+    current: Optional[int] = None
+    for line in (text or "").splitlines():
+        match = _ANSWER_START.match(line)
+        if match:
+            current = int(match.group(1))
+            answers[current] = match.group(2).strip()
+        elif current is not None and line.strip():
+            answers[current] = (answers[current] + " " + line.strip()).strip()
+    return answers
+
+
+def _normalise(value: str) -> str:
+    value = re.sub(r"\\\(|\\\)|\\\[|\\\]|\$", " ", str(value or "").lower())
+    value = value.replace("[unclear]", " ")
+    return " ".join(re.sub(r"[^a-z0-9.+\-*/=<>]+", " ", value).split())
+
+
+def mcq_choice_is_key(answer: str, options: List[str], key: str) -> Optional[bool]:
+    """True/False when the chosen option can be identified, None when it cannot."""
+    a, k = _normalise(answer), _normalise(key)
+    if not a or not k:
+        return None
+    if a == k:
+        return True
+    norms = [_normalise(o) for o in options]
+    exact = [n for n in norms if n and n == a]
+    if exact:
+        return exact[0] == k
+    letter = re.fullmatch(r"\(?([a-d])\)?", a)
+    if letter and len(options) >= 4:
+        return norms["abcd".index(letter.group(1))] == k
+    contained = [n for n in norms if n and n in a]
+    if len(contained) == 1:
+        return contained[0] == k
+    return None
+
+
+_STOPWORDS = set("a an the is are was were be been it its of to in on for and or but if then than so as at by with from this that these those there their they them he she his her you your we our i my not no yes can will would should could do does did has have had which what when where why how also into only very more most some any each such".split())
+
+
+def key_overlap(answer: str, key: str) -> Optional[float]:
+    """Share of the answer key's content words present in the answer (0..1); None when the key has none."""
+    words = lambda t: {w.strip(".+-*/=<>") for w in _normalise(t).split()  # noqa: E731
+                       if len(w.strip(".+-*/=<>")) > 2 and w.strip(".+-*/=<>") not in _STOPWORDS}
+    key_words = words(key)
+    if not key_words:
+        return None
+    return len(key_words & words(answer)) / len(key_words)
+
+
+def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]], extracted_text: str) -> "EvaluationResult":
+    answers = split_numbered_answers(extracted_text)
+    numbered = bool(answers)
+    reasons: List[str] = []
+    for item, question in zip(result.question_evaluations, questions):
+        index = item.question_index
+        answer = answers.get(index) if numbered else None
+        if numbered and not answer:
+            item.status, item.awarded_marks, item.competency_score, item.step_breakdown = "unattempted", 0.0, 0.0, []
+            item.student_answer_extracted = ""
+            item.feedback = "No answer was found for this question."
+            continue
+        if answer:
+            item.student_answer_extracted = answer
+        options = question.get("options") or []
+        key = question.get("correct_answer") or ""
+        if options and answer:
+            verdict = mcq_choice_is_key(answer, options, key)
+            if verdict is not None:
+                top = float(question.get("max_marks") or item.max_marks)
+                item.status, item.step_breakdown = "attempted", []
+                item.awarded_marks = top if verdict else 0.0
+                item.competency_score = 100.0 if verdict else 0.0
+                item.feedback = "Matches the answer key." if verdict else f"Not the correct option. The answer is: {key}."
+            else:
+                item.flag_for_review = True
+                item.flag_reason = item.flag_reason or "Could not tell which option was chosen."
+        elif answer and key:
+            # Written answer: cross-check the model's mark with how much of the key the answer contains.
+            overlap = key_overlap(answer, key)
+            top = float(question.get("max_marks") or item.max_marks)
+            if overlap is not None:
+                by_key = round(min(1.0, overlap / 0.8) * top * 2) / 2  # 80% of the key's content earns full marks
+                if abs(by_key - item.awarded_marks) > top / 2:
+                    item.awarded_marks = round((by_key + item.awarded_marks), 1) / 2
+                    item.awarded_marks = round(item.awarded_marks * 2) / 2
+                    item.flag_for_review = True
+                    item.flag_reason = "AI mark and answer-key match disagree; marks set between them."
+                item.competency_score = round(100 * item.awarded_marks / top, 1) if top else 0
+        if any(p in (item.feedback or "").lower() for p in _TEMPLATE_PHRASES):
+            item.feedback = ""
+        if item.flag_for_review:
+            reasons.append(f"Q{index}: {item.flag_reason or 'review required'}")
+    summary = result.scoring_summary
+    summary.total_marks_obtained = round(sum(i.awarded_marks for i in result.question_evaluations), 2)
+    summary.max_possible_marks = sum(float(q.get("max_marks") or 0) for q in questions) or summary.max_possible_marks
+    summary.percentage = round(100 * summary.total_marks_obtained / summary.max_possible_marks, 1) if summary.max_possible_marks else 0
+    if any(p in (summary.overall_feedback or "").lower() for p in _TEMPLATE_PHRASES):
+        summary.overall_feedback = ""
+    for dim in ("LU", "CU", "AU", "CT"):
+        rows = [(i.awarded_marks, i.max_marks) for i in result.question_evaluations if i.competency == dim]
+        setattr(summary.competency_scores, dim, round(100 * sum(a for a, _ in rows) / sum(m for _, m in rows), 1) if rows and sum(m for _, m in rows) else None)
+    if reasons:
+        summary.needs_teacher_review = True
+        summary.review_reasons = list(dict.fromkeys((summary.review_reasons or []) + reasons))
+    return result

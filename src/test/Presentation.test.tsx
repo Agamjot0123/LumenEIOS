@@ -45,10 +45,8 @@ afterEach(() => setPlanningTransport(undefined));
 
 describe('demonstration-data labelling', () => {
   it.each([
-    ['/upload', 'teacher', /OCR and auto-grading run on sample answer sheets/],
     ['/teacher/assessments', 'teacher', /no AI model is connected/],
     ['/admin/schools', 'admin', /Campus profiles are seeded demonstration records/],
-    ['/teacher/dashboard', 'teacher', /Curriculum progress on this page comes from the live planning workspace/],
   ])('%s is labelled as demonstration data', (path, role, text) => {
     const view = open(path, role);
     expect(screen.getByTestId('demo-data-notice')).toHaveTextContent(text);
@@ -60,7 +58,10 @@ describe('demonstration-data labelling', () => {
     ['/teacher/curriculum-180', 'teacher'],
     ['/principal/curriculum', 'principal'],
     ['/principal/academic-config', 'principal'],
-  ])('live planning page %s carries no demo notice', (path, role) => {
+    ['/teacher/dashboard', 'teacher'],
+    ['/upload', 'teacher'],
+    ['/upload-beta', 'teacher'],
+  ])('live page %s carries no demo notice', (path, role) => {
     const view = open(path, role);
     expect(screen.queryByTestId('demo-data-notice')).toBeNull();
     view.unmount();

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ScanGrading } from './ScanGrading';
+import { useData } from '../../context/DataContext';
 import { AlertCircle, FileText, Loader2, Printer, ScanLine, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
@@ -60,9 +62,12 @@ export function ScanReview({ beta = false }: { beta?: boolean }) {
 
 function UploadBeta() {
   const { currentUser } = useAuth();
+  const { workspace, refreshWorkspace } = useData();
   const isStudent = currentUser?.role === 'student';
+  const [params, setParams] = useSearchParams();
   const [assignments, setAssignments] = useState<UploadAssignment[]>();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = params.get('assignment');
+  const setSelectedId = (id: string | null) => setParams(p => { const n = new URLSearchParams(p); if (id) n.set('assignment', id); else n.delete('assignment'); return n; });
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -76,6 +81,8 @@ function UploadBeta() {
   const selected = assignments?.find((assignment) => assignment.id === selectedId);
   if (selected) {
     return (
+      <div className="space-y-5">
+      {!isStudent && <ScanGrading assessmentId={selected.id} onChanged={() => { void refreshWorkspace(); }} />}
       <UploadPage
         key={selected.id}
         assignment={selected}
@@ -86,6 +93,7 @@ function UploadBeta() {
           ));
         } : undefined}
       />
+      </div>
     );
   }
 
@@ -114,6 +122,11 @@ function UploadBeta() {
               {assignment.class_name} · {assignment.date} · {assignment.total_marks} marks
               {isStudent && (assignment.uploaded ? ' · Uploaded' : ' · Awaiting upload')}
             </span>
+            {!isStudent && (workspace?.pendingUploads?.[assignment.id] ?? 0) > 0 && (
+              <span className="mt-2 inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                {workspace?.pendingUploads?.[assignment.id]} upload(s) to evaluate
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -250,7 +263,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           </p>
         )}
       </header>
-      {!isStudent && <SampleWalkthrough />}
+      {!isStudent && !assignment && <SampleWalkthrough />}
 
       {assignment && (
         <article className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">

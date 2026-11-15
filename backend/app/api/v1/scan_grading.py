@@ -173,7 +173,9 @@ async def publish_grade(
         )
         db.add(submission)
         await db.flush()
-        after = apply_observation(student, dims)
+        # Weight by how much evidence the work carries: a 7-mark worksheet nudges, a 25+ mark paper counts fully.
+        weight = round(0.1 + 0.3 * min(1.0, total / 25), 3)
+        after = apply_observation(student, dims, weight=weight)
         db.add(snapshot(student, cycle_number=assessment.cycle_number, subject_id=assessment.subject_id,
                         assessment_id=assessment_id, submission_id=submission.id,
                         notes=f"Graded: {assessment.title} ({obtained}/{total})"))
