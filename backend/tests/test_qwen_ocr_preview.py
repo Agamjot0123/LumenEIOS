@@ -40,6 +40,7 @@ async def post(client, token, name, content, content_type="application/octet-str
         URL,
         headers={"Authorization": f"Bearer {token}"},
         files={"files": (name, content, content_type)},
+        data={"provider": "gemini"},
     )
 
 
@@ -99,6 +100,29 @@ async def test_preview_returns_text_and_removes_temporary_upload(client, teacher
     assert body["provider"] == "gemini"
     assert body["results"][0]["extracted_text"] == "recognized text"
     assert set(Path(storage_service.upload_dir).iterdir()) == before
+
+
+@pytest.mark.asyncio
+async def test_preview_defaults_to_qwen(client, teacher_token, monkeypatch):
+    from backend.app.api.v1 import ocr as ocr_api
+
+    async def extract_document(path, options=None):
+        return {"extracted_text": "qwen text", "pages_processed": 1}
+
+    async def gemini_must_not_run(*args, **kwargs):
+        raise AssertionError("Gemini must only run when explicitly chosen")
+
+    monkeypatch.setattr(ocr_api.qwen_model, "extract_document", extract_document)
+    monkeypatch.setattr(ocr_api, "extract_gemini_text", gemini_must_not_run)
+    response = await client.post(
+        URL,
+        headers={"Authorization": f"Bearer {teacher_token}"},
+        files={"files": ("sheet.png", png_bytes(), "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "qwen"
+    assert response.json()["results"][0]["extracted_text"] == "qwen text"
 
 
 @pytest.mark.asyncio
@@ -183,6 +207,7 @@ async def test_student_uploads_save_extracts_to_the_linked_student_only(
     assert response.status_code == 200
     streamed = await client.post(
         f"{URL}/stream", headers=student_headers, files={"files": ("streamed.png", png_bytes(), "image/png")},
+        data={"provider": "gemini"},
     )
     events = [json.loads(line[6:]) for line in streamed.text.splitlines() if line.startswith("data: ")]
     assert events[-1]["kind"] == "complete"
@@ -196,7 +221,8 @@ async def test_student_uploads_save_extracts_to_the_linked_student_only(
     assert len(rows) == 2
 
     other = await client.get(history_url, headers={"Authorization": f"Bearer {student_token}"})
-    assert other.json() == []
+    # The demo student may carry seeded walkthrough history; only this test's uploads must not leak.
+    assert {"direct.png", "streamed.png"}.isdisjoint({row["file_name"] for row in other.json()})
     assert (await client.get(history_url, headers={"Authorization": f"Bearer {teacher_token}"})).status_code == 403
 
 

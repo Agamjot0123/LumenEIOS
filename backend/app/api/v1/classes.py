@@ -3,10 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_roles, require_school_access
+from backend.app.api.dependencies import get_current_user, require_roles, require_school_access, user_school_ids
 from backend.app.db.session import get_db
 from backend.app.lib.class_names import parse_class_name, class_identity
-from backend.app.models.entities import ClassSection, ParentStudentLink, School, Student, User, AuditEvent, utc_now
+from backend.app.models.entities import SchoolMembership, ClassSection, ParentStudentLink, School, Student, User, AuditEvent, utc_now
 from backend.app.schemas.schools import ClassCreate, ClassSectionOut, TeacherAssignmentRequest
 from backend.app.schemas.competencies import StudentOut, StudentProfileOut, CompetencyScoresSchema
 from backend.app.modules.differentiated_homework.student_access import (
@@ -80,22 +80,41 @@ async def assign_teacher(
     class_id: str,
     req: TeacherAssignmentRequest,
     db: AsyncSession = Depends(get_db),
-    admin_or_principal: User = Depends(require_roles("admin", "principal"))
+    admin_or_principal: User = Depends(require_roles("admin", "principal", authenticated=True))
 ):
     result = await db.execute(select(ClassSection).filter(ClassSection.id == class_id))
     cls = result.scalars().first()
     if not cls:
         raise HTTPException(status_code=404, detail="Class not found.")
+    if admin_or_principal.role != "admin" and cls.school_id not in await user_school_ids(db, admin_or_principal):
+        # A deactivated membership is a known relationship that is no longer allowed: 403.
+        # No relationship at all hides the class entirely: 404.
+        inactive = await db.scalar(select(SchoolMembership.id).where(
+            SchoolMembership.user_id == admin_or_principal.id,
+            SchoolMembership.school_id == cls.school_id,
+        ))
+        raise HTTPException(status_code=403 if inactive else 404,
+                            detail="Your access to this school is inactive." if inactive else "Class not found.")
 
-    cls.class_teacher_id = req.teacher_id
-    cls.class_teacher_name = req.teacher_name
+    # Never trust a caller-supplied display name; the teacher must be a real teacher in this school.
+    teacher = await db.get(User, req.teacher_id)
+    if (
+        not teacher
+        or teacher.role != "teacher"
+        or not getattr(teacher, "is_active", True)
+        or cls.school_id not in await user_school_ids(db, teacher)
+    ):
+        raise HTTPException(status_code=422, detail="Choose an active teacher from this school.")
+
+    cls.class_teacher_id = teacher.id
+    cls.class_teacher_name = teacher.name
 
     audit = AuditEvent(
         timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
         user_id=admin_or_principal.id,
         user_name=admin_or_principal.name,
         action="Teacher Reassignment",
-        details=f"Assigned {req.teacher_name} as lead teacher for {cls.name}",
+        details=f"Assigned {teacher.name} as lead teacher for {cls.name}",
         category="curriculum"
     )
     db.add(audit)
@@ -156,8 +175,9 @@ async def my_student_profile(
 async def list_class_students(
     class_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
+    # Rosters expose classmates' scores and support flags, so learners and parents never see them.
     section = await db.get(ClassSection, class_id)
     if not section:
         raise HTTPException(status_code=404, detail="Class not found.")

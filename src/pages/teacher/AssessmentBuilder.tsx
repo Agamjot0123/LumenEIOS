@@ -27,6 +27,8 @@ import {
   AlertCircle,
   Wand2,
 } from 'lucide-react';
+import { ClassWeaknessPanel } from './ClassWeaknessPanel';
+import { questionConceptLabels, sampleQuestionsFor, topicHintFor } from './studioSamples';
 
 const BLOOM_LEVELS: BloomLevel[] = [
   'Remember',
@@ -99,6 +101,9 @@ export const AssessmentBuilder: React.FC = () => {
   const [theoryCount, setTheoryCount] = useState<number>(2);
   const [bloomIndex, setBloomIndex] = useState<number>(3); // 'Analyze'
   const [topicHint, setTopicHint] = useState<string>('');
+  const [focusConceptId, setFocusConceptId] = useState('');
+  const [focusConceptName, setFocusConceptName] = useState('');
+  const [focusCompetency, setFocusCompetency] = useState<CompetencyKey>('CU');
   // Learning-resource links (one per line) used with or instead of the chapter PDF.
   const [studioLinksText, setStudioLinksText] = useState<string>('');
   const studioLinks = Array.from(new Set(studioLinksText.split(/\s+/).map((link) => link.trim()).filter(Boolean)));
@@ -133,7 +138,11 @@ export const AssessmentBuilder: React.FC = () => {
   }, [currentUser?.id, currentUser?.schoolId]);
 
   const changeSubject = (subjectId: string) => {
-    if (subjectId !== genSubjectId) setGeneratedQuestions([]);
+    if (subjectId !== genSubjectId) {
+      setGeneratedQuestions([]);
+      setFocusConceptId('');
+      setFocusConceptName('');
+    }
     setGenSubjectId(subjectId);
   };
 
@@ -772,6 +781,23 @@ export const AssessmentBuilder: React.FC = () => {
                 ))}
               </div>
 
+              {targetClassId && genSubjectId && (
+                <ClassWeaknessPanel
+                  classId={targetClassId}
+                  subjectId={genSubjectId}
+                  selectedId={focusConceptId}
+                  onSelect={(concept) => {
+                    const competency = concept.weakest_competency === 'LU' || concept.weakest_competency === 'CU' || concept.weakest_competency === 'CT' || concept.weakest_competency === 'AU'
+                      ? concept.weakest_competency
+                      : 'CU';
+                    setFocusConceptId(concept.id);
+                    setFocusConceptName(concept.name);
+                    setFocusCompetency(competency);
+                    setTopicHint(topicHintFor(concept.name, competency));
+                  }}
+                />
+              )}
+
               {/* Optional Topic / Concept Focus */}
               <div>
                 <label className="block font-semibold text-navy-900 mb-1">
@@ -784,6 +810,16 @@ export const AssessmentBuilder: React.FC = () => {
                   placeholder="e.g. Mensuration of Cylinders, Algebraic Identities, or Force & Pressure"
                   className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs text-navy-900 focus:outline-none focus:border-teal-600"
                 />
+                {focusConceptName && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="mt-2"
+                    onClick={() => setGeneratedQuestions(sampleQuestionsFor(focusConceptName, focusCompetency))}
+                  >
+                    Show sample questions for {focusConceptName}
+                  </Button>
+                )}
               </div>
 
               {/* Primary Generate Questions Button */}
@@ -829,6 +865,16 @@ export const AssessmentBuilder: React.FC = () => {
                 <p className="text-[11px] text-content-secondary mt-0.5">
                   Review and edit generated questions, export the paper, and assign it to your class.
                 </p>
+                {focusConceptName && generatedQuestions.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setGeneratedQuestions((current) => current.filter((item) => questionConceptLabels(item.text, [focusConceptName]).length > 0))}
+                  >
+                    Keep questions about {focusConceptName}
+                  </Button>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -927,6 +973,12 @@ export const AssessmentBuilder: React.FC = () => {
                           <Badge variant="outline" size="sm">
                             Bloom: {q.bloomLevel}
                           </Badge>
+                          {focusConceptName && questionConceptLabels(q.text, [focusConceptName]).length > 0 && (
+                            <Badge variant="teal" size="sm">Matches {focusConceptName}</Badge>
+                          )}
+                          {focusConceptName && questionConceptLabels(q.text, [focusConceptName]).length === 0 && (
+                            <Badge variant="outline" size="sm">Does not assess {focusConceptName}</Badge>
+                          )}
                           {q.sourceDocumentNames &&
                             q.sourceDocumentNames.map((srcName) => (
                               <span

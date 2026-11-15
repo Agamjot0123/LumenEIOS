@@ -31,6 +31,7 @@ from backend.app.schemas.assessments import (
     SubmissionOut,
     GenerateQuestionsRequest,
     RegenerateQuestionRequest,
+    QuestionCreateRequest,
     QuestionUpdateRequest,
 )
 from backend.app.services.llm_service import (
@@ -273,6 +274,146 @@ async def get_question_bank(
             "is_ai_generated": False,
         }
     ]
+
+
+QUESTION_TYPES = {"mcq", "short", "descriptive", "practical"}
+BLOOM_LEVELS = {"Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"}
+COMPETENCIES = {"LU", "CU", "AU", "CT"}
+
+
+def _validate_bank_question(
+    *, text: str, qtype: str, options: List[str], correct_answer: str, marks: int, competency: str, bloom: str
+) -> List[str]:
+    """Shared checks for teacher-authored and edited bank questions. Returns cleaned options."""
+    if not (text or "").strip():
+        raise HTTPException(status_code=422, detail="Question text is required.")
+    if qtype not in QUESTION_TYPES:
+        raise HTTPException(status_code=422, detail="Type must be mcq, short, descriptive or practical.")
+    if competency not in COMPETENCIES:
+        raise HTTPException(status_code=422, detail="Competency must be LU, CU, AU or CT.")
+    if bloom not in BLOOM_LEVELS:
+        raise HTTPException(status_code=422, detail="Invalid Bloom's Taxonomy level.")
+    if not isinstance(marks, int) or not 1 <= marks <= 100:
+        raise HTTPException(status_code=422, detail="Marks must be a whole number from 1 to 100.")
+    if qtype != "mcq":
+        return []
+    cleaned = [option.strip() for option in options if isinstance(option, str) and option.strip()]
+    if not 2 <= len(cleaned) <= 6:
+        raise HTTPException(status_code=422, detail="A multiple-choice question needs 2 to 6 options.")
+    if len({option.casefold() for option in cleaned}) != len(cleaned):
+        raise HTTPException(status_code=422, detail="Multiple-choice options must be different from each other.")
+    if (correct_answer or "").strip() not in cleaned:
+        raise HTTPException(status_code=422, detail="Mark exactly one option as the correct answer.")
+    return cleaned
+
+
+@router.post(
+    "/assessments/question-bank",
+    dependencies=[Depends(_require_question_bank_login)],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_bank_question(
+    req: QuestionCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
+):
+    """A teacher writes a question directly into the school's bank. No AI is called."""
+    if await db.get(Subject, req.subject_id) is None:
+        raise HTTPException(status_code=404, detail="Subject not found.")
+    options = _validate_bank_question(
+        text=req.text, qtype=req.type, options=req.options, correct_answer=req.correct_answer,
+        marks=req.marks, competency=req.competency, bloom=req.bloom_level,
+    )
+    item = QuestionBankItem(
+        school_id=school_id,
+        subject_id=req.subject_id,
+        text=req.text.strip(),
+        type=req.type,
+        options_json=options,
+        correct_answer=req.correct_answer.strip(),
+        marking_rubric=req.marking_rubric.strip(),
+        marks=req.marks,
+        competency=req.competency,
+        bloom_level=req.bloom_level,
+        source_document_ids_json=[],
+        source_document_names_json=[],
+        is_ai_generated=False,
+        created_by=educator.id,
+    )
+    db.add(item)
+    db.add(AuditEvent(
+        timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
+        user_id=educator.id,
+        user_name=educator.name,
+        action="Created Question",
+        details=f"Teacher wrote a {req.type} question for subject {req.subject_id}.",
+        category="assessment",
+    ))
+    await db.commit()
+    await db.refresh(item)
+    return _serialize_qb_item(item)
+
+
+@router.post(
+    "/assessments/question-bank/template",
+    dependencies=[Depends(_require_question_bank_login)],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_template_question(
+    subject_id: str = Query(..., min_length=1),
+    bloom_level: str = Query("Understand"),
+    competency: str = Query("CU"),
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
+):
+    """Deterministic question-bank authoring helper. Does not call Gemini or any AI provider.
+
+    Teachers use this to seed the central bank, then edit the text/key/rubric before assembly.
+    """
+    subject = await db.get(Subject, subject_id)
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found.")
+    allowed_bloom = {"Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"}
+    if bloom_level not in allowed_bloom:
+        raise HTTPException(status_code=422, detail="Invalid Bloom's Taxonomy level.")
+    if competency not in {"LU", "CU", "AU", "CT"}:
+        raise HTTPException(status_code=422, detail="Invalid competency.")
+
+    item = QuestionBankItem(
+        school_id=school_id,
+        subject_id=subject_id,
+        text=(
+            f"Template {competency} question for {subject.name}: "
+            f"explain one key idea at Bloom level {bloom_level}."
+        ),
+        type="mcq",
+        options_json=["Option A", "Option B", "Option C", "Option D"],
+        correct_answer="Option A",
+        marking_rubric="1 mark for selecting the correct option.",
+        marks=1,
+        competency=competency,
+        bloom_level=bloom_level,
+        source_document_ids_json=[],
+        source_document_names_json=[],
+        is_ai_generated=False,
+        created_by=educator.id,
+    )
+    db.add(item)
+    db.add(
+        AuditEvent(
+            timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
+            user_id=educator.id,
+            user_name=educator.name,
+            action="Created Template Question",
+            details=f"Added non-AI template question for subject {subject_id}.",
+            category="assessment",
+        )
+    )
+    await db.commit()
+    await db.refresh(item)
+    return {"generated_count": 1, "subject_id": subject_id, "questions": [_serialize_qb_item(item)]}
 
 
 @router.post("/assessments/generate-questions", dependencies=[Depends(_require_question_bank_login)])
@@ -566,6 +707,23 @@ async def update_question_endpoint(
     item = res.scalars().first()
     if not item:
         raise HTTPException(status_code=404, detail="Question not found in bank.")
+
+    # Validate the question as it will look after the edit, so an MCQ can never end up with an
+    # answer key that matches no option (or several).
+    merged_type = req.type if req.type is not None else item.type
+    merged_options = req.options if req.options is not None else (item.options_json or [])
+    merged_answer = req.correct_answer if req.correct_answer is not None else (item.correct_answer or "")
+    cleaned = _validate_bank_question(
+        text=req.text if req.text is not None else item.text,
+        qtype=merged_type,
+        options=merged_options,
+        correct_answer=merged_answer,
+        marks=req.marks if req.marks is not None else item.marks,
+        competency=req.competency if req.competency is not None else item.competency,
+        bloom=req.bloom_level if req.bloom_level is not None else item.bloom_level,
+    )
+    if req.type is not None or req.options is not None:
+        req.options = cleaned
 
     if req.text is not None:
         item.text = req.text

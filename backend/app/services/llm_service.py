@@ -134,12 +134,15 @@ def normalize_mcq_answer(answer: Any, options: List[str]) -> Optional[str]:
     if letter.isdigit() and 1 <= int(letter) <= 4:
         return options[int(letter) - 1]
 
-    # Prefer an option that contains the answer text, or vice versa.
+    # Fall back to containment only when it identifies exactly one option; otherwise a short key
+    # such as "2" would silently match "12" or "2x" and mark the wrong option as correct.
     folded = text.casefold().rstrip(" .;:")
-    for option in options:
-        option_fold = option.casefold().rstrip(" .;:")
-        if folded and (folded in option_fold or option_fold in folded):
-            return option
+    contained = [
+        option for option in options
+        if folded and (folded in (fold := option.casefold().rstrip(" .;:")) or fold in folded)
+    ]
+    if len(contained) == 1:
+        return contained[0]
     return text
 
 
@@ -394,8 +397,10 @@ Return only a JSON object. Put multiple-choice questions in mcqs and open-ended 
 Design every question and its recommended answer for the competency assigned below. Do not tag a question from the topic name alone.
 {assignment_block}
 For each MCQ, options must be a JSON array of exactly 4 distinct plain strings.
-Each option is one short choice only. Do not put A/B/C/D labels, newlines, or multiple choices inside one option string.
-correct_answer must copy one option string exactly.
+Exactly one option is correct. Each of the other three must be a believable wrong answer from a common mistake, never a second correct answer.
+Each option is one short choice only. Do not put A/B/C/D labels, newlines, or multiple choices inside one option string. Do not use "all of the above" or "none of the above".
+correct_answer must copy one option string exactly, character for character.
+Write formulas in LaTeX inside \\( and \\), for example \\( \\frac{{1}}{{2}} \\) or \\( x^2 \\), and write them the same way in options and correct_answer.
 Theory type must be short, descriptive, or practical. Ask for a written response and omit multiple-choice options.
 
 <chapter_context>
