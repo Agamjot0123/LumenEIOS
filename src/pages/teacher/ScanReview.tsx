@@ -133,7 +133,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     null
   );
   const [waitBeforeEachImage, setWaitBeforeEachImage] = useState(false);
-  const [modelProvider, setModelProvider] = useState<'gemini' | 'qwen'>('gemini');
+  const [modelProvider, setModelProvider] = useState<'gemini' | 'qwen'>('qwen');
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
@@ -192,7 +192,9 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     setError(errors.join(' '));
   };
 
-  const processFiles = async () => {
+  const processFiles = async (providerOverride?: 'gemini' | 'qwen') => {
+    const providerToUse = providerOverride ?? modelProvider;
+    if (providerOverride) setModelProvider(providerOverride);
     if (!files.length) {
       setError('Select at least one image or PDF first.');
       return;
@@ -204,7 +206,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     setOcrSteps([]);
     try {
       setResults(await apiClient.ocr.extractPreview(
-        files, waitBeforeEachImage, recordOcrStep, assignment?.id, modelProvider,
+        files, waitBeforeEachImage, recordOcrStep, assignment?.id, providerToUse,
       ));
       onProcessed?.();
     } catch (requestError) {
@@ -323,8 +325,8 @@ function UploadPage({ assignment, onBack, onProcessed }: {
             onChange={(event) => setModelProvider(event.target.value as 'gemini' | 'qwen')}
             className="mt-1 block w-full max-w-xs rounded-lg border border-surface-border bg-white px-3 py-2 text-sm font-normal"
           >
-            <option value="gemini">Gemini</option>
-            <option value="qwen">Qwen</option>
+            <option value="qwen">Qwen (default)</option>
+            <option value="gemini">Gemini (fallback)</option>
           </select>
         </label>
 
@@ -386,7 +388,20 @@ function UploadPage({ assignment, onBack, onProcessed }: {
             className="mt-4 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-800"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
+            <div className="space-y-2">
+              <span>{error}</span>
+              {modelProvider === 'qwen' && files.length > 0 && !isProcessing && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => processFiles('gemini')}
+                    className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-semibold text-rose-800 hover:bg-rose-100"
+                  >
+                    Retry with Gemini (fallback)
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -398,7 +413,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
 
         <button
           type="button"
-          onClick={processFiles}
+          onClick={() => processFiles()}
           disabled={isProcessing || files.length === 0}
           className="mt-5 inline-flex items-center gap-2 rounded-lg bg-navy-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
         >

@@ -917,7 +917,7 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
-    async evaluateScan(assessmentId: string, extractedText: string, provider: 'gemini' | 'qwen' = 'gemini') {
+    async evaluateScan(assessmentId: string, extractedText: string, provider: 'gemini' | 'qwen' = 'qwen') {
       return request<{
         scoring_summary: {
           total_marks_obtained: number;
@@ -952,7 +952,7 @@ export const apiClient = {
       waitBeforeEachImage: boolean,
       onProgress?: (step: ProcessStep) => void,
       assessmentId?: string,
-      provider: 'gemini' | 'qwen' = 'gemini',
+      provider: 'gemini' | 'qwen' = 'qwen',
     ) {
       const formData = new FormData();
       formData.append('wait_before_each_image', String(waitBeforeEachImage));

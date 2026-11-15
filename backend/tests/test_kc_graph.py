@@ -237,7 +237,7 @@ async def test_evaluation_updates_only_the_linked_student_graph(client, db_sessi
 
     async def evaluate(text):
         return await client.post("/api/v1/ocr/evaluate-scan", headers=teacher, json={
-            "assessment_id": "kc-eval-paper", "extracted_text": text,
+            "assessment_id": "kc-eval-paper", "extracted_text": text, "provider": "gemini",
         })
 
     first = await evaluate("Q1 chain rule. Q2 2x cos(x^2)")
@@ -370,7 +370,7 @@ async def test_unlinked_scan_does_not_write_mastery(client, db_session, monkeypa
     monkeypatch.setattr(ocr_api, "get_ai_provider", lambda: FakeProvider())
     monkeypatch.setattr(kc_graph_service, "get_ai_provider", lambda: FakeProvider())
     response = await client.post("/api/v1/ocr/evaluate-scan", headers={"Authorization": f"Bearer {teacher_token}"}, json={
-        "assessment_id": "kc-unlinked-paper", "extracted_text": "12",
+        "assessment_id": "kc-unlinked-paper", "extracted_text": "12", "provider": "gemini",
     })
     assert response.status_code == 200, response.text
     await db_session.rollback()

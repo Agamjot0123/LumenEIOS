@@ -31,7 +31,7 @@ describe('teacher knowledge components', () => {
         subject_id: 'sub-math', subject_name: 'Mathematics', topic: 'Calculus',
       },
     ];
-    const links: Array<{ id: string; source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' }> = [];
+    const links: Array<{ id: string; source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF' }> = [];
     vi.spyOn(apiClient.assessments, 'targets').mockResolvedValue([
       { id: 'class-8a', name: '8-A', subjects: [{ id: 'sub-math', name: 'Mathematics' }] },
     ]);

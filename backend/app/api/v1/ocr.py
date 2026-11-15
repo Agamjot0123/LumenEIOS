@@ -88,13 +88,13 @@ class EvaluateScanRequest(BaseModel):
     assessment_id: str
     extracted_text: str = Field(min_length=1, max_length=100_000)
     history_id: Optional[str] = None
-    provider: str = "gemini"
+    provider: str = "qwen"
 
 
 def _model_choice(provider: str) -> str:
-    chosen = (provider or "gemini").strip().lower()
+    chosen = (provider or "qwen").strip().lower()
     if chosen not in {"gemini", "qwen"}:
-        raise HTTPException(status_code=422, detail="Choose Gemini or Qwen.")
+        raise HTTPException(status_code=422, detail="Choose Qwen (default) or Gemini (fallback).")
     return chosen
 
 
@@ -204,7 +204,7 @@ async def extract_ocr_preview(
     current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
     db: AsyncSession = Depends(get_db),
     assessment_id: str | None = Form(None),
-    provider: str = Form("gemini"),
+    provider: str = Form("qwen"),
 ):
     provider_name = _model_choice(provider)
     if not files:
@@ -327,7 +327,7 @@ async def stream_extract_ocr_preview(
     current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
     db: AsyncSession = Depends(get_db),
     assessment_id: str | None = Form(None),
-    provider: str = Form("gemini"),
+    provider: str = Form("qwen"),
 ):
     return stream_job(lambda: extract_ocr_preview(
         files, wait_before_each_image, current_user, db, assessment_id, provider,
