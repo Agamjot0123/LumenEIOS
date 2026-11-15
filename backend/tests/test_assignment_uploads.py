@@ -6,8 +6,10 @@ from PIL import Image
 
 from backend.app.core.security import create_access_token
 from backend.app.models.entities import Assessment, Subject
-from backend.app.services import ocr_service
+from types import SimpleNamespace
+
 from backend.app.api.v1 import ocr as ocr_api
+from backend.app.services import gemini_ocr_service
 
 
 @pytest.mark.asyncio
@@ -124,12 +126,13 @@ async def test_assignment_audience_and_ocr_upload(client, db_session, monkeypatc
 
     calls = []
 
-    def infer(image):
-        calls.append(image.size)
+    async def transcribe(*, system, image, mime_type):
+        calls.append(image)
         return "Twelve"
 
-    monkeypatch.setattr(ocr_service._qwen_provider, "_load_model", lambda: None)
-    monkeypatch.setattr(ocr_service._qwen_provider, "_infer_image", infer)
+    monkeypatch.setattr(
+        gemini_ocr_service, "get_ai_provider", lambda: SimpleNamespace(transcribe_image=transcribe),
+    )
     image = io.BytesIO()
     Image.new("RGB", (64, 64), "white").save(image, "PNG")
     files = {"files": ("answer.png", image.getvalue(), "image/png")}

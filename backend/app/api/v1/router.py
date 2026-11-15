@@ -7,6 +7,7 @@ from backend.app.api.v1.teachers import router as teachers_router
 from backend.app.api.v1.classes import router as classes_router
 from backend.app.api.v1.calendar import router as calendar_router
 from backend.app.api.v1.assessments import router as assessments_router
+from backend.app.api.v1.assessment_results import router as assessment_results_router
 from backend.app.api.v1.competencies import router as competencies_router
 from backend.app.modules.differentiated_homework.router import router as homework_router
 from backend.app.modules.student_progress.router import router as student_progress_router
@@ -29,6 +30,8 @@ from backend.app.api.v1.teacher_planning import router as teacher_plan_router, o
 from backend.app.api.v1.plans import router as plans_router
 
 api_router = APIRouter(dependencies=[Depends(reject_non_finite_json)])
+from backend.app.modules.learnsphere.router import router as learnsphere_router
+api_router.include_router(learnsphere_router)
 
 api_router.include_router(auth_router)
 api_router.include_router(schools_router)
@@ -37,6 +40,7 @@ api_router.include_router(teachers_router)
 api_router.include_router(classes_router)
 api_router.include_router(calendar_router)
 api_router.include_router(assessments_router)
+api_router.include_router(assessment_results_router)
 api_router.include_router(competencies_router)
 api_router.include_router(homework_router)
 api_router.include_router(student_progress_router)

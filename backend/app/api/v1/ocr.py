@@ -41,14 +41,16 @@ from backend.app.schemas.ocr import (
     BatchItemUpdateRequest,
 )
 from backend.app.schemas.evaluation import EvaluationResult, StudentInfo
-from backend.app.services.ai_gateway import AIGatewayError, AINotConfigured, AIProviderTimeout, get_ai_provider
-from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
-from backend.app.services.ocr_service import (
-    QwenOCRInferenceError,
-    QwenOCRInputError,
-    QwenOCRUnavailableError,
-    get_ocr_provider,
+from backend.app.services.ai_gateway import (
+    AIGatewayError,
+    AINotConfigured,
+    AIProviderTimeout,
+    active_gemini_model,
+    get_ai_provider,
 )
+from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
+from backend.app.services.gemini_ocr_service import OCRInputError, extract_gemini_text
+from backend.app.services.ocr_service import get_ocr_provider
 from backend.app.services.progress import report_progress, stream_job
 from backend.app.services.storage_service import storage_service
 from backend.app.services.assessment_audience import upload_assignments
@@ -187,7 +189,6 @@ async def extract_ocr_preview(
         # Release the read transaction while the model processes the upload.
         await db.rollback()
 
-    provider = get_ocr_provider("qwen")
     results = []
     total_files = len(files)
     for index, file in enumerate(files, start=1):
@@ -218,18 +219,17 @@ async def extract_ocr_preview(
                     detail=f"Unsupported OCR file '{detail['file_name']}'. Upload JPG, PNG, or PDF.",
                 )
 
-            extraction = await provider.extract_document(
-                detail["storage_path"],
-                {
-                    "buffer_seconds": 5 if wait_before_each_image else 0,
-                    "file_name": detail["file_name"],
-                },
+            extracted_text, pages_processed = await extract_gemini_text(
+                Path(detail["storage_path"]),
+                file_name=detail["file_name"],
+                mime_type=detail["mime_type"],
+                wait_before_each_image=wait_before_each_image,
             )
             results.append(
                 {
                     "file_name": detail["file_name"],
-                    "extracted_text": extraction["extracted_text"],
-                    "pages_processed": extraction["pages_processed"],
+                    "extracted_text": extracted_text,
+                    "pages_processed": pages_processed,
                 }
             )
             report_progress(
@@ -238,12 +238,11 @@ async def extract_ocr_preview(
                 index,
                 total_files,
             )
-        except QwenOCRUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except QwenOCRInputError as exc:
+        except OCRInputError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except QwenOCRInferenceError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except AIGatewayError as exc:
+            code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502
+            raise HTTPException(status_code=code, detail=exc.public_message) from exc
         except HTTPException:
             raise
         except Exception as exc:
@@ -267,8 +266,8 @@ async def extract_ocr_preview(
         await db.commit()
 
     return {
-        "provider": "qwen2.5-vl",
-        "model_version": settings.QWEN_VL_MODEL_ID,
+        "provider": "gemini",
+        "model_version": active_gemini_model(),
         "results": results,
     }
 
@@ -290,10 +289,10 @@ async def process_ocr(
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    if req.provider == "qwen":
+    if req.provider in {"qwen", "gemini"}:
         raise HTTPException(
             status_code=400,
-            detail="Qwen returns text only, without answer regions. Use POST /ocr/extract-preview.",
+            detail="Text-only OCR uses POST /ocr/extract-preview.",
         )
 
     doc_res = await db.execute(select(Document).filter(Document.id == req.document_id))

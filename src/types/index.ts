@@ -345,6 +345,8 @@ export interface HomeworkRemediation {
   reason: string;
   description: string;
   dueDate: string;
+  /** When the student handed the work in. Absent while it is still assigned. */
+  submittedAt?: string;
   status: 'assigned' | 'submitted' | 'reviewed';
   score?: number;
 }

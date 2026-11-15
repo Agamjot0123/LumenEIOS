@@ -1,11 +1,12 @@
 """Read-only, authenticated assistant with server-scoped context and navigation."""
 import asyncio
 import json
+import logging
 from collections import defaultdict
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,7 @@ from backend.app.modules.differentiated_homework.student_access import resolve_l
 from backend.app.services.competency_service import aggregate_student_competencies
 from backend.app.services.ocr_service import QwenOCRInferenceError, QwenOCRUnavailableError, qwen_model
 
+logger = logging.getLogger("lumeneios")
 router = APIRouter(prefix="/assistant", tags=["Assistant"])
 
 PAGES = {
@@ -25,7 +27,8 @@ PAGES = {
         "Audit logs": "/admin/audit-logs",
     },
     "student": {
-        "My progress": "/student/dashboard", "My profile": "/student/profile",
+        "My progress": "/student/dashboard", "Unified progress": "/student/progress",
+        "My profile": "/student/profile",
         "OCR history": "/student/history", "Answer sheets": "/student/answer-sheets",
     },
     "teacher": {
@@ -38,7 +41,10 @@ PAGES = {
         "Performance": "/principal/performance", "Curriculum": "/principal/curriculum",
         "Reports": "/principal/reports", "Teachers": "/principal/teachers",
     },
-    "parent": {"Child progress": "/parent/dashboard"},
+    "parent": {
+        "Child progress": "/parent/dashboard",
+        "Unified progress": "/parent/progress",
+    },
 }
 
 
@@ -66,6 +72,22 @@ class ChatResponse(BaseModel):
     answer: str
     links: list[Link]
     model_available: bool
+
+
+def parse_model_answer(raw: str) -> ModelAnswer:
+    """Accept a JSON object, or fall back to plain model text as the answer."""
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("empty model output")
+
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return ModelAnswer.model_validate_json(text[start : end + 1])
+        except ValidationError:
+            pass
+
+    return ModelAnswer(answer=text[:4000], page=None)
 
 
 async def assistant_context(db: AsyncSession, user: User, school_id: str | None) -> dict:
@@ -154,6 +176,9 @@ async def chat(
         raise HTTPException(422, "Enter a question.")
     pages = PAGES[user.role]
     context = await assistant_context(db, user, x_school_id or user.school_id)
+    schema = {"answer": "string", "page": "one page label from pages, or null"}
+    # Keep instructions in the user turn (same pattern as Question Studio): Qwen2.5-VL
+    # often ignores a long system prompt and emits a bare page list instead of an object.
     prompt = (
         "You are LumenEIOS's school assistant. Answer concisely in plain language. "
         "Use ONLY the authorized records supplied below for factual claims about students or classes. "
@@ -166,19 +191,19 @@ async def chat(
         "Use history only to understand follow-up questions. You cannot modify records. "
         "For navigation choose exactly one page label from the provided pages, or null. "
         "For data answers choose the closest supporting page. "
-        "Return only one JSON object with answer (a string) and page (a page label or null).\n"
-        + json.dumps({"pages": list(pages), "records": context})
+        "Never reply with a bare JSON array or a page list alone.\n"
+        f"Authorized data: {json.dumps({'pages': list(pages), 'records': context})}\n"
+        f"Conversation: {json.dumps([turn.model_dump() for turn in body.history])}\n"
+        f"Question: {body.message}\n"
+        "Return only one JSON object matching this schema:\n"
+        f"{json.dumps(schema)}"
     )
-    messages = (
-        [{"role": "system", "content": prompt}]
-        + [turn.model_dump() for turn in body.history]
-        + [{"role": "user", "content": body.message}]
-    )
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
     try:
         raw = await asyncio.to_thread(qwen_model.generate, messages, 700)
-        # A model may wrap the JSON object in a Markdown fence.
-        answer = ModelAnswer.model_validate_json(raw[raw.find("{"):raw.rfind("}") + 1])
-    except (QwenOCRUnavailableError, QwenOCRInferenceError, ValueError):
+        answer = parse_model_answer(raw)
+    except (QwenOCRUnavailableError, QwenOCRInferenceError, ValueError) as exc:
+        logger.warning("Assistant Qwen response failed: %s", exc)
         return ChatResponse(
             answer="Qwen couldn't answer this request. You can still open these pages. "
                    "Try again or check the backend's Qwen GPU setup.",

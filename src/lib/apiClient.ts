@@ -7,7 +7,8 @@
 import type { Role, Student, User } from '../types';
 import { DEMO_MODE, clearTeachingCache, apiErrorMessage } from './runtime';
 
-const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL || 'http://localhost:8000/api/v1').replace(/\/+$/, '');
+// Prefer VITE_API_URL. Local default is same-origin /api/v1 (Vite proxies to FastAPI).
+const API_BASE_URL = ((import.meta as any).env?.VITE_API_URL || '/api/v1').replace(/\/+$/, '');
 
 type AccountDetails = {
   name: string;
@@ -80,6 +81,20 @@ function errorMessage(errorBody: any, fallback: string) {
     return detail.map((item) => (typeof item === 'string' ? item : item?.msg || 'Request failed')).join(' ');
   }
   return fallback;
+}
+
+function progressBase(scope: { role: string; studentId?: string }) {
+  if (scope.role === 'student') return '/students/me/progress';
+  if (scope.role === 'parent') {
+    if (!scope.studentId) throw new ApiError(400, 'Select a linked student to view progress.');
+    return `/parents/me/students/${encodeURIComponent(scope.studentId)}/progress`;
+  }
+  if (!scope.studentId) throw new ApiError(400, 'Select a student to view progress.');
+  return `/students/${encodeURIComponent(scope.studentId)}/progress`;
+}
+
+function progressOverviewPath(scope: { role: string; studentId?: string }) {
+  return progressBase(scope);
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -311,6 +326,57 @@ export const apiClient = {
         method: 'POST', body: JSON.stringify({ message, history }), signal,
       }),
   },
+
+  /** Unified Student Progress — read-only projections over verified evidence. */
+  progress: {
+    overview(scope: { role: string; studentId?: string }) {
+      return request<import('./studentProgress').StudentProgressOverview>(progressOverviewPath(scope));
+    },
+    history(scope: { role: string; studentId?: string }, subjectId?: string) {
+      const query = subjectId ? `?subject_id=${encodeURIComponent(subjectId)}` : '';
+      return request<{ student_id: string; audience: string; events: import('./studentProgress').ProgressEvent[]; generated_at: string }>(
+        `${progressBase(scope)}/history${query}`,
+      );
+    },
+    competencies(scope: { role: string; studentId?: string }) {
+      return request<import('./studentProgress').StudentProgressOverview['competencies'] & {
+        student_id: string;
+        generated_at: string;
+        subject_competencies: import('./studentProgress').SubjectCompetencyProfile[];
+      }>(`${progressBase(scope)}/competencies`);
+    },
+    subject(scope: { role: string; studentId?: string }, subjectId: string) {
+      return request<import('./studentProgress').SubjectProgress>(
+        `${progressBase(scope)}/subjects/${encodeURIComponent(subjectId)}`,
+      );
+    },
+    subjectCompetencies(scope: { role: string; studentId?: string }, subjectId: string) {
+      return request<import('./studentProgress').SubjectCompetencyProfile>(
+        `${progressBase(scope)}/subjects/${encodeURIComponent(subjectId)}/competencies`,
+      );
+    },
+    subjectTimeline(scope: { role: string; studentId?: string }, subjectId: string) {
+      return request<import('./studentProgress').SubjectTimeline>(
+        `${progressBase(scope)}/subjects/${encodeURIComponent(subjectId)}/timeline`,
+      );
+    },
+    periodEvidence(
+      studentId: string,
+      subjectId: string,
+      periodKind: 'month' | 'term',
+      periodId: string,
+    ) {
+      return request<Record<string, unknown>>(
+        `/students/${encodeURIComponent(studentId)}/progress/subjects/${encodeURIComponent(subjectId)}/timeline/${periodKind}/${encodeURIComponent(periodId)}`,
+      );
+    },
+    subjectExplanations(scope: { role: string; studentId?: string }, subjectId: string) {
+      return request<import('./studentProgress').ProgressExplanations>(
+        `${progressBase(scope)}/subjects/${encodeURIComponent(subjectId)}/explanations`,
+      );
+    },
+  },
+
   // Authentication
   auth: {
     async login(email: string, password: string) {
@@ -915,6 +981,11 @@ export const apiClient = {
     workshop: (body: { kind: 'ocr' | 'question'; text: string; competency_code?: string }) =>
       request<any>('/developer/workshop', { method: 'POST', body: JSON.stringify(body) }),
     releases: () => request<any[]>('/developer/releases'),
+    geminiModels: () => request<{ current: string; models: { id: string; label: string }[] }>('/developer/gemini/models'),
+    setGeminiModel: (model: string) => request<{ current: string }>('/developer/gemini/model', {
+      method: 'PUT',
+      body: JSON.stringify({ model }),
+    }),
   },
 
   // Health

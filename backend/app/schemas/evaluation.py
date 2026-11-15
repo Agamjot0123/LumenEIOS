@@ -74,11 +74,17 @@ if PYDANTIC_AVAILABLE:
 
             return self
 
+    class CompetencyScores(BaseSchema):
+        LU: Optional[float] = None
+        CU: Optional[float] = None
+        AU: Optional[float] = None
+        CT: Optional[float] = None
+
     class ScoringSummary(BaseSchema):
         total_marks_obtained: float = Field(ge=0)
         max_possible_marks: float = Field(gt=0)
         percentage: float = Field(ge=0, le=100)
-        competency_scores: Dict[str, float] = Field(default_factory=dict)
+        competency_scores: CompetencyScores = Field(default_factory=CompetencyScores)
         overall_feedback: str = ""
         needs_teacher_review: bool = False
         review_reasons: List[str] = Field(default_factory=list)
@@ -113,15 +119,15 @@ if PYDANTIC_AVAILABLE:
                 if q.competency in comp_scores and q.status != "unattempted":
                     comp_scores[q.competency].append(q.competency_score)
 
+            provided = self.scoring_summary.competency_scores.model_dump(exclude_none=True)
             computed_comps = {}
             for comp, scores in comp_scores.items():
                 if scores:
                     computed_comps[comp] = round(sum(scores) / len(scores), 1)
-                elif comp in self.scoring_summary.competency_scores:
-                    computed_comps[comp] = self.scoring_summary.competency_scores[comp]
+                elif comp in provided:
+                    computed_comps[comp] = provided[comp]
 
-            if computed_comps:
-                self.scoring_summary.competency_scores = computed_comps
+            self.scoring_summary.competency_scores = CompetencyScores.model_validate(computed_comps)
 
             return self
 

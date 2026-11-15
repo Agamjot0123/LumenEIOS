@@ -103,10 +103,10 @@ html[data-ui='analytics'] .bg-surface-card {
 }
 
 html[data-ui='analytics'] aside {
-  width: 240px;
   background: #ffffff;
   color: #475569;
   border-right: 1px solid #e2e8f0;
+  overflow: visible;
 }
 
 html[data-ui='analytics'] aside[data-collapsed='true'] {
@@ -127,9 +127,11 @@ html[data-ui='analytics'] aside .border-navy-700\/40 {
 }
 
 html[data-ui='analytics'] aside .text-white,
+html[data-ui='analytics'] aside .text-gray-100,
+html[data-ui='analytics'] aside .text-gray-200,
 html[data-ui='analytics'] aside .text-gray-300,
 html[data-ui='analytics'] aside .text-gray-400 {
-  color: #475569;
+  color: #0f172a;
 }
 
 html[data-ui='analytics'] aside .bg-teal-500.text-navy-950 {
@@ -138,7 +140,7 @@ html[data-ui='analytics'] aside .bg-teal-500.text-navy-950 {
 }
 
 html[data-ui='analytics'] aside nav a {
-  color: #475569;
+  color: #0f172a;
   border-radius: 6px;
 }
 

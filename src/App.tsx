@@ -1,3 +1,8 @@
+import { LearnSphereLayout } from './pages/learnsphere/LearnSphereLayout';
+import { LearningSupport } from './pages/learnsphere/LearningSupport';
+import { LearningJourney } from './pages/learnsphere/LearningJourney';
+import { TeachBackChallenge } from './pages/learnsphere/TeachBackChallenge';
+import { RealLifeMissions } from './pages/learnsphere/RealLifeMissions';
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -36,6 +41,7 @@ import {
   DataQuality,
   DeveloperHome,
   FeatureFlags,
+  GeminiModel,
   ModelWorkshop,
   PlatformHealth,
   ReleaseNotes,
@@ -45,6 +51,17 @@ import { DifferentiatedHomeworkPage } from './pages/homework/DifferentiatedHomew
 import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
 import { CoverageOversight } from './pages/principal/CoverageOversight';
 import { PlanLogs } from './pages/shared/PlanLogs';
+import {
+  EducatorProgressOverviewPage,
+  ParentProgressOverviewPage,
+  StudentProgressOverviewPage,
+} from './pages/progress/ProgressOverviewPage';
+import {
+  EducatorSubjectProgressPage,
+  ParentSubjectProgressPage,
+  StudentSubjectProgressPage,
+} from './pages/progress/SubjectProgressPage';
+import { ParentProgressHomePage } from './pages/progress/ParentProgressHomePage';
 import { getDefaultDashboardPath } from './lib/permissions';
 import { DEMO_MODE } from './lib/runtime';
 
@@ -76,6 +93,13 @@ const MainApp: React.FC = () => (
         </ProtectedRoute>
       }
     >
+      <Route path="/learnsphere" element={<LearnSphereLayout />}>
+        <Route index element={<Navigate to="support" replace />} />
+        <Route path="support" element={<LearningSupport />} />
+        <Route path="journey" element={<LearningJourney />} />
+        <Route path="teach-back" element={<TeachBackChallenge />} />
+        <Route path="missions" element={<RealLifeMissions />} />
+      </Route>
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/admin/schools" element={<SchoolsManagement />} />
       <Route path="/admin/schools/add" element={<OnboardingPage key="school" kind="School" />} />
@@ -85,6 +109,7 @@ const MainApp: React.FC = () => (
 
       <Route path="/developer" element={<DeveloperHome />} />
       <Route path="/developer/health" element={<PlatformHealth />} />
+      <Route path="/developer/gemini" element={<GeminiModel />} />
       <Route path="/developer/roster" element={<SampleRoster />} />
       <Route path="/developer/flags" element={<FeatureFlags />} />
       <Route path="/developer/access" element={<AccessLog />} />
@@ -119,6 +144,11 @@ const MainApp: React.FC = () => (
       <Route path="/teacher/remediation" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/homework" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/student-homework" element={<StudentHomework />} />
+      <Route path="/teacher/students/:studentId/progress" element={<EducatorProgressOverviewPage />} />
+      <Route
+        path="/teacher/students/:studentId/progress/subjects/:subjectId"
+        element={<EducatorSubjectProgressPage />}
+      />
 
       {/* Curriculum Catalogue (Classes VI–VIII Mathematics & Science) */}
       <Route element={<CurriculumModule />}>
@@ -128,12 +158,20 @@ const MainApp: React.FC = () => (
 
       <Route path="/student/dashboard" element={<StudentDashboard />} />
       <Route path="/student/homework" element={<DifferentiatedHomeworkPage />} />
+      <Route path="/student/progress" element={<StudentProgressOverviewPage />} />
+      <Route path="/student/progress/subjects/:subjectId" element={<StudentSubjectProgressPage />} />
       <Route path="/student/history" element={<StudentRecords view="history" />} />
       <Route path="/student/profile" element={<StudentRecords view="profile" />} />
       <Route path="/student/answer-sheets" element={<StudentAnswerSheets />} />
 
       <Route path="/parent/dashboard" element={<ParentDashboard />} />
       <Route path="/parent/homework" element={<DifferentiatedHomeworkPage />} />
+      <Route path="/parent/progress" element={<ParentProgressHomePage />} />
+      <Route path="/parent/students/:studentId/progress" element={<ParentProgressOverviewPage />} />
+      <Route
+        path="/parent/students/:studentId/progress/subjects/:subjectId"
+        element={<ParentSubjectProgressPage />}
+      />
 
       <Route path="/homework" element={<DifferentiatedHomeworkPage />} />
 

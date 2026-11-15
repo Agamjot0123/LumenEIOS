@@ -7,6 +7,19 @@ from backend.app.api.v1 import assistant
 URL = "/api/v1/assistant/chat"
 
 
+def test_parse_model_answer_accepts_object_or_plain_text():
+    parsed = assistant.parse_model_answer('Sure.\n{"answer":"Open Curriculum","page":"Curriculum"}')
+    assert parsed.answer == "Open Curriculum"
+    assert parsed.page == "Curriculum"
+
+    # Qwen sometimes returns a bare page list instead of the required object.
+    fallback = assistant.parse_model_answer(
+        '["Dashboard", "My classes", "Assessment studio"]'
+    )
+    assert fallback.page is None
+    assert "Dashboard" in fallback.answer
+
+
 @pytest.mark.asyncio
 async def test_assistant_scopes_parent_records_and_navigation(client, parent_token, monkeypatch):
     captured = {}
@@ -22,8 +35,10 @@ async def test_assistant_scopes_parent_records_and_navigation(client, parent_tok
     )
     assert response.status_code == 200
     assert response.json()["links"] == []
-    payload = json.loads(captured["messages"][0]["content"].split("\n", 1)[1])
-    assert payload["pages"] == ["Child progress"]
+    prompt = captured["messages"][0]["content"][0]["text"]
+    marker = "Authorized data: "
+    payload = json.loads(prompt[prompt.index(marker) + len(marker):].split("\n", 1)[0])
+    assert payload["pages"] == ["Child progress", "Unified progress"]
     assert payload["records"]["student_count"] == 2
     assert payload["records"]["classes"] == []
 

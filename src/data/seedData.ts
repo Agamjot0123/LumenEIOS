@@ -972,7 +972,8 @@ export const initialHomeworkRemediations: HomeworkRemediation[] = [
     reason: 'Scored 52/100 in Application Understanding. Theoretical grasp is high, but commits dimensional conversion errors (m³ vs Liters).',
     description: 'Home activity: Measure dimensions of 3 cylindrical food containers, compute theoretical volume in cm³, and verify with a graduated measuring beaker.',
     dueDate: '2026-10-18',
-    status: 'assigned',
+    submittedAt: '2026-10-21',
+    status: 'submitted',
   },
   {
     id: 'hwr-3',
@@ -985,7 +986,8 @@ export const initialHomeworkRemediations: HomeworkRemediation[] = [
     reason: 'Scored 66/100 in Critical Thinking. Needs targeted practice in identifying truncated axes and perceptual distortion.',
     description: 'Analyze 3 commercial news adverts showing truncated bar chart axes. Identify the perceptual distortion and re-plot with honest zero baselines.',
     dueDate: '2026-10-17',
-    status: 'assigned',
+    submittedAt: '2026-10-16',
+    status: 'reviewed',
   },
 ];
 

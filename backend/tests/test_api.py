@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 import backend.app.api.v1.ocr as ocr_api
-from backend.app.services.ocr_service import QwenOCRUnavailableError
+from backend.app.services.ai_gateway import AINotConfigured
 
 
 @pytest.mark.asyncio
@@ -159,16 +159,15 @@ async def test_simulated_ocr_and_human_review(client, teacher_token):
 @pytest.mark.asyncio
 async def test_qwen_ocr_preview_accepts_multiple_files_and_passes_buffer(client, teacher_token, monkeypatch):
     paths = []
-    options_seen = []
+    waits = []
 
-    class PreviewProvider:
-        async def extract_document(self, document_path, options=None):
-            paths.append(Path(document_path))
-            options_seen.append(options)
-            assert Path(document_path).exists()
-            return {"extracted_text": "Recognized answer", "pages_processed": 1}
+    async def preview(path, *, file_name, mime_type, wait_before_each_image):
+        paths.append(Path(path))
+        waits.append(wait_before_each_image)
+        assert Path(path).exists()
+        return "Recognized answer", 1
 
-    monkeypatch.setattr(ocr_api, "get_ocr_provider", lambda _name: PreviewProvider())
+    monkeypatch.setattr(ocr_api, "extract_gemini_text", preview)
     response = await client.post(
         "/api/v1/ocr/extract-preview",
         headers={"Authorization": f"Bearer {teacher_token}"},
@@ -183,8 +182,7 @@ async def test_qwen_ocr_preview_accepts_multiple_files_and_passes_buffer(client,
     result = response.json()
     assert [item["file_name"] for item in result["results"]] == ["first.png", "second.jpg"]
     assert all(item["extracted_text"] == "Recognized answer" for item in result["results"])
-    assert [options["buffer_seconds"] for options in options_seen] == [5, 5]
-    assert [options["file_name"] for options in options_seen] == ["first.png", "second.jpg"]
+    assert waits == [True, True]
     assert all(not path.exists() for path in paths)
 
 
@@ -194,12 +192,11 @@ async def test_qwen_ocr_preview_reports_unavailable_gpu_and_cleans_upload(
 ):
     paths = []
 
-    class UnavailableProvider:
-        async def extract_document(self, document_path, _options=None):
-            paths.append(Path(document_path))
-            raise QwenOCRUnavailableError("CUDA GPU is unavailable.")
+    async def unavailable(path, **_kwargs):
+        paths.append(Path(path))
+        raise AINotConfigured()
 
-    monkeypatch.setattr(ocr_api, "get_ocr_provider", lambda _name: UnavailableProvider())
+    monkeypatch.setattr(ocr_api, "extract_gemini_text", unavailable)
     response = await client.post(
         "/api/v1/ocr/extract-preview",
         headers={"Authorization": f"Bearer {teacher_token}"},
@@ -207,7 +204,7 @@ async def test_qwen_ocr_preview_reports_unavailable_gpu_and_cleans_upload(
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "CUDA GPU is unavailable."
+    assert "GEMINI_API_KEY" in response.json()["detail"]
     assert len(paths) == 1
     assert not paths[0].exists()
 

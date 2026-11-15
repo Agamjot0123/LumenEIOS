@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 import { useData } from '../../context/DataContext';
-import { CompetencyScores, Student, AssessmentResult } from '../../types';
+import { CompetencyScores, HomeworkRemediation, Student, AssessmentResult } from '../../types';
 import { LineChart as LineChartIcon } from 'lucide-react';
 import { Card, CardHeader, CardBody } from '../common/Card';
 import { Button } from '../common/Button';
@@ -52,6 +52,16 @@ function ScoreLegend() {
       ))}
     </div>
   );
+}
+
+function attentionCount(roster: Student[]): number {
+  if (roster.length === 0) return 0;
+  const average = roster.reduce((sum, student) => sum + student.competencies.overall, 0) / roster.length;
+  return roster.filter((student) => student.competencies.overall < average).length;
+}
+
+function attentionLabel(count: number): string {
+  return count === 1 ? '1 needs attention' : `${count} need attention`;
 }
 
 function averageScores(rows: CompetencyScores[]): CompetencyScores | null {
@@ -121,7 +131,6 @@ function yearPoints(student: Student, year: number) {
   const end = year >= CURRENT_YEAR
     ? student.competencies
     : scaleScores(student.baselineCompetencies, 1 - yearsBack * 0.09);
-  const recordedRate = year === CURRENT_YEAR;
 
   return months.map((label, index) => {
     const progress = months.length === 1 ? 1 : index / (months.length - 1);
@@ -134,8 +143,6 @@ function yearPoints(student: Student, year: number) {
       AU: mix(start.AU, end.AU, wave * 0.4),
       CT: mix(start.CT, end.CT, -wave * 0.3),
       overall: mix(start.overall, end.overall, 0),
-      attendance: recordedRate ? clampScore(student.attendancePct) : null,
-      homework: recordedRate ? clampScore(student.homeworkCompletionRate) : null,
     };
   });
 }
@@ -183,6 +190,49 @@ function AssessmentDot(props: {
   const { cx, cy, payload, fill } = props;
   if (payload?.assessed == null || cx == null || cy == null) return <g />;
   return <circle cx={cx} cy={cy} r={5} fill={fill || '#B91C1C'} stroke="#ffffff" strokeWidth={1.5} />;
+}
+
+const CLASSES_HELD = 180;
+
+function classesAttended(student: Student): number {
+  return Math.round((student.attendancePct / 100) * CLASSES_HELD);
+}
+
+function daySpan(fromIso: string, toIso: string): number {
+  const from = Date.parse(`${fromIso.slice(0, 10)}T00:00:00`);
+  const to = Date.parse(`${toIso.slice(0, 10)}T00:00:00`);
+  return Math.round((to - from) / 86_400_000);
+}
+
+function delayLabel(days: number): string {
+  if (days === 1) return '1 day late';
+  return `${days} days late`;
+}
+
+function homeworkTiming(studentId: string, year: number, items: HomeworkRemediation[], today: Date) {
+  const todayIso = today.toISOString();
+  const rows = items.filter((item) => {
+    if (item.studentId !== studentId) return false;
+    const placed = academicMonth(item.dueDate);
+    return placed?.year === year;
+  });
+  const onTime = rows.filter((item) => item.submittedAt && daySpan(item.dueDate, item.submittedAt) <= 0);
+  const late = rows
+    .filter((item) => {
+      if (!item.submittedAt) return daySpan(item.dueDate, todayIso) > 0;
+      return daySpan(item.dueDate, item.submittedAt) > 0;
+    })
+    .map((item) => {
+      const days = item.submittedAt
+        ? daySpan(item.dueDate, item.submittedAt)
+        : daySpan(item.dueDate, todayIso);
+      return {
+        id: item.id,
+        title: item.title,
+        detail: item.submittedAt ? delayLabel(days) : `${delayLabel(days)}, not submitted`,
+      };
+    });
+  return { onTime: onTime.length, late };
 }
 
 function ScoreTable({
@@ -266,14 +316,16 @@ interface SchoolPerformanceProps {
 }
 
 export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, onBack }) => {
-  const { schools, classes, students, addedTeachers, assessmentResults } = useData();
+  const { schools, classes, students, addedTeachers, assessmentResults, homeworkRemediations } = useData();
   const { availableUsers } = useAuth();
   const { uiMode } = useTheme();
   const analytics = uiMode === 'analytics';
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [chartYear, setChartYear] = useState(CURRENT_YEAR);
 
   useEffect(() => {
+    setSelectedClassId('');
     setSelectedStudentId(null);
     setChartYear(CURRENT_YEAR);
   }, [schoolId]);
@@ -312,6 +364,10 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
         assessmentResults
       )
     : [];
+  const attended = student ? classesAttended(student) : 0;
+  const homework = student
+    ? homeworkTiming(student.id, chartYear, homeworkRemediations, new Date())
+    : { onTime: 0, late: [] };
 
   return (
     <div className="space-y-5">
@@ -333,7 +389,7 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
       <div className="flex items-start gap-3 rounded-xl border-2 border-teal-600 bg-teal-50 px-4 py-3 text-sm text-navy-900">
         <LineChartIcon className="mt-0.5 h-5 w-5 shrink-0 text-teal-700" />
         <p>
-          <span className="font-bold">Click a student’s name</span> to open a monthly performance graph.
+          <span className="font-bold">Choose a class</span>, then click a student’s name to open their monthly performance.
           Use the year menu in that window for earlier years at this school.
         </p>
       </div>
@@ -359,24 +415,57 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
       <Card>
         <CardHeader
           title="Students"
-          subtitle="Click a name to open that student’s monthly graph. Scores are Language (LU), Concept (CU), Application (AU), and Critical Thinking (CT)."
+          subtitle="Choose a class to list its students. Click a name to open that student’s monthly graph."
         />
-        <CardBody className="p-0">
+        <CardBody className="space-y-4">
+          <label className="flex items-center gap-3 text-sm font-semibold text-navy-900">
+            Class
+            <select
+              value={selectedClassId}
+              onChange={(event) => {
+                setSelectedClassId(event.target.value);
+                setSelectedStudentId(null);
+                setChartYear(CURRENT_YEAR);
+              }}
+              className="px-3 py-2 bg-white border border-surface-border rounded-lg font-semibold"
+            >
+              <option value="">Select a class</option>
+              {schoolClasses.map((item) => {
+                const roster = schoolStudents.filter((student) => student.classId === item.id);
+                return (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {attentionLabel(attentionCount(roster))}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          {selectedClassId && (
+            <p className="text-xs text-content-secondary">
+              {attentionLabel(attentionCount(schoolStudents.filter((item) => item.classId === selectedClassId)))}.
+              A student needs attention when their overall score is below the class average.
+            </p>
+          )}
           <ScoreTable
             selectedId={selectedStudentId}
             onSelect={(id) => {
               setSelectedStudentId(id);
               setChartYear(CURRENT_YEAR);
             }}
-            rows={schoolStudents.map((student) => ({
-              id: student.id,
-              name: student.name,
-              detail: `${student.className} · ${
-                schoolClasses.find((item) => item.id === student.classId)?.classTeacherName || 'Unassigned'
-              }`,
-              scores: student.competencies,
-            }))}
-            empty="No students are listed for this school."
+            rows={schoolStudents
+              .filter((item) => item.classId === selectedClassId)
+              .map((item) => {
+                const roster = schoolStudents.filter((student) => student.classId === selectedClassId);
+                const average = roster.reduce((sum, student) => sum + student.competencies.overall, 0) / (roster.length || 1);
+                const teacher = schoolClasses.find((section) => section.id === item.classId)?.classTeacherName || 'Unassigned';
+                return {
+                  id: item.id,
+                  name: item.name,
+                  detail: item.competencies.overall < average ? `${teacher} · Below class average` : teacher,
+                  scores: item.competencies,
+                };
+              })}
+            empty={selectedClassId ? 'No students are listed for this class.' : 'Select a class to see its students.'}
           />
         </CardBody>
       </Card>
@@ -386,9 +475,9 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
           onClose={() => setSelectedStudentId(null)}
           maxWidth="3xl"
           title={`${student.name} · ${chartYear}–${String(chartYear + 1).slice(2)}`}
-          subtitle={`Monthly scores at ${school.name}. ${
+          subtitle={`Monthly Language, Concept, Application, Critical Thinking, and Overall scores at ${school.name}. ${
             joined < CURRENT_YEAR ? `Enrolled since ${joined}.` : `Enrolled in ${joined}.`
-          } The dashed line is the class average. Dots are recorded assessments. Attendance and homework are the rates stored for ${CURRENT_YEAR}–${String(CURRENT_YEAR + 1).slice(2)}.`}
+          } The dashed line is the class average. Dots are recorded assessments.`}
         >
           <label className="mb-4 flex items-center gap-3 text-sm font-semibold text-navy-900">
             Year
@@ -418,12 +507,6 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
                 <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke={analytics ? '#BFDBFE' : '#8B5CF6'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="overall" name="Overall" stroke={analytics ? '#0F172A' : '#142A43'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="classAverage" name="Class average" stroke="#64748B" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} />
-                {chartYear === CURRENT_YEAR && (
-                  <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#0F766E" strokeWidth={2} strokeDasharray="2 3" dot={false} connectNulls={false} />
-                )}
-                {chartYear === CURRENT_YEAR && (
-                  <Line type="monotone" dataKey="homework" name="Homework" stroke="#B45309" strokeWidth={2} strokeDasharray="2 3" dot={false} connectNulls={false} />
-                )}
                 <Line
                   type="monotone"
                   dataKey="assessed"
@@ -437,6 +520,29 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
                 />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-surface-border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-content-secondary">Classes attended</p>
+              <p className="mt-1 text-lg font-bold text-navy-900">{attended} of {CLASSES_HELD}</p>
+              <p className="text-xs text-content-secondary">Counted from this year’s attendance. Not drawn on the graph.</p>
+            </div>
+            <div className="rounded-lg border border-surface-border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-content-secondary">Homework on time</p>
+              <p className="mt-1 text-lg font-bold text-navy-900">{homework.onTime}</p>
+              {homework.late.length === 0 ? (
+                <p className="text-xs text-content-secondary">No late or missing homework for this year.</p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-xs text-navy-900">
+                  {homework.late.map((item) => (
+                    <li key={item.id}>
+                      <span className="font-semibold">{item.title}</span>
+                      <span className="text-rose-700"> — {item.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </Modal>
       )}

@@ -1,6 +1,8 @@
 import { Role } from '../types';
 
 export const PERMISSIONS = {
+  VIEW_LEARNSPHERE: ['admin', 'principal', 'teacher', 'parent', 'student'],
+  MANAGE_LEARNSPHERE: ['admin', 'principal', 'teacher'],
   MANAGE_SCHOOLS: ['admin'],
   MANAGE_USERS: ['admin'],
   VIEW_GLOBAL_ANALYTICS: ['admin'],

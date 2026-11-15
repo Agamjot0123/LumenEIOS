@@ -38,7 +38,8 @@ async def init_db():
     from backend.app.db import base  # noqa: F401
     from sqlalchemy import inspect, text
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(lambda sync: Base.metadata.create_all(sync, tables=[
+            t for t in Base.metadata.sorted_tables if not t.name.startswith("learning_")]))
         # Preserve the existing optional-column upgrade without deliberately failing DDL.
         # Catching an error inside this transaction leaves PostgreSQL's transaction aborted.
         existing = await conn.run_sync(lambda sync: {

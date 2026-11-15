@@ -1,6 +1,7 @@
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+import asyncio
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -48,8 +49,15 @@ async def lifespan(app: FastAPI):
         except Exception:  # never block startup; the explicit command backend.scripts.init_curriculum reports the failure
             logger.exception("Curriculum initialisation failed; run `python -m backend.scripts.init_curriculum`.")
     logger.info("LumenEIOS Backend successfully started.")
-    yield
-    logger.info("LumenEIOS Backend shutting down.")
+    from backend.app.services.panchapadi import run_guidance_recovery
+    recovery=asyncio.create_task(run_guidance_recovery(),name="assessment-guidance-recovery")
+    try:
+        yield
+    finally:
+        recovery.cancel()
+        with suppress(asyncio.CancelledError):
+            await recovery
+        logger.info("LumenEIOS Backend shutting down.")
 
 
 app = FastAPI(

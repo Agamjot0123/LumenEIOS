@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional
-from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator, model_validator, Field
 from pathlib import Path
 from urllib.parse import urlsplit
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -67,6 +67,10 @@ class Settings(BaseSettings):
 
     # LLM Provider
     LLM_PROVIDER: str = "deterministic"  # "deterministic", "huggingface", "hosted"
+    LEARNSPHERE_MIN_OBSERVATIONS: int = Field(default=3, ge=1, le=1000)
+    LEARNSPHERE_MIN_ACTIVITIES: int = Field(default=2, ge=1, le=1000)
+    LEARNSPHERE_RECENT_OBSERVATIONS: int = Field(default=20, ge=1, le=1000)
+    LEARNSPHERE_SUPPORT_THRESHOLD: float = Field(default=65, ge=0, le=100)
     LLM_API_KEY: str = ""
 
     # Gemini (AI question generation preview). Read from the environment only; the key is a
@@ -75,7 +79,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
-    # Qwen OCR preview, Question Studio Beta, and the assistant.
+    # Local Qwen model for Question Studio Beta and the assistant.
     QWEN_VL_MODEL_ID: str = "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
 
     # Optional Neo4j Knowledge Graph

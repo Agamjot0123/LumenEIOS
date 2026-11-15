@@ -24,6 +24,19 @@ export default defineConfig(({command,mode}) => {
       },
     }}},
     resolve:{alias:{'@':path.resolve(__dirname,'./src')}},
-    server:{port:3000,open:false,host:'127.0.0.1'},
+    server:{
+      port:3000,
+      open:false,
+      host:'127.0.0.1',
+      watch:{ignored:['**/.venv/**','**/.venv-gpu/**','**/storage_uploads/**']},
+      // Same-origin /api proxy avoids WSL/Windows localhost mismatches when the
+      // browser cannot reach the FastAPI process on :8000 directly.
+      proxy:{
+        '/api':{
+          target:'http://127.0.0.1:8000',
+          changeOrigin:true,
+        },
+      },
+    },
   };
 });
