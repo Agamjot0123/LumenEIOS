@@ -62,3 +62,12 @@ from backend.app.models.planning_workspace import PlanningWorkspaceRevision  # n
 
 # Teacher-scoped planning tables (migration 004).
 from backend.app.models.teacher_planning import TEACHER_PLANNING_MODELS
+
+# Knowledge-component catalogue and per-student mastery. New tables only.
+from backend.app.models.knowledge_components import (  # noqa: E402,F401
+    KnowledgeComponent,
+    KnowledgeComponentRelationship,
+    QuestionKcMapping,
+    StudentKcAttempt,
+    StudentKcMastery,
+)
