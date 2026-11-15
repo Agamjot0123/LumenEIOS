@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import * as demoSeed from '../data/seedData';
 
 afterEach(() => {
   cleanup();
@@ -34,12 +35,31 @@ vi.mock('../context/ThemeContext', async (importOriginal) => {
 });
 
 // Live auth restores a session from a token via /auth/me; tests have no backend, so restore the stored test user.
+function demoWorkspace() {
+  const seed = demoSeed;
+  return {
+    role: 'admin', schools: seed.initialSchools, classes: seed.initialClasses, subjects: seed.initialSubjects,
+    students: seed.initialStudents, teachers: [], teacherAssignments: [], assessments: seed.initialAssessments,
+    assessmentResults: seed.initialAssessmentResults, snapshots: [], classAverages: {}, assessmentAverages: {},
+    pendingUploads: {}, uploadedCounts: {}, disruptions: [],
+  };
+}
+
 vi.mock('../lib/apiClient', async (importOriginal) => {
   const real = await importOriginal<typeof import('../lib/apiClient')>();
   return {
     ...real,
     apiClient: {
       ...real.apiClient,
+      // Live dashboards read the role-scoped /workspace; tests serve the offline demonstration records instead.
+      workspace: () => {
+        const settle = (value: unknown): any => ({
+          then: (onOk?: (v: any) => unknown) => { onOk?.(value); return settle(value); },
+          catch: () => settle(value),
+          finally: (fn?: () => void) => { fn?.(); return settle(value); },
+        });
+        return settle(demoWorkspace());
+      },
       auth: {
         ...real.apiClient.auth,
         // Resolves synchronously (a thenable) so tests that render and assert immediately see the restored session.

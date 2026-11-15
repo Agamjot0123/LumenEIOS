@@ -1220,6 +1220,14 @@ export const apiClient = {
       return request<any[]>('/notifications');
     },
   },
+  announcements: {
+    list() {
+      return request<any[]>('/announcements');
+    },
+    create(body: { title: string; content: string; target_role?: string }) {
+      return request<any>('/announcements', { method: 'POST', body: JSON.stringify(body) });
+    },
+  },
   audit: {
     async getEvents(category?: string, search?: string) {
       const params = new URLSearchParams();

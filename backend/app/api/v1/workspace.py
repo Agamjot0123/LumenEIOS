@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import get_current_user, user_school_ids
 from backend.app.db.session import get_db
 from backend.app.models.entities import (
-    Assessment, AssessmentSubmission, AssignmentOcrUpload, ClassSection, ParentStudentLink, School, Student,
+    Assessment, AssessmentSubmission, AssignmentOcrUpload, ClassSection, InstructionalDisruption, ParentStudentLink, School, Student,
     StudentCompetencySnapshot, StudentOcrHistory, Subject, TeacherAssignment, User,
 )
 from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
@@ -190,8 +190,14 @@ async def workspace(db: AsyncSession = Depends(get_db), user: User = Depends(get
         for aid in rows:
             uploaded_students[aid] = 1
 
+    disruptions = [] if learner_view else (await db.execute(
+        select(InstructionalDisruption).filter(InstructionalDisruption.school_id.in_(school_ids))
+        .order_by(InstructionalDisruption.date))).scalars().all()
+
     return {
         "role": role,
+        "disruptions": [{"id": d.id, "schoolId": d.school_id, "date": d.date, "reason": d.reason, "daysLost": d.days_lost,
+                         "recordedBy": d.recorded_by, "notes": d.notes} for d in disruptions],
         "pendingUploads": pending_uploads,
         "uploadedCounts": uploaded_students,
         "schools": [school_out(s) for s in schools],

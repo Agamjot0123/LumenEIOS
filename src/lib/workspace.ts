@@ -24,6 +24,8 @@ export interface Workspace {
   pendingUploads: Record<string, number>;
   /** assessmentId -> students who uploaded (educators) / 1 if this learner uploaded (students, parents). */
   uploadedCounts: Record<string, number>;
+  /** Lost teaching days recorded by the school(s) (educators). */
+  disruptions: { id: string; schoolId: string; date: string; reason: string; daysLost: number; recordedBy: string; notes?: string | null }[];
 }
 
 /** Classes a teacher teaches (from teacherAssignments), falling back to every class in the workspace. */

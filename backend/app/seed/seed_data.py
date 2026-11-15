@@ -246,7 +246,8 @@ def build_students() -> List[dict]:
                 admission = f"{school['code']}{str(joined)[-2:]}{serial:03d}"
                 birth_year = 2026 - (grade + 5) - (1 if rng.random() < 0.3 else 0)
                 dob = date(birth_year, rng.randint(1, 12), rng.randint(1, 28))
-                ability = rng.gauss(66, 12)
+                # Mandi starts a little lower (rural catchment, monsoon closures) but improves faster.
+                ability = rng.gauss(66 if school["id"] == "school-1" else 62, 12)
                 student = {
                     "id": f"stu-{admission.lower()}",
                     "admission_no": admission,
@@ -257,7 +258,7 @@ def build_students() -> List[dict]:
                     "ability": max(32.0, min(95.0, ability)),
                     "dim": {d: rng.gauss(0, 7) for d in DIMENSIONS},
                     "subj": {s: rng.gauss(0, 8) for s in SUBJECT_IDS},
-                    "growth": rng.gauss(4, 5),
+                    "growth": rng.gauss(4 if school["id"] == "school-1" else 6.5, 5),
                     "attendance": round(min(99.0, max(71.0, rng.gauss(90, 6))), 1),
                     "homework": round(min(100.0, max(45.0, rng.gauss(84, 12))), 1),
                     "modality": rng.choice(MODALITIES),
@@ -424,7 +425,7 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
             reason="Academic calendar 2026-27 approved by the principal",
             config={"year": SESSION, "start": "2026-04-01", "end": "2027-03-31", "weekdays": [1, 2, 3, 4, 5, 6],
                     "periodsPerDay": 8, "periodMinutes": 40, "horizonDays": None,
-                    "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1},
+                    "subjectPeriodsPerDay": {"Mathematics": 2, "Science": 2},
                     "entries": SCHOOL_CALENDAR[school["id"]]},
         ))
     await session.flush()
@@ -551,7 +552,8 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
                     for d, v in dims.items():
                         bucket[d].append(v)
                 else:
-                    apply_observation(row, dims)
+                    # Same evidence weighting as live grading: bigger papers move the parameters more.
+                    apply_observation(row, dims, weight=round(0.1 + 0.3 * min(1.0, total / 25), 3))
                 sub = AssessmentSubmission(
                     assessment_id=assessment.id, student_id=s["id"], student_name=s["name"], marks_obtained=obtained,
                     total_marks=total, percentage=pct,
@@ -594,7 +596,8 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
                         id=f"asm-{cid[6:]}-{subject_id[4:]}-open{n + 1}", school_id=school["id"], class_id=cid,
                         subject_id=subject_id, title=f"{title.format(chapter=chapter)} - {SUBJECT_NAME[subject_id]}",
                         cycle_number=cycle, date=day, duration_minutes=40 if n == 0 else 60,
-                        total_marks=sum(q["marks"] for q in questions), status="scheduled",
+                        # Worksheets are open for uploads now; Periodic Test 2 is announced but not open yet.
+                        total_marks=sum(q["marks"] for q in questions), status="scheduled" if n == 0 else "draft",
                         competency_focus_json=sorted({q["competency"] for q in questions}), questions_json=questions,
                     ))
 

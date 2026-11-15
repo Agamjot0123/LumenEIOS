@@ -41,16 +41,22 @@ def test_source_file_has_the_full_structure():
 @pytest.mark.asyncio
 async def test_fresh_database_gets_whole_syllabus_and_every_topic_configured(db):
     out = await ss.initialise_curriculum(db)
-    assert out["plan_topics_added"] == 415 and out["eligible_plans"] == 6 and out["plans_recalculated"] == 0  # defaults already match the 2+2 calendar
-    assert out["calendars_aligned"] == 2  # the default 2+2 calendar is recorded once, on the very first run
+    assert out["plan_topics_added"] == 415 and out["eligible_plans"] == 16 and out["plans_recalculated"] == 0  # defaults already match the 2+2 calendar
+    assert out["calendars_aligned"] == 0  # the seed records each school's approved 2+2 calendar itself
     per = (await db.execute(select(PlanTopic.grade, PlanTopic.subject, func.count()).group_by(PlanTopic.grade, PlanTopic.subject))).all()
     assert sorted(per) == [(6, "Mathematics", 65), (6, "Science", 65), (7, "Mathematics", 65), (7, "Science", 78), (8, "Mathematics", 58), (8, "Science", 84)]
-    assert await count(db, TeacherTopicConfig) == 415 == await count(db, TeacherTopicCoverage)
+    # One configuration per topic for every (teacher, grade, subject) plan the roster defines.
+    topics_per = {(g, sub): n for g, sub, n in per}
+    expected = sum(topics_per[(g, sub)] for _s, _t, g, sub in await ss.teaching_assignments(db))
+    assert await count(db, TeacherTopicConfig) == expected == await count(db, TeacherTopicCoverage)
     # every school's workspace carries the dataset the UI renders from
     assert await count(db, PlanningWorkspaceRevision) == 2
     # ineligible teachers (English, Chemistry) have no plan; each eligible teacher owns only their own subject
     owners = {(t, s) for t, s in (await db.execute(select(TeacherTopicConfig.teacher_id, TeacherTopicConfig.subject).distinct())).all()}
-    assert owners == {("user-teacher-garima", "Science"), ("user-teacher-kamlesh", "Mathematics")}
+    from backend.app.seed.seed_data import SUBJECT_NAME, TEACHERS
+    eligible = {(f"user-teacher-{t['key']}", SUBJECT_NAME[t["subject"]]) for t in TEACHERS
+                if SUBJECT_NAME[t["subject"]] in ("Mathematics", "Science")}
+    assert owners == eligible and ("user-teacher-priya", "English") not in owners
 
 
 @pytest.mark.asyncio
@@ -70,6 +76,7 @@ async def test_defaults_follow_the_classification_rules(db):
 @pytest.mark.asyncio
 async def test_rerun_creates_no_duplicates_and_keeps_teacher_edits(db):
     await ss.initialise_curriculum(db)
+    configs_before = await count(db, TeacherTopicConfig)
     cfg = (await db.execute(select(TeacherTopicConfig).filter_by(teacher_id="user-teacher-garima", grade=6))).scalars().first()
     actor = (await db.execute(select(User).filter_by(id="user-teacher-garima"))).scalars().one()
     total = cfg.core_periods + cfg.non_core_periods
@@ -80,8 +87,8 @@ async def test_rerun_creates_no_duplicates_and_keeps_teacher_edits(db):
     await svc.set_coverage(db, actor, cfg.school_id, cfg.teacher_id, cfg.academic_year, 6, "Science", cfg.topic_key, "done", None)
     await db.commit()
     again = await ss.initialise_curriculum(db)
-    assert again == {"plan_topics_added": 0, "workspace_datasets_added": 0, "eligible_plans": 6, "plans_filled": 0, "calendars_aligned": 0, "plans_recalculated": 0}
-    assert await count(db, TeacherTopicConfig) == 415 and await count(db, PlanTopic) == 415
+    assert again == {"plan_topics_added": 0, "workspace_datasets_added": 0, "eligible_plans": 16, "plans_filled": 0, "calendars_aligned": 0, "plans_recalculated": 0}
+    assert await count(db, TeacherTopicConfig) == configs_before and await count(db, PlanTopic) == 415
     kept = (await db.execute(select(TeacherTopicConfig).filter_by(id=cfg.id))).scalars().one()
     await db.refresh(kept)
     assert (kept.classification, kept.origin) == (target, "teacher")

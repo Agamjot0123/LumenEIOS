@@ -227,16 +227,18 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(LIVE);
   const workspaceKey = planningUser ? `${planningUser.id}:${planningUser.role}:${planningUser.schoolId}` : '';
-  const refreshWorkspace = React.useCallback(async () => {
-    if (!LIVE || !localStorage.getItem('lumeneios_token')) return;
-    const ws = await apiClient.workspace();
-    setSchools(ws.schools as School[]);
-    setClasses(ws.classes as ClassSection[]);
-    if (ws.subjects.length) setSubjects(ws.subjects as Subject[]);
-    setStudents(ws.students as Student[]);
-    setAssessments(ws.assessments as Assessment[]);
-    setAssessmentResults(ws.assessmentResults as AssessmentResult[]);
-    setWorkspace(ws);
+  // A plain promise chain (no await) so a synchronous test double settles within the first render.
+  const refreshWorkspace = React.useCallback((): Promise<void> => {
+    if (!LIVE) return Promise.resolve();
+    return apiClient.workspace().then((ws) => {
+      setSchools(ws.schools as School[]);
+      setClasses(ws.classes as ClassSection[]);
+      if (ws.subjects.length) setSubjects(ws.subjects as Subject[]);
+      setStudents(ws.students as Student[]);
+      setAssessments(ws.assessments as Assessment[]);
+      setAssessmentResults(ws.assessmentResults as AssessmentResult[]);
+      setWorkspace(ws);
+    });
   }, []);
   // Every account switch starts from an empty workspace, so one user's data never shows for another.
   useEffect(() => {
@@ -296,10 +298,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => saveStorage('sourceDocuments', sourceDocuments), [sourceDocuments]);
   useEffect(() => saveStorage('questionBank', questionBank), [questionBank]);
 
-  // Hydrate source documents and question bank from backend when token is available
+  // Hydrate source documents and question bank from backend (educators only: learners have no access)
+  const educator = !!planningUser && ['developer', 'admin', 'principal', 'teacher'].includes(planningUser.role);
   useEffect(() => {
     const token = localStorage.getItem('lumeneios_token');
-    if (!token) return;
+    if (!token || !educator) return;
     apiClient.documents
       .list(undefined, 'source_material')
       .then((docs) => {
@@ -316,7 +319,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch(() => {});
-  }, []);
+  }, [educator, workspaceKey]);
 
   const addSchool = (schoolData: Partial<School>) => {
     const newSchool: School = {

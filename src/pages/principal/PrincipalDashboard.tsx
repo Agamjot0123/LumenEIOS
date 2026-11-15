@@ -12,6 +12,7 @@ import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarCha
 import { CompetencyBarChart } from '../../components/charts/CompetencyBarChart';
 import { ApiError, apiClient } from '../../lib/apiClient';
 import { CLASS_NAME_HELP } from '../../lib/className';
+import { SchoolOverview } from '../../components/school/SchoolOverview';
 import {
   School,
   Users,
@@ -27,7 +28,7 @@ import {
 } from 'lucide-react';
 
 export const PrincipalDashboard: React.FC = () => {
-  const { schools, classes, students, curriculumDays, lostTeachingDays, addClass } = useData();
+  const { schools, addClass } = useData();
   const { currentUser, currentSchoolId } = useAuth();
   const navigate = useNavigate();
 
@@ -40,26 +41,18 @@ export const PrincipalDashboard: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
 
   const activeSchool = schools.find((s) => s.id === currentSchoolId) || schools[0];
-  const schoolClasses = classes.filter((c) => c.schoolId === activeSchool.id);
-  const schoolStudents = students.filter((s) => s.schoolId === activeSchool.id);
-  const schoolAvg = calculateAverageCompetencies(schoolStudents);
 
-  const pacing = calculateTimeAwarePacing(curriculumDays, lostTeachingDays, 180, 104);
-
-  // Class comparison data for Recharts
-  const classComparison = [
-    { name: 'Class 8-A', LU: 78, CU: 82, AU: 70, CT: 65 },
-    { name: 'Class 8-B', LU: 84, CU: 79, AU: 74, CT: 70 },
-    { name: 'Class 9-B', LU: 80, CU: 82, AU: 76, CT: 74 },
-    { name: 'Class 7-A', LU: 86, CU: 78, AU: 72, CT: 68 },
-  ];
-
-  const handleSendAnnouncement = (e: React.FormEvent) => {
+  const handleSendAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!announceText.trim()) return;
+    try {
+      await apiClient.announcements.create({ title: 'Message from the Principal', content: announceText.trim(), target_role: 'teacher' });
+      setToast('Announcement sent to all teachers.');
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Could not send the announcement.');
+    }
     setIsAnnounceModalOpen(false);
     setAnnounceText('');
-    setToast('Faculty announcement successfully broadcast to all teachers!');
     setTimeout(() => setToast(null), 4000);
   };
 
@@ -88,6 +81,8 @@ export const PrincipalDashboard: React.FC = () => {
     setTimeout(() => setToast(null), 4000);
   };
 
+  if (!activeSchool) return <p role="status" className="p-4 text-sm text-content-secondary">Loading your school…</p>;
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -103,14 +98,14 @@ export const PrincipalDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-navy-900 tracking-tight">
-              Principal Executive Dashboard: {activeSchool.name}
+              {activeSchool.name}
             </h1>
             <Badge variant="teal" size="sm">
               Campus Lead
             </Badge>
           </div>
           <p className="text-xs text-content-secondary mt-1">
-            {activeSchool.location}, {activeSchool.state} • Infrastructure: {activeSchool.infrastructureTier}
+            {activeSchool.location}, {activeSchool.state} · CBSE · Session {activeSchool.academicYear} · Principal {activeSchool.principalName}
           </p>
         </div>
 
@@ -146,105 +141,7 @@ export const PrincipalDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* High Pacing Alert */}
-      {pacing.riskStatus === 'high' && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-amber-950">
-                Instructional Pacing Warning for Senior Grades
-              </p>
-              <p className="text-amber-800 mt-0.5 leading-relaxed">
-                Faculty recorded 16 cumulative lost teaching days (election duty, extreme weather). Teacher Vikram Sengupta has drafted a 60/40 Syllabus Compression plan.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="teal"
-            size="sm"
-            onClick={() => navigate('/teacher/time-aware')}
-            icon={<Sparkles className="w-3.5 h-3.5" />}
-          >
-            Review Proposed Compression
-          </Button>
-        </div>
-      )}
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          title="Total Students"
-          value={activeSchool.studentCount}
-          subtitle="Enrolled learners"
-          icon={<Users className="w-5 h-5 text-navy-800" />}
-          iconBg="bg-navy-50"
-        />
-        <KPICard
-          title="Faculty Workload"
-          value={`${activeSchool.teacherCount} Teachers`}
-          subtitle="42 active section assignments"
-          icon={<BookOpen className="w-5 h-5 text-teal-600" />}
-          iconBg="bg-teal-50"
-          onClick={() => navigate('/principal/teachers')}
-        />
-        <KPICard
-          title="Campus Competency"
-          value={`${schoolAvg.overall || 76}%`}
-          subtitle="+8% growth from baseline"
-          icon={<TrendingUp className="w-5 h-5 text-emerald-600" />}
-          iconBg="bg-emerald-50"
-          trend={{ value: '+8%', isPositive: true, label: 'vs Cycle 1' }}
-        />
-        <KPICard
-          title="Lost Teaching Days"
-          value={`${pacing.totalLostDays} Days`}
-          subtitle="Net buffer: -4 periods"
-          icon={<Clock className="w-5 h-5 text-rose-600" />}
-          iconBg="bg-rose-50"
-          onClick={() => navigate('/teacher/time-aware')}
-        />
-      </div>
-
-      {/* Charts: Benchmark Radar & Class Comparison Bar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Radar */}
-        <Card>
-          <CardHeader
-            title="School Benchmark Profile"
-            subtitle="Campus average across 4 NEP dimensions"
-          />
-          <CardBody>
-            <CompetencyRadarChart
-              current={schoolAvg}
-              baseline={{ LU: 68, CU: 70, AU: 62, CT: 58, overall: 64 }}
-              benchmarkName="State Benchmark"
-              height={260}
-            />
-          </CardBody>
-        </Card>
-
-        {/* Bar comparison across classes */}
-        <Card className="lg:col-span-2">
-          <CardHeader
-            title="Class-by-Class Competency Comparison"
-            subtitle="Comparing Section Performance in Cycle 2 Mid-Term"
-            action={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate('/teacher/classes')}
-                icon={<Users className="w-3.5 h-3.5" />}
-              >
-                Inspect Classes
-              </Button>
-            }
-          />
-          <CardBody>
-            <CompetencyBarChart data={classComparison} height={260} />
-          </CardBody>
-        </Card>
-      </div>
+      <SchoolOverview schoolIds={[activeSchool.id]} />
 
       {/* Quick Navigation to Principal Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -321,7 +218,7 @@ export const PrincipalDashboard: React.FC = () => {
         isOpen={isAnnounceModalOpen}
         onClose={() => setIsAnnounceModalOpen(false)}
         title="Broadcast Announcement to Campus Faculty"
-        subtitle="Send high-priority directive to all teachers at Sunrise Public School"
+        subtitle={`Send a message to every teacher at ${activeSchool.name}`}
         maxWidth="md"
         footer={
           <div className="flex items-center justify-end gap-2.5 w-full">

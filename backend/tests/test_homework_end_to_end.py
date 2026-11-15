@@ -59,14 +59,18 @@ async def test_complete_homework_lifecycle(client, world, db_session):
         assert result['items'][0]['feedback'] == 'Check the units.'
         assert not any(word in str(result) for word in ['SECRET','correct_answer','marking_rubric','marked_by','version'])
         await db_session.refresh(student)
-        assert initial == (student.lu_score,student.cu_score,student.au_score,student.ct_score,student.baseline_lu,student.baseline_cu)
-        assert counts == [await db_session.scalar(select(func.count()).select_from(m)) for m in [AssessmentSubmission,StudentCompetencySnapshot]]
+        # Released homework is graded evidence: it may move the live parameters, never the baselines,
+        # adds exactly one progress snapshot and creates no assessment submission.
+        assert initial[4:] == (student.baseline_lu,student.baseline_cu)
+        assert counts[0] == await db_session.scalar(select(func.count()).select_from(AssessmentSubmission))
+        assert counts[1] + 1 == await db_session.scalar(select(func.count()).select_from(StudentCompetencySnapshot))
     finally:
         # These rows exist only inside the isolated test DB. Delete dependants first.
         await db_session.rollback()
         drafts=select(HomeworkDraftRecord.id).where(HomeworkDraftRecord.student_id==sid)
         submissions=select(HomeworkSubmissionRecord.id).where(HomeworkSubmissionRecord.student_id==sid)
         evaluations=select(HomeworkEvaluationRecord.id).where(HomeworkEvaluationRecord.student_id==sid)
+        await db_session.execute(delete(StudentCompetencySnapshot).where(StudentCompetencySnapshot.student_id==sid))
         await db_session.execute(delete(HomeworkEvaluationItemRecord).where(HomeworkEvaluationItemRecord.evaluation_id.in_(evaluations)))
         await db_session.execute(delete(HomeworkEvaluationRecord).where(HomeworkEvaluationRecord.student_id==sid))
         await db_session.execute(delete(HomeworkSubmissionAnswerRecord).where(HomeworkSubmissionAnswerRecord.submission_id.in_(submissions)))
