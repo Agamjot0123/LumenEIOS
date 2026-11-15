@@ -35,10 +35,10 @@ function ChildHomework({ studentId, name }: { studentId: string; name?: string }
     <Section title={`${name ?? 'Student'}'s homework`} action={<Button size="sm" variant="outline" disabled={busy} onClick={() => run(refresh)}>Refresh</Button>}>
       <Messages error={error} />
       {rows.length === 0 ? <Empty>No homework has been assigned yet.</Empty> :
-        <ul className="divide-y divide-surface-border">{rows.map(a => <li key={a.id} className="px-2 py-2.5">
+        <ul className="space-y-1.5">{rows.map(a => <li key={a.id} className={'rounded-xl border px-3 py-2.5 ' + (open === a.id ? 'border-teal-400 bg-teal-50' : 'border-surface-border bg-white')}>
           <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{a.subject_name || a.subject_id}</span>
             <StatusBadge status={a.result_released ? 'released' : a.submission_status} /></div>
-          <p className="text-xs text-content-secondary">{a.question_count} questions, {a.total_marks} marks - assigned {formatDate(a.assigned_at)} - due {formatDate(a.due_at)}</p>
+          <p className="text-xs text-content-secondary">{a.question_count} questions · {a.total_marks} marks · assigned {formatDate(a.assigned_at)} · due {formatDate(a.due_at)}</p>
           {a.result_released ? <Button className="mt-1" size="sm" variant="teal" disabled={busy} onClick={() => run(async () => {
             setOpen(a.id); setResult(await hw.parentResult(studentId, a.id));
           })}>View result</Button> : <p className="mt-1 text-xs text-content-secondary">Result not released yet.</p>}

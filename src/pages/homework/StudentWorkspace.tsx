@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { Button } from '../../components/common/Button';
-import { Empty, Messages, ReleasedResult, Section, StatusBadge, formatDate, inputClass, useRunner } from './ui';
+import { MathText } from '../../components/common/MathText';
+import { Empty, Messages, ReleasedResult, Section, StatusBadge, formatDate, inputClass, letter, useRunner } from './ui';
 
 const hw = apiClient.homework;
 
@@ -22,11 +23,11 @@ export const StudentWorkspace: React.FC = () => {
     <Section title="My homework" action={<Button size="sm" variant="outline" disabled={busy} onClick={() => run(refresh)}>Refresh</Button>}>
       <Messages error={error} />
       {assignments.length === 0 && !error ? <Empty>No homework has been assigned to you yet.</Empty> :
-        <ul className="divide-y divide-surface-border">{assignments.map(a => <li key={a.id}>
-          <button className={'w-full px-2 py-2.5 text-left hover:bg-gray-50 ' + (a.id === selected ? 'bg-teal-50' : '')} onClick={() => setSelected(a.id)}>
+        <ul className="space-y-1.5">{assignments.map(a => <li key={a.id}>
+          <button className={'w-full rounded-xl border px-3 py-2.5 text-left transition hover:border-teal-300 ' + (a.id === selected ? 'border-teal-400 bg-teal-50' : 'border-surface-border bg-white')} onClick={() => setSelected(a.id)}>
             <div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{a.subject_name || a.subject_id}</span>
               {statuses[a.id] && <StatusBadge status={statuses[a.id]} />}</div>
-            <p className="text-xs text-content-secondary">{a.question_count} questions, {a.total_marks} marks - due {formatDate(a.due_at)}</p>
+            <p className="text-xs text-content-secondary">{a.question_count} questions · {a.total_marks} marks · due {formatDate(a.due_at)}</p>
           </button></li>)}</ul>}
     </Section>
     {selected ? <StudentAssignment key={selected} id={selected}
@@ -81,16 +82,28 @@ function StudentAssignment({ id, onStatus }: { id: string; onStatus: (status: st
     {locked && <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm">Submitted {formatDate(submission.submitted_at)}{submission.is_late ? ' (late)' : ''}. Your answers are locked.</p>}
     {result ? <ReleasedResult result={result} /> : <>
       {locked && resultChecked && <p className="text-sm text-content-secondary">Your teacher has not released the evaluation yet.</p>}
-      <ol className="space-y-3">{assignment.items.map((q: any) => <li key={q.position} className="rounded-lg border border-surface-border p-3">
+      {!locked && <div className="space-y-1">
+        <div className="flex justify-between text-xs text-content-secondary"><span>{answered} of {assignment.items.length} answered</span>{dirty && <span className="text-amber-700">Unsaved changes</span>}</div>
+        <div className="h-2 rounded-full bg-gray-100"><div className="h-2 rounded-full bg-teal-500 transition-all" style={{ width: `${assignment.items.length ? (answered / assignment.items.length) * 100 : 0}%` }} /></div>
+      </div>}
+      <ol className="space-y-3">{assignment.items.map((q: any) => <li key={q.position} className={'rounded-xl border p-4 ' + ((answers[q.position] ?? '') !== '' ? 'border-teal-200 bg-teal-50/20' : 'border-surface-border bg-white')}>
         <div>
-          <p className="text-sm font-medium">{q.position}. {q.text} <span className="text-content-secondary">({q.marks} marks)</span></p>
-          {q.type === 'mcq' ? <div className="mt-2 space-y-1" role="radiogroup" aria-label={`Answer for question ${q.position}`}>
-            {q.options.map((option: any, i: number) => <label key={i} className="flex items-center gap-2 text-sm">
-              <input type="radio" name={`q-${q.position}`} disabled={busy || locked} checked={answers[q.position] === String(i)}
-                onChange={() => setAnswers({ ...answers, [q.position]: String(i) })} />{String(option)}</label>)}
-            {!locked && answers[q.position] && <button type="button" className="text-xs text-content-secondary underline" onClick={() => setAnswers({ ...answers, [q.position]: '' })}>Clear answer</button>}
-          </div> : <textarea aria-label={`Answer for question ${q.position}`} rows={3} className={inputClass + ' mt-2'} disabled={busy || locked}
-            value={answers[q.position] ?? ''} onChange={e => setAnswers({ ...answers, [q.position]: e.target.value })} />}
+          <p className="text-sm font-medium"><span className="mr-1 text-navy-800">{q.position}.</span><MathText text={q.text} /> <span className="text-content-secondary">({q.marks} marks)</span></p>
+          {q.type === 'mcq' ? <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={`Answer for question ${q.position}`}>
+            {q.options.map((option: any, i: number) => {
+              const on = answers[q.position] === String(i);
+              return <label key={i} className={'flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition ' + (on ? 'border-teal-500 bg-teal-50 ring-1 ring-teal-500' : 'border-surface-border hover:border-teal-300') + (busy || locked ? ' cursor-default opacity-80' : '')}>
+                <input type="radio" className="mt-0.5 accent-teal-600" name={`q-${q.position}`} disabled={busy || locked} checked={on}
+                  onChange={() => setAnswers({ ...answers, [q.position]: String(i) })} />
+                <span className="font-semibold text-content-secondary">{letter(i)}.</span><MathText text={String(option)} /></label>;
+            })}
+            {!locked && answers[q.position] && <button type="button" className="justify-self-start text-xs text-content-secondary underline" onClick={() => setAnswers({ ...answers, [q.position]: '' })}>Clear answer</button>}
+          </div> : <>
+            <textarea aria-label={`Answer for question ${q.position}`} rows={4} className={inputClass + ' mt-2'} disabled={busy || locked}
+              placeholder="Write your answer. For maths you can type formulas like \( x^2 \) or \( \frac{1}{2} \)."
+              value={answers[q.position] ?? ''} onChange={e => setAnswers({ ...answers, [q.position]: e.target.value })} />
+            {/\\[([a-zA-Z]/.test(answers[q.position] ?? '') && <p className="mt-1 rounded bg-surface-bg px-2 py-1 text-sm"><span className="mr-1 text-[11px] font-semibold uppercase text-content-secondary">Preview</span><MathText text={answers[q.position]} /></p>}
+          </>}
         </div></li>)}</ol>
     </>}
     {!locked && <div className="flex flex-wrap items-center gap-2 border-t border-surface-border pt-3">
@@ -100,7 +113,7 @@ function StudentAssignment({ id, onStatus }: { id: string; onStatus: (status: st
         if (!window.confirm(`Submit this homework? ${blanks ? `${blanks} question(s) are unanswered. ` : ''}You cannot change answers after submitting.`)) return;
         run(async () => { const current = await save(); apply(await hw.submit(id, current.version)); setResultChecked(true); return 'Submitted for teacher evaluation.'; });
       }}>Submit homework</Button>
-      <span className="text-xs text-content-secondary">{answered} / {assignment.items.length} answered{dirty ? ' - unsaved changes' : ''}</span>
+      <span className="text-xs text-content-secondary">{answered} / {assignment.items.length} answered{dirty ? ' · unsaved changes' : ''}</span>
     </div>}
     {locked && !result && <Button size="sm" variant="outline" disabled={busy} onClick={() => run(async () => { await checkResult(); })}>Check for released result</Button>}
   </Section>;

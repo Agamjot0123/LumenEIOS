@@ -897,6 +897,34 @@ export const apiClient = {
       });
       return mapQuestionOut(res);
     },
+    /** A teacher-written bank question (no AI). MCQs need a key equal to exactly one option. */
+    async createQuestion(data: {
+      subjectId: string;
+      text: string;
+      type: string;
+      options: string[];
+      correctAnswer: string;
+      markingRubric: string;
+      marks: number;
+      competency: string;
+      bloomLevel: string;
+    }) {
+      const res = await request<any>('/assessments/question-bank', {
+        method: 'POST',
+        body: JSON.stringify({
+          subject_id: data.subjectId,
+          text: data.text,
+          type: data.type,
+          options: data.type === 'mcq' ? data.options : [],
+          correct_answer: data.correctAnswer,
+          marking_rubric: data.markingRubric,
+          marks: data.marks,
+          competency: data.competency,
+          bloom_level: data.bloomLevel,
+        }),
+      });
+      return mapQuestionOut(res);
+    },
     /** Gemini preview: returns questions for review; nothing is saved. */
     async aiGenerateQuestions(params: Record<string, unknown>) {
       return request<any>('/assessments/ai/generate-questions', { method: 'POST', body: JSON.stringify(params) });

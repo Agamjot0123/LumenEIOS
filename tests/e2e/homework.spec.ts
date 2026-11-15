@@ -48,6 +48,8 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   const first=page.getByRole('button',{name:/Template CU question/}).first();
   await first.click();
   await page.getByRole('textbox',{name:'Question',exact:true}).fill('BROWSER-EDITED-QUESTION');
+  // A written-answer question keeps its key private (MCQ options are, by design, shown to students).
+  await page.getByLabel('Question type',{exact:true}).selectOption('short');
   await page.getByRole('textbox',{name:'Correct answer',exact:true}).fill('BROWSER-PRIVATE-KEY');
   await page.getByRole('textbox',{name:'Rubric',exact:true}).fill('BROWSER-PRIVATE-RUBRIC');
   await page.getByRole('button',{name:'Save edits',exact:true}).click();
@@ -99,7 +101,7 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   // Teacher: manual marking, finalize, release.
   await login('teacher@lumeneios.demo');
   await tab('3. Submissions & marking');
-  await page.getByRole('button',{name:/student-gurleen - sub-sci/}).click();
+  await page.getByRole('button',{name:/Gurleen.*Science/}).click();
   await page.getByRole('button',{name:'Start marking',exact:true}).click();
   await expect(page.getByText(/Answer key \(teacher only\)/)).toBeVisible();
   await page.getByLabel('Marks for question 1',{exact:true}).fill('0');
@@ -142,7 +144,8 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
   await page.getByLabel('Password',{exact:true}).fill('browser-test-password');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('link',{name:'Differentiated Homework',exact:true}).click();
-  await page.getByRole('tab',{name:'Question bank'}).click();
+  await page.getByRole('tab',{name:/Question bank/}).click();
+  await page.getByRole('button',{name:'Generate with AI',exact:true}).click();
   await page.getByLabel('AI subject',{exact:true}).selectOption('sub-sci');
   await page.getByLabel('AI topic',{exact:true}).fill('Mensuration');
   await page.getByLabel('AI count',{exact:true}).fill('2');
@@ -152,7 +155,7 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
   await expect(page.getByTestId('ai-provenance')).toContainText('2 of 2 requested');
   await page.getByRole('button',{name:'Reject',exact:true}).nth(1).click();
   await page.getByLabel('AI question 1 text',{exact:true}).fill('AI-E2E EDITED by teacher: volume of a 2 m cube?');
-  await page.getByLabel('Option D is correct',{exact:true}).check();
+  await page.getByLabel('AI question 1 option D is correct',{exact:true}).check();
   await page.getByRole('button',{name:'Regenerate all'}).isVisible();
   await page.getByRole('button',{name:'Save 1 approved to question bank',exact:true}).click();
   await expect(page.getByText('1 approved question(s) saved')).toBeVisible();
@@ -160,6 +163,7 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
   await expect(saved).toBeVisible();
   await expect(saved).toContainText('AI-generated');
   await saved.click();
-  await expect(page.getByRole('textbox',{name:'Correct answer',exact:true})).toHaveValue('12 m³');
+  await expect(page.getByLabel('Option D is correct',{exact:true})).toBeChecked();
+  await expect(page.getByLabel('Option D',{exact:true})).toHaveValue('12 m³');
   await expect(page.getByRole('button',{name:/AI-E2E question 11/})).toHaveCount(0);
 });
