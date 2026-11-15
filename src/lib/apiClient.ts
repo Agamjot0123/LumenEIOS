@@ -496,6 +496,38 @@ export const apiClient = {
     demoEvaluate(subjectId: string) {
       return request<DemoWalkthrough>(`/knowledge-components/demo-walkthrough?subject_id=${encodeURIComponent(subjectId)}`, { method: 'POST' });
     },
+    classEvidence(classId: string, subjectId: string) {
+      const query = new URLSearchParams({ class_id: classId, subject_id: subjectId });
+      return request<{
+        class_id: string;
+        class_name: string;
+        subject_id: string;
+        subject_name: string;
+        concepts: Array<{
+          id: string;
+          name: string;
+          topic: string;
+          student_count: number;
+          proficient_count: number;
+          developing_count: number;
+          needs_improvement_count: number;
+          average_mastery: number | null;
+          weakest_competency: string | null;
+          last_assessed_at: string | null;
+          students: Array<{
+            student_id: string;
+            student_name: string;
+            learning_status: string;
+            overall_mastery: number | null;
+            lu: number | null;
+            cu: number | null;
+            ct: number | null;
+            au: number | null;
+            last_assessed_at: string | null;
+          }>;
+        }>;
+      }>(`/knowledge-components/class-evidence?${query.toString()}`);
+    },
     link(body: { source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF' }) {
       return request<{
         id: string;

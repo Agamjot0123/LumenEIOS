@@ -24,7 +24,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.entities import (
+    Assessment,
     AssignmentOcrUpload,
+    ClassSection,
     Student,
     StudentOcrHistory,
     Subject,
@@ -162,6 +164,132 @@ def recommendations_for(
         if overall is not None and overall < DEVELOPING_AT:
             notes.append(f"Revisit {prerequisite_name} before advancing in {name}.")
     return notes
+
+
+def question_concept_labels(text: str, concept_names: Iterable[str]) -> list[str]:
+    """Concept names that appear as whole phrases in a question. The model is not called."""
+    folded = text.casefold()
+    labels = []
+    names = sorted({name.strip() for name in concept_names if name and name.strip()}, key=len, reverse=True)
+    for name in names:
+        if len(name) < 3:
+            continue
+        if _phrase_in(folded, name.casefold()):
+            labels.append(name)
+    return labels
+
+
+def _phrase_in(text: str, phrase: str) -> bool:
+    start = 0
+    while True:
+        index = text.find(phrase, start)
+        if index < 0:
+            return False
+        before = text[index - 1] if index else " "
+        after_at = index + len(phrase)
+        after = text[after_at] if after_at < len(text) else " "
+        if not before.isalnum() and not after.isalnum():
+            return True
+        start = index + 1
+
+
+def _mean(values: list[float]) -> Optional[float]:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 1)
+
+
+async def class_subject_evidence(db: AsyncSession, *, school_id: str, class_id: str, subject_id: str) -> dict:
+    """Assessed concepts for one class and subject, drawn from stored evaluation mastery."""
+    section = await db.get(ClassSection, class_id)
+    if section is None or section.school_id != school_id:
+        raise LookupError("class")
+    subject = await db.get(Subject, subject_id)
+    if subject is None or subject_id not in (section.subject_ids_json or []):
+        raise LookupError("subject")
+
+    roster = set((await db.scalars(select(Student.id).where(
+        Student.school_id == school_id,
+        Student.class_id == class_id,
+    ))).all())
+    from_papers = set((await db.scalars(
+        select(StudentKcAttempt.student_id)
+        .join(Assessment, Assessment.id == StudentKcAttempt.assessment_id)
+        .where(
+            Assessment.school_id == school_id,
+            Assessment.class_id == class_id,
+            Assessment.subject_id == subject_id,
+        )
+    )).all())
+    student_ids = roster | from_papers
+    students = {
+        row.id: row
+        for row in (await db.scalars(select(Student).where(Student.id.in_(student_ids)))).all()
+    } if student_ids else {}
+    components = list((await db.scalars(
+        select(KnowledgeComponent).where(KnowledgeComponent.subject_id == subject_id)
+    )).all())
+    mastery_rows = []
+    if student_ids and components:
+        mastery_rows = list((await db.scalars(select(StudentKcMastery).where(
+            StudentKcMastery.student_id.in_(student_ids),
+            StudentKcMastery.kc_id.in_([row.id for row in components]),
+            StudentKcMastery.learning_status != "not_assessed",
+        ))).all())
+    grouped: dict[str, list[StudentKcMastery]] = defaultdict(list)
+    for row in mastery_rows:
+        grouped[row.kc_id].append(row)
+
+    concepts = []
+    for component in components:
+        rows = [row for row in grouped.get(component.id, []) if row.student_id in students]
+        if not rows:
+            continue
+        dimension_means = {
+            "LU": _mean([row.lu_mastery for row in rows if row.lu_mastery is not None]),
+            "CU": _mean([row.cu_mastery for row in rows if row.cu_mastery is not None]),
+            "CT": _mean([row.ct_mastery for row in rows if row.ct_mastery is not None]),
+            "AU": _mean([row.au_mastery for row in rows if row.au_mastery is not None]),
+        }
+        present = [(name, score) for name, score in dimension_means.items() if score is not None]
+        weakest = min(present, key=lambda item: (item[1], item[0]))[0] if present else None
+        overalls = [row.overall_mastery for row in rows if row.overall_mastery is not None]
+        assessed_at = [row.last_assessed_at for row in rows if row.last_assessed_at is not None]
+        people = []
+        for row in sorted(rows, key=lambda item: (item.overall_mastery is None, item.overall_mastery or 0)):
+            student = students[row.student_id]
+            people.append({
+                "student_id": student.id,
+                "student_name": student.name,
+                "learning_status": row.learning_status,
+                "overall_mastery": row.overall_mastery,
+                "lu": row.lu_mastery,
+                "cu": row.cu_mastery,
+                "ct": row.ct_mastery,
+                "au": row.au_mastery,
+                "last_assessed_at": row.last_assessed_at,
+            })
+        concepts.append({
+            "id": component.id,
+            "name": component.name,
+            "topic": component.topic,
+            "student_count": len(rows),
+            "proficient_count": sum(row.learning_status == "proficient" for row in rows),
+            "developing_count": sum(row.learning_status == "developing" for row in rows),
+            "needs_improvement_count": sum(row.learning_status == "needs_improvement" for row in rows),
+            "average_mastery": _mean(overalls),
+            "weakest_competency": weakest,
+            "last_assessed_at": max(assessed_at) if assessed_at else None,
+            "students": people,
+        })
+    concepts.sort(key=lambda item: (-item["needs_improvement_count"], item["average_mastery"] or 0, item["name"]))
+    return {
+        "class_id": section.id,
+        "class_name": section.name,
+        "subject_id": subject.id,
+        "subject_name": subject.name,
+        "concepts": concepts,
+    }
 
 
 def evaluation_is_reliable(result: EvaluationResult) -> bool:

@@ -7,6 +7,7 @@ from backend.app.db.session import get_db
 from backend.app.models.entities import User
 from backend.app.modules.differentiated_homework.student_access import require_linked_student
 from backend.app.schemas.knowledge_components import (
+    ClassEvidenceOut,
     DemoWalkthroughOut,
     KnowledgeComponentCreate,
     KnowledgeComponentOut,
@@ -76,6 +77,23 @@ async def create_knowledge_relationship(
         raise HTTPException(status_code=404, detail="Knowledge component not found.") from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.get("/knowledge-components/class-evidence", response_model=ClassEvidenceOut)
+async def class_knowledge_evidence(
+    class_id: str = Query(min_length=1),
+    subject_id: str = Query(min_length=1),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    try:
+        return await kc_graph_service.class_subject_evidence(
+            db, school_id=teacher.school_id, class_id=class_id, subject_id=subject_id,
+        )
+    except LookupError as exc:
+        if str(exc) == "subject":
+            raise HTTPException(status_code=422, detail="The selected class does not study this subject.") from None
+        raise HTTPException(status_code=404, detail="Choose a class in your school.") from None
 
 
 @router.get("/knowledge-components/demo-walkthrough", response_model=DemoWalkthroughOut)

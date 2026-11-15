@@ -96,6 +96,40 @@ class KnowledgeGraphOut(BaseSchema):
     insights: list[str]
 
 
+class ClassConceptStudentOut(BaseSchema):
+    student_id: str
+    student_name: str
+    learning_status: str
+    overall_mastery: Optional[float] = None
+    lu: Optional[float] = None
+    cu: Optional[float] = None
+    ct: Optional[float] = None
+    au: Optional[float] = None
+    last_assessed_at: Optional[datetime] = None
+
+
+class ClassConceptEvidenceOut(BaseSchema):
+    id: str
+    name: str
+    topic: str
+    student_count: int
+    proficient_count: int
+    developing_count: int
+    needs_improvement_count: int
+    average_mastery: Optional[float] = None
+    weakest_competency: Optional[str] = None
+    last_assessed_at: Optional[datetime] = None
+    students: list[ClassConceptStudentOut]
+
+
+class ClassEvidenceOut(BaseSchema):
+    class_id: str
+    class_name: str
+    subject_id: str
+    subject_name: str
+    concepts: list[ClassConceptEvidenceOut]
+
+
 class DemoWalkthroughOut(BaseSchema):
     student_name: str
     student_email: str

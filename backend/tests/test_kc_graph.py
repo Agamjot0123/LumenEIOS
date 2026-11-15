@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from backend.app.core.security import create_access_token
 from backend.app.models.entities import Assessment, AssignmentOcrUpload, StudentOcrHistory, User, utc_now
-from backend.app.models.knowledge_components import StudentKcAttempt
+from backend.app.models.knowledge_components import StudentKcAttempt, StudentKcMastery
 from backend.app.modules.differentiated_homework.models import StudentAccountLink
 from backend.app.services.evaluation_service import parse_and_validate_evaluation
 from backend.app.services.kc_graph_service import (
@@ -16,6 +16,7 @@ from backend.app.services.kc_graph_service import (
     evaluation_is_reliable,
     latest_and_previous,
     mastery_from_attempts,
+    question_concept_labels,
     recommendations_for,
 )
 from backend.app.services import kc_graph_service
@@ -377,3 +378,58 @@ async def test_unlinked_scan_does_not_write_mastery(client, db_session, monkeypa
         select(func.count()).select_from(StudentKcAttempt).where(StudentKcAttempt.assessment_id == "kc-unlinked-paper")
     )
     assert count == 0
+
+
+def test_question_labels_match_a_whole_concept_name():
+    assert question_concept_labels(
+        "Use Chemical Bonding to explain a covalent bond.",
+        ["Chemical Bonding", "Atom"],
+    ) == ["Chemical Bonding"]
+    assert question_concept_labels("Copy the class register.", ["Chemical Bonding"]) == []
+
+
+@pytest.mark.asyncio
+async def test_class_evidence_lists_only_assessed_students(client, db_session, teacher_token, student_token):
+    teacher = {"Authorization": f"Bearer {teacher_token}"}
+    created = await client.post("/api/v1/knowledge-components", headers=teacher, json={
+        "name": "Place value", "description": "The value a digit has because of its position.",
+        "subject_id": "sub-math", "topic": "Number sense",
+    })
+    assert created.status_code == 201, created.text
+    skipped = await client.post("/api/v1/knowledge-components", headers=teacher, json={
+        "name": "Roman numerals", "description": "An older way to write numbers.",
+        "subject_id": "sub-math", "topic": "Number sense",
+    })
+    assert skipped.status_code == 201, skipped.text
+    db_session.add(StudentKcMastery(
+        student_id="user-student-1",
+        kc_id=created.json()["id"],
+        lu_mastery=30,
+        cu_mastery=40,
+        overall_mastery=35,
+        learning_status="needs_improvement",
+        attempt_count=2,
+        correct_count=0,
+        incorrect_count=2,
+        last_assessed_at=utc_now(),
+    ))
+    await db_session.commit()
+
+    evidence = await client.get(
+        "/api/v1/knowledge-components/class-evidence",
+        headers=teacher,
+        params={"class_id": "class-8a", "subject_id": "sub-math"},
+    )
+    assert evidence.status_code == 200, evidence.text
+    body = evidence.json()
+    place = next(item for item in body["concepts"] if item["name"] == "Place value")
+    assert place["needs_improvement_count"] == 1
+    assert place["weakest_competency"] == "LU"
+    assert place["average_mastery"] == 35
+    assert place["students"][0]["student_name"] == "Aarav Patel"
+    assert all(item["name"] != "Roman numerals" for item in body["concepts"])
+    assert (await client.get(
+        "/api/v1/knowledge-components/class-evidence",
+        headers={"Authorization": f"Bearer {student_token}"},
+        params={"class_id": "class-8a", "subject_id": "sub-math"},
+    )).status_code == 403
