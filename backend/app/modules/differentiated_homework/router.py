@@ -474,6 +474,18 @@ async def save_homework_draft(
     return to_out(record)
 
 
+async def _with_display_names(db: AsyncSession, rows: list) -> list:
+    """Attach student and subject names so teacher lists never show raw ids."""
+    if not rows:
+        return rows
+    student_ids = {r.student_id for r in rows}
+    found = await db.execute(select(Student.id, Student.name).filter(Student.id.in_(student_ids)))
+    students = {r.id: r.name for r in found.all()}
+    subjects = await subject_names(db, {r.subject_id for r in rows})
+    return [r.model_copy(update={"student_name": students.get(r.student_id), "subject_name": subjects.get(r.subject_id)})
+            for r in rows]
+
+
 @router.get("/homework/drafts", response_model=List[SavedDraftSummaryOut])
 async def list_homework_drafts(
     draft_status: Optional[DraftStatus] = Query(default=None, alias="status"),
@@ -497,7 +509,7 @@ async def list_homework_drafts(
         query = query.filter(HomeworkDraftRecord.student_id == student_id)
 
     rows = await db.execute(query.order_by(HomeworkDraftRecord.created_at.desc(), HomeworkDraftRecord.id))
-    return [to_summary(r) for r in rows.scalars().all()]
+    return await _with_display_names(db, [to_summary(r) for r in rows.scalars().all()])
 
 
 @router.get("/homework/drafts/{draft_id}", response_model=SavedDraftOut)
@@ -681,7 +693,7 @@ async def list_homework_assignments(
     rows = await db.execute(
         query.order_by(HomeworkAssignmentRecord.assigned_at.desc(), HomeworkAssignmentRecord.id)
     )
-    return [to_assignment_summary(a) for a in rows.scalars().all()]
+    return await _with_display_names(db, [to_assignment_summary(a) for a in rows.scalars().all()])
 
 
 @router.get("/homework/assignments/{assignment_id}", response_model=AssignmentOut)
