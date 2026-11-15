@@ -101,6 +101,13 @@ export const AssessmentBuilder: React.FC = () => {
   const [theoryCount, setTheoryCount] = useState<number>(2);
   const [bloomIndex, setBloomIndex] = useState<number>(3); // 'Analyze'
   const [topicHint, setTopicHint] = useState<string>('');
+  // Chapter name the generated questions are filed under in the question bank (used by Differentiated
+  // Homework's topic picker). Follows the focus text until the teacher edits it.
+  const [bankTopic, setBankTopic] = useState<string>('');
+  const [bankTopicEdited, setBankTopicEdited] = useState(false);
+  useEffect(() => {
+    if (!bankTopicEdited) setBankTopic(topicHint.split(/,\s*with extra practice on/i)[0].trim().slice(0, 120));
+  }, [topicHint, bankTopicEdited]);
   const [focusConceptId, setFocusConceptId] = useState('');
   const [focusConceptName, setFocusConceptName] = useState('');
   const [focusCompetency, setFocusCompetency] = useState<CompetencyKey>('CU');
@@ -258,6 +265,7 @@ export const AssessmentBuilder: React.FC = () => {
         theoryCount,
         bloomLevel: currentBloomLevel,
         topicHint: topicHint.trim() || undefined,
+        bankTopic: bankTopic.trim() || undefined,
         saveToBank: true,
       }, recordStep);
       setGeneratedQuestions(response.questions);
@@ -810,6 +818,18 @@ export const AssessmentBuilder: React.FC = () => {
                   placeholder="e.g. Mensuration of Cylinders, Algebraic Identities, or Force & Pressure"
                   className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs text-navy-900 focus:outline-none focus:border-teal-600"
                 />
+                <label className="mt-2 block font-semibold text-navy-900 mb-1" htmlFor="studio-bank-topic">
+                  Question-bank topic / chapter
+                </label>
+                <input
+                  id="studio-bank-topic"
+                  type="text"
+                  value={bankTopic}
+                  onChange={(e) => { setBankTopic(e.target.value); setBankTopicEdited(true); }}
+                  placeholder="e.g. Mensuration"
+                  className="w-full px-3 py-2 bg-white border border-surface-border rounded-xl text-xs text-navy-900 focus:outline-none focus:border-teal-600"
+                />
+                <p className="mt-1 text-[11px] text-content-secondary">Saved questions are filed under this topic, so Differentiated Homework can draw from it.</p>
                 {focusConceptName && (
                   <Button
                     type="button"

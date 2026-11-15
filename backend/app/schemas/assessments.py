@@ -28,6 +28,8 @@ class GenerateQuestionsRequest(BaseModel):
     theory_count: int = 2
     bloom_level: str = "Apply"
     focus_topic: Optional[str] = None
+    # Topic/chapter the saved questions are filed under (falls back to focus_topic).
+    bank_topic: Optional[str] = None
     save_to_bank: bool = True
 
 

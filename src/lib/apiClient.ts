@@ -840,6 +840,7 @@ export const apiClient = {
       theoryCount: number;
       bloomLevel: string;
       topicHint?: string;
+      bankTopic?: string;
       saveToBank?: boolean;
     }, onProgress?: (step: ProcessStep) => void) {
       const body = JSON.stringify({
@@ -851,6 +852,7 @@ export const apiClient = {
         theory_count: data.theoryCount,
         bloom_level: data.bloomLevel,
         focus_topic: data.topicHint || undefined,
+        bank_topic: data.bankTopic || undefined,
         save_to_bank: data.saveToBank ?? true,
       });
       const res = onProgress

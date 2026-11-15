@@ -145,7 +145,7 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('link',{name:'Differentiated Homework',exact:true}).click();
   await page.getByRole('tab',{name:/Question bank/}).click();
-  await page.getByRole('button',{name:'Generate with AI',exact:true}).click();
+  await page.getByRole('button',{name:'Quick generate from a topic (Gemini)',exact:true}).click();
   await page.getByLabel('AI subject',{exact:true}).selectOption('sub-sci');
   await page.getByLabel('AI topic',{exact:true}).fill('Mensuration');
   await page.getByLabel('AI count',{exact:true}).fill('2');

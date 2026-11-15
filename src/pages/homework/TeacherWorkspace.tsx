@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   BookOpen, CheckCircle2, ClipboardCheck, FilePlus2, Library, PenLine, Plus, Search, Send, Sparkles, Users, UserRound,
 } from 'lucide-react';
@@ -876,8 +876,11 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
 
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!subject} onClick={startNew}>Write a question</Button>
-      <Button variant={showAi ? 'secondary' : 'teal'} icon={<Sparkles className="h-4 w-4" />} onClick={() => setShowAi(v => !v)}>
-        {showAi ? 'Hide AI generator' : 'Generate with AI'}</Button>
+      <Link to="/teacher/assessments-beta"
+        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700">
+        <BookOpen className="h-4 w-4" />Generate from a chapter PDF (Studio Beta · Qwen)</Link>
+      <Button variant={showAi ? 'secondary' : 'outline'} icon={<Sparkles className="h-4 w-4" />} onClick={() => setShowAi(v => !v)}>
+        {showAi ? 'Hide quick generator' : 'Quick generate from a topic (Gemini)'}</Button>
       <Button variant="ghost" disabled={busy || !subject} onClick={() => run(async () => {
         await apiClient.assessments.createTemplateQuestion({ subjectId: subject, bloomLevel: 'Apply', competency: 'CU' });
         await reload(); return 'Template question (no AI) added to the bank. Review and edit it before use.';
