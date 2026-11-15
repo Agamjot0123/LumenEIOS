@@ -38,8 +38,13 @@ async def init_db():
     from backend.app.db import base  # noqa: F401
     from sqlalchemy import inspect, text
     async with engine.begin() as conn:
+        # learning_* tables (LearnSphere, assessment results/Panchapadi, interventions) are owned by the
+        # Alembic migrations in production. Local SQLite databases are never migrated, which left
+        # LearnSphere, guidance recovery and interventions failing with "no such table". On SQLite
+        # create them here too (create_all only adds missing tables; existing data is untouched).
+        local_sqlite = conn.dialect.name == "sqlite"
         await conn.run_sync(lambda sync: Base.metadata.create_all(sync, tables=[
-            t for t in Base.metadata.sorted_tables if not t.name.startswith("learning_")]))
+            t for t in Base.metadata.sorted_tables if local_sqlite or not t.name.startswith("learning_")]))
         # Preserve the existing optional-column upgrade without deliberately failing DDL.
         # Catching an error inside this transaction leaves PostgreSQL's transaction aborted.
         existing = await conn.run_sync(lambda sync: {

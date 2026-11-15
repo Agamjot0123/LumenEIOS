@@ -215,7 +215,7 @@ def test_migration_additive_and_idempotent(tmp_path):
     upgrade(database)
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT * FROM existing_records").fetchall()==[("keep","unchanged")]
-        assert len(connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'learning_%'").fetchall())==6
+        assert len(connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'learning_%'").fetchall())==7  # 0005 adds learning_interventions
         assert connection.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
 
 
