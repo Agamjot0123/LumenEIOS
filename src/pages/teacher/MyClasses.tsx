@@ -11,17 +11,25 @@ import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarCha
 import { CompetencyGroupBadges } from '../../components/common/CompetencyScoreBadge';
 import { Users, GraduationCap, AlertCircle, Sparkles, BookOpen, Clock, BarChart3 } from 'lucide-react';
 import { recommendDifferentiatedHomework } from '../../lib/calculations';
+import { useAuth } from '../../context/AuthContext';
+import { teacherClassIds } from '../../lib/workspace';
 
 export const MyClasses: React.FC = () => {
   const navigate = useNavigate();
-  const { classes, students } = useData();
+  const { classes, students, workspace, workspaceLoading } = useData();
+  const { currentUser } = useAuth();
+  // A teacher sees the sections they teach (their own class-teacher section first); leaders see every section.
+  const allowed = currentUser?.role === 'teacher' ? teacherClassIds(workspace, currentUser.id) : classes.map(c => c.id);
+  const myClasses = classes.filter(c => allowed.includes(c.id))
+    .sort((a, b) => Number(b.classTeacherId === currentUser?.id) - Number(a.classTeacherId === currentUser?.id) || a.grade - b.grade || a.section.localeCompare(b.section));
 
-  const [selectedClassId, setSelectedClassId] = useState('class-8a');
+  const [pickedClassId, setSelectedClassId] = useState('');
+  const selectedClassId = pickedClassId || myClasses[0]?.id || '';
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [isRemediationModalOpen, setIsRemediationModalOpen] = useState(false);
   const [notificationMsg, setNotificationMsg] = useState<string | null>(null);
 
-  const activeClass = classes.find((c) => c.id === selectedClassId) || classes[0];
+  const activeClass = classes.find((c) => c.id === selectedClassId);
   const classStudents = students.filter((s) => s.classId === selectedClassId);
 
   const handleOpenRemediation = (student: Student) => {
@@ -47,6 +55,10 @@ export const MyClasses: React.FC = () => {
     setTimeout(() => setNotificationMsg(null), 4000);
   };
 
+  if (!activeClass) {
+    return <p role="status" className="p-4 text-sm text-content-secondary">{workspaceLoading ? 'Loading your classes…' : 'No classes are assigned to you yet.'}</p>;
+  }
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -68,7 +80,7 @@ export const MyClasses: React.FC = () => {
 
         {/* Class Selector Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto">
-          {classes.slice(0, 3).map((cls) => (
+          {myClasses.map((cls) => (
             <button
               key={cls.id}
               onClick={() => setSelectedClassId(cls.id)}

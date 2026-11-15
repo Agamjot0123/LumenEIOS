@@ -18,6 +18,7 @@ class StudentOut(BaseSchema):
     class_name: str
     name: str
     roll_no: int
+    admission_no: Optional[str] = None
     gender: str
     attendance_pct: float
     competencies: CompetencyScoresSchema

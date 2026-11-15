@@ -131,6 +131,7 @@ def student_out(s: Student) -> StudentOut:
         class_name=s.class_name,
         name=s.name,
         roll_no=s.roll_no,
+        admission_no=s.admission_no,
         gender=s.gender,
         attendance_pct=s.attendance_pct,
         competencies=CompetencyScoresSchema(

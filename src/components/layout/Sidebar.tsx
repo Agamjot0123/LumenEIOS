@@ -151,7 +151,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Teachers', path: '/principal/staff', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Students', path: '/principal/students', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'School Performance', path: '/principal/performance', icon: <BarChart3 className="w-4 h-4" /> },
-          { label: 'Student Progress', path: '/teacher/classes', icon: <Activity className="w-4 h-4" /> },
           { label: 'Classes & Roster', path: '/teacher/classes', icon: <GraduationCap className="w-4 h-4" /> },
           { label: 'Planning Oversight', path: '/principal/curriculum', icon: <BookOpen className="w-4 h-4" /> },
           { label: 'Curriculum Oversight', path: '/principal/coverage', icon: <BookOpen className="w-4 h-4" /> },
@@ -173,7 +172,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
         return [
           { label: 'Teacher Dashboard', path: '/teacher/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'My Classes & Heatmap', path: '/teacher/classes', icon: <Users className="w-4 h-4" /> },
-          { label: 'Student Progress', path: '/teacher/classes', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Add Student', path: '/teacher/students/add', icon: <PlusCircle className="w-4 h-4" /> },
           { label: 'Daily Curriculum', path: '/teacher/curriculum-180', icon: <Calendar className="w-4 h-4" /> },
           {
@@ -204,12 +202,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'My Learning Mission', path: '/student/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Unified Progress', path: '/student/progress', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Differentiated Homework', path: '/student/homework', icon: <Sparkles className="w-4 h-4" /> },
-          {
-            label: 'Answer Sheet OCR',
-            path: '/student/answer-sheets',
-            icon: <ScanLine className="w-4 h-4" />,
-            badge: 'Demo',
-          },
           { label: 'History', path: '/student/history', icon: <History className="w-4 h-4" /> },
           { label: 'Profile', path: '/student/profile', icon: <UserRound className="w-4 h-4" /> },
           uploadItem,

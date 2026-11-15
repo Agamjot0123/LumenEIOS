@@ -653,6 +653,7 @@ export const apiClient = {
         className: student.class_name,
         name: student.name,
         rollNo: student.roll_no,
+        admissionNo: student.admission_no ?? undefined,
         gender: student.gender,
         attendancePct: student.attendance_pct,
         competencies: student.competencies,
@@ -1218,6 +1219,12 @@ export const apiClient = {
   notifications: {
     async getAll() {
       return request<any[]>('/notifications');
+    },
+  },
+  users: {
+    list(params: { role?: string; school_id?: string; search?: string } = {}) {
+      const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+      return request<any[]>(`/users${q ? `?${q}` : ''}`);
     },
   },
   announcements: {

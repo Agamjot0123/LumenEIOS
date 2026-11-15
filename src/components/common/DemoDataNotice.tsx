@@ -8,9 +8,7 @@ import { FlaskConical } from 'lucide-react';
  */
 const NOTICES: { match: (path: string) => boolean; text: string }[] = [
   { match: (p) => p === '/admin/schools', text: 'Campus profiles are seeded demonstration records. Adding or editing a campus is kept in this browser only.' },
-  { match: (p) => p === '/admin/users', text: 'These are the five demonstration personas plus seeded staff records; role switching is for demonstration.' },
   { match: (p) => p === '/principal/teachers', text: 'Teacher assignments are seeded demonstration records; reassignments are kept in this browser only.' },
-  { match: (p) => p === '/teacher/classes', text: 'Student rosters and competency scores are seeded demonstration data, not school assessment records.' },
   { match: (p) => p === '/teacher/assessments', text: 'Prototype module: questions come from built-in deterministic templates — no AI model is connected in this build. Source documents and cycles are seeded demonstration records; review every item before classroom use.' },
   { match: (p) => p === '/teacher/remediation', text: 'Remediation assignments are seeded demonstration records based on sample competency scores.' },
 ];

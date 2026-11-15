@@ -316,7 +316,7 @@ interface SchoolPerformanceProps {
 }
 
 export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, onBack }) => {
-  const { schools, classes, students, addedTeachers, assessmentResults, homeworkRemediations } = useData();
+  const { schools, classes, students, addedTeachers, assessmentResults, homeworkRemediations, workspace, teachers: liveTeachers } = useData();
   const { availableUsers } = useAuth();
   const { uiMode } = useTheme();
   const analytics = uiMode === 'analytics';
@@ -335,12 +335,13 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
   const schoolStudents = students.filter((item) => item.schoolId === schoolId);
   const teachers = useMemo(() => {
     const seen = new Set<string>();
-    return [...availableUsers.filter((user) => user.role === 'teacher'), ...addedTeachers].filter((user) => {
+    const base = workspace ? (liveTeachers as unknown as typeof availableUsers) : availableUsers.filter((user) => user.role === 'teacher');
+    return [...base, ...addedTeachers].filter((user) => {
       if (seen.has(user.id)) return false;
       seen.add(user.id);
       return true;
     });
-  }, [availableUsers, addedTeachers]);
+  }, [availableUsers, addedTeachers, workspace, liveTeachers]);
   const schoolTeachers = teachers.filter(
     (teacher) => teacher.schoolId === schoolId || schoolClasses.some((item) => item.classTeacherId === teacher.id)
   );

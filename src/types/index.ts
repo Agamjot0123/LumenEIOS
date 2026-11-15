@@ -86,6 +86,8 @@ export interface Student {
   supportArea?: string;
   /** Optional admission year used by school performance charts. */
   joinedYear?: number;
+  /** Admission number (students' login username). */
+  admissionNo?: string;
   /** Present on `/classes/students/me` profile responses. */
   subjectNames?: string[];
   parentNames?: string[];

@@ -11,7 +11,7 @@ import { CheckCircle2, PlusCircle } from 'lucide-react';
 
 export const SchoolTeachers: React.FC = () => {
   const { currentUser, currentSchoolId, availableUsers } = useAuth();
-  const { schools, addedTeachers, addTeacher } = useData();
+  const { schools, addedTeachers, addTeacher, workspace, teachers: liveTeachers } = useData();
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -26,7 +26,10 @@ export const SchoolTeachers: React.FC = () => {
 
   const school = schools.find((item) => item.id === currentSchoolId) || schools[0];
   const schoolId = school?.id || currentSchoolId;
-  const seeded = availableUsers.filter((user) => user.role === 'teacher' && user.schoolId === schoolId);
+  // Live: the school's teachers from the database; offline demo: the seeded personas.
+  const seeded = workspace
+    ? liveTeachers.filter((t) => t.schoolId === schoolId).map((t) => ({ ...t, avatar: undefined } as unknown as typeof availableUsers[number]))
+    : availableUsers.filter((user) => user.role === 'teacher' && user.schoolId === schoolId);
   const created = addedTeachers.filter((user) => user.schoolId === schoolId);
   const teachers = [...created, ...seeded];
 

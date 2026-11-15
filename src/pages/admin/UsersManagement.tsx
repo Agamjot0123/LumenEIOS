@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { apiClient } from '../../lib/apiClient';
+import { getDefaultDashboardPath } from '../../lib/permissions';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { User, Role } from '../../types';
@@ -10,8 +13,23 @@ import { getRoleLabel } from '../../lib/permissions';
 import { Users, Shield, BookOpen, GraduationCap, School, CheckCircle2, Code } from 'lucide-react';
 
 export const UsersManagement: React.FC = () => {
-  const { availableUsers, loginAsRole } = useAuth();
-  const { schools } = useData();
+  const { availableUsers: demoUsers, loginAsRole, loginAsAccount } = useAuth();
+  const { schools, workspace } = useData();
+  const navigate = useNavigate();
+  // Live: every account in the database (staff first); offline demo: the seeded personas.
+  const [liveUsers, setLiveUsers] = useState<typeof demoUsers | null>(null);
+  useEffect(() => {
+    if (!workspace) return;
+    let active = true;
+    apiClient.users.list().then((rows) => {
+      if (!active) return;
+      const order: Record<string, number> = { admin: 0, principal: 1, teacher: 2, student: 3, parent: 4 };
+      setLiveUsers(rows.map((u: any) => ({ id: u.id, email: u.email, name: u.name, role: u.role, schoolId: u.school_id, designation: u.designation }))
+        .sort((a: any, b: any) => (order[a.role] ?? 9) - (order[b.role] ?? 9) || a.name.localeCompare(b.name)));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [workspace]);
+  const availableUsers = liveUsers ?? (workspace ? [] : demoUsers);
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -139,9 +157,18 @@ export const UsersManagement: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
-                          onClick={() => {
-                            loginAsRole(user.role);
-                            setToast(`Switched active context to ${user.name} (${getRoleLabel(user.role)})`);
+                          onClick={async () => {
+                            try {
+                              if (workspace) {
+                                const signedIn = await loginAsAccount(user.id);
+                                navigate(getDefaultDashboardPath(signedIn.role), { replace: true });
+                                return;
+                              }
+                              await loginAsRole(user.role);
+                              setToast(`Switched active context to ${user.name} (${getRoleLabel(user.role)})`);
+                            } catch (err) {
+                              setToast(err instanceof Error ? err.message : 'Could not sign in as this user.');
+                            }
                           }}
                           className="px-3 py-1 bg-navy-800 hover:bg-navy-900 text-white rounded-lg text-xs font-semibold transition-colors"
                         >

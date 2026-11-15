@@ -42,7 +42,7 @@ function RecordsPanel({ view, email }: { view: View; email: string }) {
           <dl className="grid gap-4 sm:grid-cols-2">
             {[
               ['Name', profile.name],
-              ['Student ID', profile.id],
+              ['Admission number', (profile as { admissionNo?: string }).admissionNo ?? profile.id],
               ['Login email', email],
               ['Roll number', profile.rollNo],
               ['Class', profile.className],
