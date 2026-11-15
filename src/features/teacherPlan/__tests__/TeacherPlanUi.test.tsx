@@ -145,12 +145,12 @@ describe('Teacher plan panel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Requirements saved.');
   });
 
-  it('labels planning baselines clearly in the Time-Aware requirements view only', async () => {
+  it('labels initial values as editable in the Time-Aware requirements view only', async () => {
     const teacher = initialUsers.find((u) => u.role === 'teacher')!;
     const topics = [{ ...topic('a', 'not_done', 6, 3), origin: 'demo_default' as const }, { ...topic('b', 'not_done', 7, 4), origin: 'teacher' as const }];
     m(api.plan).mockResolvedValue({ ...planFor(topics, 30), teacher_id: teacher.id });
     mount(<TeacherPlanPanel grade={8} subject="mathematics" showOrigin />, 'teacher');
-    expect(await screen.findByTestId('origin-a')).toHaveTextContent('Planning baseline (not reviewed)');
+    expect(await screen.findByTestId('origin-a')).toHaveTextContent('Initial value (editable)');
     expect(screen.getByTestId('origin-b')).toHaveTextContent('Set by teacher');
     cleanup();
     mount(<TeacherPlanPanel grade={8} subject="mathematics" />, 'teacher'); // Catalogue: no provenance clutter

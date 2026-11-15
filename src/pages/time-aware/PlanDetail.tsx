@@ -615,8 +615,7 @@ export const PlanDetail: React.FC<{ plan: Plan; mode: 'teacher' | 'review' }> = 
                                 </>
                               )}
                             </dd>
-                            {l.requirementStatus === 'DEMO_DEFAULT' && <><dt className="text-amber-800">Basis</dt><dd>Planning baseline; not reviewed</dd></>}
-                            <dt className="text-content-secondary">Classroom</dt>
+                                                        <dt className="text-content-secondary">Classroom</dt>
                             <dd>
                               {orig?.slots.length ?? 0} original → {l.slots.length} approved × {plan.config.periodMinutes} min
                             </dd>

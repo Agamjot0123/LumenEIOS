@@ -53,7 +53,10 @@ const addEntry = async (button, label, from, to) => {  // rows may re-sort when 
 };
 const cap = async (name) => Number((await page.getByTestId(`cap-${name}`).first().innerText()).trim());
 const rowFor = (section) => page.locator('tr', { hasText: section }).first();
-const fmtClass = { core: /Core · (planning default|set by teacher)/, mixed: /Core \+ Non-Core \(2:1\)/, non_core: /Non-Core · (planning default|set by teacher)/ };
+const CLASS_WORD = { core: 'Core', mixed: 'Mixed', non_core: 'Non-Core' };
+const reqText = (c, n) => (c && n ? `${c} Core + ${n} Non-Core` : c ? `${c} Core` : n ? `${n} Non-Core` : '—');
+// the Time-Aware requirements row: classification pill (2nd cell) and Required (3rd cell) exactly as the teacher reads them
+const checkRow = async (x, core, non, kind) => { const cells = rowFor(x.section).locator('td'); const cls = (await cells.nth(1).innerText()).trim(); const req = (await cells.nth(2).innerText()).trim(); assert(cls === CLASS_WORD[kind] && req === reqText(core, non), `${x.section}: classification "${cls}" required "${req}" (wanted ${CLASS_WORD[kind]} / ${reqText(core, non)})`); return `${cls} · ${req}`; };
 console.log('Browser', version);
 const snap = {};
 
@@ -75,8 +78,7 @@ await run('A2', 'Time-Aware shows the SAME classification and periods; nothing p
   await openTimeAware(TA.email); const t = await text();
   assert(!/Not configured|Classification pending/.test(t), 'pending/not configured present');
   for (const [kind, x] of Object.entries(snap.samples)) {
-    const r = (await rowFor(x.section).innerText()).replace(/\s+/g, ' ');
-    assert(fmtClass[kind].test(r) && r.includes(`${x.core_periods} Core / ${x.non_core_periods} Non-Core`), `${kind}: ${r.slice(0, 200)}`);
+    await checkRow(x, x.core_periods, x.non_core_periods, kind);
   }
   await shot(page, 'A2_time_aware'); return 'classification + required Core/Non-Core identical for all three kinds';
 });
@@ -87,8 +89,7 @@ await run('A3', 'a Principal opening Time-Aware gets a teacher context (selector
   const t = await text(); assert(!/Not configured|Classification pending/.test(t), 'reviewer still sees pending');
   assert((await page.getByLabel('Teacher').inputValue()) !== '', 'teacher selector empty');
   await page.getByLabel('Teacher').selectOption(TB.id); await page.waitForTimeout(3000);
-  const b = await plan(TB); const x = b.topics[3]; const r = (await rowFor(x.section).innerText()).replace(/\s+/g, ' ');
-  assert(r.includes(`${x.core_periods} Core / ${x.non_core_periods} Non-Core`), r.slice(0, 160)); await shot(page, 'A3_principal_time_aware'); return 'selector present; switching to Teacher 2B loads 2B\'s own rows';
+  const b = await plan(TB); const x = b.topics[3]; await checkRow(x, x.core_periods, x.non_core_periods, x.classification); await shot(page, 'A3_principal_time_aware'); return 'selector present; switching to Teacher 2B loads 2B\'s own rows';
 });
 
 // ---------------- Scenario B ----------------
@@ -100,8 +101,7 @@ await run('B1', 'mixed -> Core-only in Course Curriculum persists, and Time-Awar
   const t = (await plan(TA)).topics.find((q) => q.topic_key === x.topic_key); assert(t.classification === 'core' && t.core_periods === total && t.non_core_periods === 0 && t.origin === 'teacher', JSON.stringify(t));
   await page.reload(); await page.waitForSelector('[data-testid="plan-context"]'); await page.getByText('Expand all').click();
   assert((await page.getByTestId(`topic-${x.topic_key}`).getByLabel(/^Core or Non-Core/).inputValue()) === 'core', 'lost after reload');
-  await openTimeAware(TA.email); const r = (await rowFor(x.section).innerText()).replace(/\s+/g, ' ');
-  assert(fmtClass.core.test(r) && r.includes(`${total} Core / 0 Non-Core`) && /set by teacher/.test(r), r.slice(0, 200)); await shot(page, 'B1_time_aware_after_change'); return `3+1 -> ${total}+0, Time-Aware: ${r.match(/\d+ Core \/ \d+ Non-Core/)[0]}`;
+  await openTimeAware(TA.email); const r = await checkRow(x, total, 0, 'core'); await shot(page, 'B1_time_aware_after_change'); return `3+1 -> ${total}+0, Time-Aware: ${r}`;
 });
 
 // ---------------- Scenario C ----------------
@@ -199,8 +199,7 @@ await run('D4', 'Time-Aware after reload shows the revised capacity, the revised
   assert((await cap('available')) === e.P && (await cap('reserve')) === e.R && (await cap('topic')) === e.T, 'card'); assert((await cap('taught')) === 2, 'taught');
   assert((await cap('left-days')) === wn.days && (await cap('left-periods')) === wn.P && (await cap('left-reserve')) === wn.R && (await cap('left-capacity')) === wn.T, 'remaining-window card');
   assert(await page.getByTestId('last-recalculation').count() === 1, 'no recalculation note'); await shot(page, 'D4_time_aware_after_holidays');
-  const open = afterD.autoRows.find((t) => t.topic_key !== snap.takenKey); const r = (await rowFor(open.section).innerText()).replace(/\s+/g, ' ');
-  assert(r.includes(`${open.core_periods} Core / ${open.non_core_periods} Non-Core`), r.slice(0, 160)); return `card annual P=${e.P} R=${e.R} T=${e.T}; window after ${TODAY}: ${wn.days} days, ${wn.P} periods, reserve ${wn.R}, capacity ${wn.T}; taught stays 2`;
+  const open = afterD.autoRows.find((t) => t.topic_key !== snap.takenKey); await checkRow(open, open.core_periods, open.non_core_periods, open.classification); return `card annual P=${e.P} R=${e.R} T=${e.T}; window after ${TODAY}: ${wn.days} days, ${wn.P} periods, reserve ${wn.R}, capacity ${wn.T}; taught stays 2`;
 });
 await run('D5', 'approved schedule is not duplicated or rewritten; execution record unchanged', async () => {
   const pls = (await api('GET', `/plans?teacher_id=${TA.id}`, tok[PR])).json.plans.filter((x) => x.grade === GR && x.subject === SUB && x.status === 'APPROVED');
@@ -211,9 +210,9 @@ await run('D5', 'approved schedule is not duplicated or rewritten; execution rec
 await run('D6', 'two calendars are explained; a holiday changes working days so a NEW schedule is generated from the CURRENT calendar and approval stays explicit; notice disappears after approval', async () => {
   await openTimeAware(TA.email); const n = page.getByTestId('calendar-snapshot-notice'); await n.waitFor({ timeout: 20000 }); const t = (await n.innerText()).replace(/\s+/g, ' ');
   const curDays = expectedP(calD.config, SUB).days, snapDays = expectedP(snap.cal1.config, SUB).days;
-  assert(t.includes(`${curDays} instructional days`) && t.includes(`${snapDays} instructional days`) && /cannot be recalculated in place/.test(t) && /approved by a Principal\/Admin/.test(t), t.slice(0, 360));
+  assert(t.includes(`${curDays} instructional days`) && t.includes(`${snapDays} instructional days`) && /cannot be edited in place/.test(t) && /Principal\/Admin must approve/.test(t), t.slice(0, 1200));
   assert(/approved schedule v1: days left/i.test(await text()) && /current academic calendar \(version \d+\)/i.test(await text()), 'figures are not labelled with their calendar'); await shot(page, 'D6_two_calendars_notice');
-  await page.getByRole('button', { name: 'Generate new draft from the current calendar' }).click(); await page.getByText(/Draft saved for/).first().waitFor({ timeout: 25000 });
+  await page.getByRole('button', { name: 'Recalculate with current configuration' }).first().click(); await page.getByText(/New schedule generated using the updated academic calendar/).first().waitFor({ timeout: 25000 });
   let all = (await api('GET', `/plans?teacher_id=${TA.id}`, tok[PR])).json.plans.filter((x) => x.grade === GR && x.subject === SUB);
   const approvedBefore = all.filter((x) => x.status === 'APPROVED'); assert(approvedBefore.length === 1 && approvedBefore[0].id === planId && all.some((x) => x.status === 'DRAFT'), 'the draft replaced the approved schedule before approval');
   await login(PR); await page.goto(`${WEB}/principal/curriculum`); const d = page.getByTestId('draft-review'); await d.waitFor({ timeout: 25000 }); await shot(page, 'D6_draft_awaiting_approval');

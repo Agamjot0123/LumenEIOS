@@ -379,7 +379,7 @@ export const AcademicConfig: React.FC = () => {
                 ))}
               </ul>
             ) : (
-              <p className="text-content-secondary">Not saved yet — the defaults shown are unsaved demo defaults.</p>
+              <p className="text-content-secondary">Not saved yet — the values shown are the default timetable (2 Mathematics + 2 Science periods per instructional day).</p>
             )}
           </SectionCard>
         </div>

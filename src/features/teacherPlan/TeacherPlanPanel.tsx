@@ -121,7 +121,7 @@ export const TeacherPlanPanel: React.FC<{ grade: number; subject: 'mathematics' 
                 <td className={tdCls}>{t.independent_periods} period(s)</td>
                 {showOrigin && (
                   <td className={tdCls} data-testid={`origin-${t.topic_key}`} data-origin={t.origin}>
-                    {t.origin === 'demo_default' ? 'Planning baseline (not reviewed)' : t.origin === 'teacher' ? 'Set by teacher' : 'Imported approved requirement'}
+                    {t.origin === 'demo_default' ? 'Initial value (editable)' : t.origin === 'teacher' ? 'Set by teacher' : 'Imported approved requirement'}
                   </td>
                 )}
               </tr>

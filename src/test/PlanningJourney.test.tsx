@@ -103,7 +103,7 @@ describe('end-to-end planning workflow (browser-only mode)', () => {
 
     // Engine uses the saved configuration and the real syllabus.
     let view = open('/teacher/time-aware', 'teacher');
-    expect(screen.getByText('8.1 Multiplication of Fractions')).toBeInTheDocument();
+    expect(await screen.findByText('8.1 Multiplication of Fractions')).toBeInTheDocument();
     expect(screen.getByText('8.2 Division of Fractions')).toBeInTheDocument();
     expect(within(screen.getByTestId('engine-metrics')).getByText('60')).toBeInTheDocument();
     // Holiday (2 Apr) and exam (6 Apr) are skipped: first unit runs 1, 3, 7, 8 April.

@@ -215,6 +215,7 @@ describe('inline coverage status in the catalogue', () => {
     expect(screen.getAllByLabelText(/^Coverage status for/)).toHaveLength(units.length);
     expect(screen.queryAllByTestId(/^unconfigured-/)).toHaveLength(0);
     expect(screen.getByTestId('plan-context')).toHaveTextContent(/Class VII \(grade 7\) · Mathematics/);
+    expect(document.body.textContent).not.toMatch(/planning baseline|not reviewed|planning default|default classification|seeded configuration|demo default/i);
     const sel = () => within(screen.getByTestId(`topic-${units[0].id}`)).getByLabelText(/^Core or Non-Core for/) as HTMLSelectElement;
     fireEvent.change(sel(), { target: { value: 'non_core' } });
     await waitFor(() => expect(sel().value).toBe('non_core'));
@@ -328,7 +329,7 @@ describe('data shape: resources, parent headings and the same topics as the Time
     expect(screen.queryByText(/Fold the paper activity|Exercise set one/)).toBeNull();
   });
 
-  it('the catalogue and the Time-Aware Engine show the same topics; scheduling data never marks coverage', () => {
+  it('the catalogue and the Time-Aware Engine show the same topics; scheduling data never marks coverage', async () => {
     const ds = seed();
     expect(defaultDatasetFor([VERIFIED_DATASET, ds], 6, 'Mathematics').id).toBe(ds.id);
     const titles = syllabusFor(ds, 6, 'Mathematics').units.map((u) => u.title);
@@ -342,12 +343,12 @@ describe('data shape: resources, parent headings and the same topics as the Time
     open('/teacher/time-aware');
     fireEvent.change(screen.getByLabelText('Class'), { target: { value: '6' } });
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Mathematics' } });
-    const table = screen.getByRole('table', { name: 'Generated schedule' });
+    const table = await screen.findByRole('table', { name: 'Topic requirements' });
     for (const t of titles) expect(within(table).getByText(new RegExp(t))).toBeInTheDocument();
     expect(within(table).queryByText(/Fold the paper activity|Exercise set one|Parent Heading/)).toBeNull();
     expect(catalogueTopics).toEqual(['topic-t1', 'topic-s1', 'topic-s2', 'topic-t2']);
     // the engine shows each topic's coverage read-only, and a generated schedule leaves it Not done
-    for (const id of ['s1', 's2', 't2']) expect(screen.getByTestId(`ta-coverage-${id}`)).toHaveAttribute('data-status', 'NOT_DONE');
+    for (const id of ['s1', 's2', 't2']) expect(screen.getByTestId(`req-status-${id}`)).toHaveTextContent('Not started');
     expect(JSON.parse(localStorage.getItem(LOCAL_KEY)!).coverage ?? {}).toEqual({});
   });
 
@@ -361,8 +362,7 @@ describe('data shape: resources, parent headings and the same topics as the Time
     open('/teacher/time-aware');
     fireEvent.change(screen.getByLabelText('Class'), { target: { value: '6' } });
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Mathematics' } });
-    await waitFor(() => expect(screen.getByTestId('ta-coverage-s2')).toHaveAttribute('data-status', 'IN_PROGRESS'));
-    expect(screen.getByTestId('ta-coverage-s2')).toHaveTextContent('Syllabus coverage: In progress');
+    await waitFor(() => expect(screen.getByTestId('req-status-s2')).toHaveTextContent('In progress'));
     // both screens read the one relational record for this teacher
     expect(fakeStore.coverage.get('user-teacher-1')?.get('s2')?.status).toBe('in_progress');
     expect(ds.nodes.some((n) => n.id === 's2')).toBe(true);

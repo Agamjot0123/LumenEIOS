@@ -85,14 +85,14 @@ await run('P5', 'repeat: add a 2-week closure then remove it; decisions still id
 await run('P6', 'Time-Aware shows the same persisted classification and required periods after all calendar changes', async () => {
   await login(TA.email); await page.goto(`${WEB}/teacher/time-aware`); await page.waitForTimeout(2500); await page.getByLabel('Class').selectOption(String(GR)); await page.getByLabel('Subject').selectOption(SUB);
   await page.waitForSelector('[data-testid="plan-capacity-summary"]', { timeout: 30000 }); await page.waitForTimeout(1500);
-  const labels = { mixed: /Core \+ Non-Core \(2:1\)/, core: /Core · set by teacher/, non_core: /Non-Core · set by teacher/ };
-  for (const [kind, t] of Object.entries(picks)) { const r = (await page.locator('tr', { hasText: t.section }).first().innerText()).replace(/\s+/g, ' '); assert(labels[kind].test(r) && r.includes(`${want[kind][0]} Core / ${want[kind][1]} Non-Core`), `${kind}: ${r.slice(0, 170)}`); }
-  await shot(page, `P6_${SUBL}_time_aware`); return 'mixed 3 Core / 1 Non-Core, Core 4 / 0, Non-Core 0 / 4 shown';
+  const WORD = { core: 'Core', mixed: 'Mixed', non_core: 'Non-Core' }; const reqText = (c, n) => (c && n ? `${c} Core + ${n} Non-Core` : c ? `${c} Core` : `${n} Non-Core`);
+  for (const [kind, t] of Object.entries(picks)) { const cells = page.locator('tr', { hasText: t.section }).first().locator('td'); const cls = (await cells.nth(1).innerText()).trim(); const req = (await cells.nth(2).innerText()).trim(); assert(cls === WORD[kind] && req === reqText(...want[kind]), `${kind}: "${cls}" / "${req}"`); }
+  await shot(page, `P6_${SUBL}_time_aware`); return 'Mixed: 3 Core + 1 Non-Core; Core: 4 Core; Non-Core: 4 Non-Core';
 });
 await run('P7', 'principal sees the same persisted teacher decisions (read-only teacher selector view)', async () => {
   await login(PR); await page.goto(`${WEB}/teacher/time-aware?teacher=${TA.id}`); await page.waitForTimeout(2500); await page.getByLabel('Class').selectOption(String(GR)); await page.getByLabel('Subject').selectOption(SUB);
-  await page.waitForSelector('[data-testid="plan-capacity-summary"]', { timeout: 30000 }); await page.waitForTimeout(1500); const t = picks.mixed; const r = (await page.locator('tr', { hasText: t.section }).first().innerText()).replace(/\s+/g, ' ');
-  assert(r.includes('3 Core / 1 Non-Core'), r.slice(0, 160)); return 'principal view: mixed 3+1 for the same topic';
+  await page.waitForSelector('[data-testid="plan-capacity-summary"]', { timeout: 30000 }); await page.waitForTimeout(1500); const t = picks.mixed; const cells = page.locator('tr', { hasText: t.section }).first().locator('td'); const cls = (await cells.nth(1).innerText()).trim(), req = (await cells.nth(2).innerText()).trim();
+  assert(cls === 'Mixed' && req === '3 Core + 1 Non-Core', `"${cls}" / "${req}"`); return 'principal view: Mixed 3 Core + 1 Non-Core for the same topic';
 });
 await browser.close();
 fs.writeFileSync(process.env.REPORT || 'e2e-results-persistence.json', JSON.stringify(results, null, 1));

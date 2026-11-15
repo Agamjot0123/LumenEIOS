@@ -113,8 +113,10 @@ describe('Time-Aware page scope', () => {
     expect(screen.queryByText('Syllabus data oversight')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Syllabus dataset')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Requirements' }));
-    expect(screen.getByText(/Each topic has a planning baseline\. Teacher edits and approved imports retain their own status/)).toBeInTheDocument();
+    expect(screen.getByText(/Each topic has a saved Core \/ Non-Core classification and period requirement for this teacher/)).toBeInTheDocument();
     expect(screen.getByTestId('approved-requirements-list').children.length).toBeGreaterThan(0);
+    // internal provenance wording never reaches the teacher-facing page
+    expect(document.body.textContent).not.toMatch(/planning baseline|not reviewed|planning default|default classification|seeded configuration|demo default|Classification pending/i);
     expect(screen.queryByText(/^Chapter 1:/)).not.toBeInTheDocument();
   });
 });
@@ -128,7 +130,7 @@ describe('Record a Lost Day → Core-priority recovery → approval → Daily Cu
     let view = open('/teacher/time-aware', 'teacher');
     // The button sits at the bottom of the Time-Aware Engine, after the planner content.
     const recorderCard = screen.getByTestId('lost-period-recorder');
-    expect(recorderCard.compareDocumentPosition(screen.getByRole('table', { name: 'Generated schedule' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(recorderCard.compareDocumentPosition(await screen.findByRole('table', { name: 'Topic requirements' })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     const dialog = openRecorder();
     expect(within(dialog).getAllByRole('checkbox')).toHaveLength(9);
     const p1 = within(dialog).getByLabelText(`Period 1: 2026-04-01, 8.1 ${mult.title}`);

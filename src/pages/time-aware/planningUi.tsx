@@ -85,22 +85,22 @@ export const Stat: React.FC<{ label: string; value: React.ReactNode; hint?: Reac
 };
 
 // The same words Course Curriculum uses for the same persisted classification.
-const classText = (value: ClassValue | 'PENDING' | null | undefined) => (value === 'CORE' ? 'Core' : value === 'MIXED' ? 'Core + Non-Core (2:1)' : 'Non-Core');
+const classText = (value: ClassValue | 'PENDING' | null | undefined) => (value === 'CORE' ? 'Core' : value === 'MIXED' ? 'Mixed' : 'Non-Core');
 
 export const ClassBadge: React.FC<{ value: ClassValue | 'PENDING' | null | undefined; status?: ReviewStatus }> = ({ value, status }) => {
-  if (status === 'DEMO_DEFAULT') return <Badge size="sm" variant="info">{classText(value)} · planning default</Badge>;
-  if (status === 'TEACHER_CUSTOM') return <Badge size="sm" variant="teal">{classText(value)} · set by teacher</Badge>;
+  if (status === 'DEMO_DEFAULT') return <Badge size="sm" variant="teal">{classText(value)}</Badge>;
+  if (status === 'TEACHER_CUSTOM') return <Badge size="sm" variant="teal">{classText(value)}</Badge>;
   if (status && status !== 'APPROVED') {
     return (
       <Badge size="sm" variant={status === 'REJECTED' ? 'danger' : status === 'PROPOSED' ? 'info' : 'default'}>
-        {status === 'PENDING' ? 'Classification pending' : status === 'PROPOSED' ? `Proposed ${classText(value)} — awaiting review` : `Rejected ${classText(value)}`}
+        {status === 'PENDING' ? 'Configuration required' : status === 'PROPOSED' ? `Proposed ${classText(value)} — awaiting review` : `Rejected ${classText(value)}`}
       </Badge>
     );
   }
   if (value === 'MIXED') return <Badge size="sm" variant="teal">Core + Non-Core (approved)</Badge>;
   if (value === 'CORE') return <Badge size="sm" variant="teal">Core (approved)</Badge>;
   if (value === 'NON_CORE') return <Badge size="sm" variant="warning">Non-Core (approved)</Badge>;
-  return <Badge size="sm">Classification pending</Badge>;
+  return <Badge size="sm">Configuration required</Badge>;
 };
 
 const STATE_VARIANT: Record<LessonState, 'default' | 'success' | 'warning' | 'danger' | 'info' | 'teal'> = {

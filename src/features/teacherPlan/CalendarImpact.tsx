@@ -62,7 +62,7 @@ export const CalendarPreviewPanel: React.FC<{ config: unknown; valid: boolean; d
                   <tbody>{i.topics.filter((t) => t.is_affected).map((t) => (
                     <tr key={t.topic_key} data-testid="topic-allocation-change">
                       <td className={tdCls}>{t.section}</td>
-                      <td className={tdCls}>{t.origin === 'demo_default' ? 'Demo default' : t.origin === 'teacher' ? 'Teacher customized' : 'Approved import'} - {t.classification} - {t.teaching_mode}</td>
+                      <td className={tdCls}>{t.origin === 'demo_default' ? 'Initial value' : t.origin === 'teacher' ? 'Teacher customized' : 'Approved import'} - {t.classification} - {t.teaching_mode}</td>
                       <td className={tdCls}>{t.original_allocation} -&gt; <b>{t.revised_allocation}</b></td>
                       <td className={tdCls}>{t.allocation_change > 0 ? '+' : ''}{t.allocation_change}</td>
                       <td className={tdCls}>{t.original_classroom} -&gt; <b>{t.revised_classroom}</b></td>

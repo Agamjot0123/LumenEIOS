@@ -117,13 +117,16 @@ def largest_remainder(total: int, weights: Sequence[int]) -> List[int]:
 
 def split_core_noncore(allocation: int, classification: str) -> Dict[str, int]:
     """Core-only -> all Core; Non-Core-only -> all Non-Core; mixed -> 2:1 Core:Non-Core.
-    Odd remainders round Core up (deterministic), so core + non_core == allocation."""
+    Odd remainders round Core up (deterministic), so core + non_core == allocation. A mixed topic with 2 or more periods
+    always keeps at least one Non-Core period (the label would otherwise be untrue)."""
     if classification == "core":
         return {"core": allocation, "non_core": 0}
     if classification == "non_core":
         return {"core": 0, "non_core": allocation}
     if classification == "mixed":
         core = -(-allocation * 2 // 3)  # ceil(2/3 * allocation)
+        if allocation >= 2:
+            core = min(core, allocation - 1)  # a Mixed topic always keeps at least one Non-Core period (2 -> 1 + 1, never 2 + 0)
         return {"core": core, "non_core": allocation - core}
     raise AllocationError(f"Unknown classification {classification!r}")
 

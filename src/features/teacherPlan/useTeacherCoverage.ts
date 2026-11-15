@@ -80,7 +80,7 @@ export function useTeacherCoverage(grade: number, subject: string) {
       const row = plan?.topics.find((t) => t.topic_key === key);
       if (!row) throw new Error('This topic has no saved configuration yet.');
       const total = row.core_periods + row.non_core_periods;
-      const core = value === 'core' ? total : value === 'non_core' ? 0 : Math.ceil((total * 2) / 3);
+      const core = value === 'core' ? total : value === 'non_core' ? 0 : total >= 2 ? Math.min(Math.ceil((total * 2) / 3), total - 1) : total; // Mixed keeps at least one Non-Core period when it has two or more
       await teacherPlanApi.saveRequirements(teacherId, {
         grade,
         subject,

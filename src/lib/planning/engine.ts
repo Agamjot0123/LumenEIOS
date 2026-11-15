@@ -109,10 +109,31 @@ export interface PlanMetrics {
   pending: ClassTotals;
 }
 
+/** Why a draft was generated and against what: stored with a recalculated draft so the result stays reviewable and duplicates are recognised. */
+export interface RecalcBasis {
+  kind: 'RECALCULATION';
+  fromPlanId: string;
+  fromVersion: number;
+  calendarVersion: number;
+  planningDate: string;
+  calendarDays: number;
+  daysLeft: number;
+  periodsLeft: number;
+  reserveLeft: number;
+  capacityLeft: number;
+  remainingCore: number;
+  remainingNonCore: number;
+  doneTopics: number;
+  taughtPeriods: number;
+  fingerprint: string;
+  generatedAt: string;
+}
+
 export interface ScheduleResult {
   lessons: PlannedLesson[];
   metrics: PlanMetrics;
   conflicts: Conflict[];
+  basis?: RecalcBasis;
 }
 
 export interface EngineContext {
@@ -266,7 +287,7 @@ export function lessonBase(ctx: EngineContext, node: SyllabusNode, outcomes: Out
   const nonCore = req ? Math.max(0, req.nonCore - (shared.periods - coreCut)) : 0;
   const independent = req ? Math.min(req.independent, nonCore) : 0;
   const explanation = req
-    ? [`${ctx.classifications[node.id]?.origin === 'demo_default' ? 'Demo default' : 'Saved'} requirement: ${req.core} Core + ${req.nonCore} Non-Core period(s), including ${independent} independent-learning period(s).`, ...shared.notes]
+    ? [`${'Saved'} requirement: ${req.core} Core + ${req.nonCore} Non-Core period(s), including ${independent} independent-learning period(s).`, ...shared.notes]
     : ['No approved instructional requirement: no periods are scheduled. Set Core and Non-Core periods in Syllabus & classification and have them approved.'];
   return {
     nodeId: node.id,

@@ -198,18 +198,29 @@ const fakePlanApi = {
 
 export function makeFakeTeacherPlanApi() {
   const plan = async (teacher: string, grade: number, subject: string): Promise<TeacherPlan> => {
-    const rows = [...(fakeStore.coverage.get(teacher) ?? new Map<string, Cell>()).entries()];
+    // Coverage rows and saved requirements are both rows of the teacher's plan (as in the backend).
+    const cover = fakeStore.coverage.get(teacher) ?? new Map<string, Cell>();
+    const reqs = new Map((fakeStore.requirements.get(teacher) ?? []).filter((r) => r.grade === grade && r.subject === subject).map((r) => [r.topic_key, r]));
+    const keys = [...new Set([...cover.keys(), ...reqs.keys()])];
+    const topics = keys.map((k) => {
+      const c = cover.get(k) ?? { status: 'not_done' as Coverage, source: 'MANUAL' as const };
+      const r = reqs.get(k);
+      const o = fakeStore.classes.get(teacher)?.get(k);
+      const core = o?.core ?? r?.core_periods ?? 1;
+      const non = o?.non ?? r?.non_core_periods ?? 1;
+      return {
+        topic_key: k, chapter_number: '1', chapter_title: 't', section: k, classification: (o?.classification ?? r?.classification ?? 'mixed') as 'core' | 'mixed' | 'non_core',
+        core_periods: core, non_core_periods: non, teaching_mode: (r?.teaching_mode ?? 'INDEPENDENT') as 'SHARED' | 'INDEPENDENT', independent_periods: r?.independent_periods ?? 0,
+        classroom_periods: core + non - (r?.independent_periods ?? 0), origin: (r?.origin ?? 'demo_default') as 'demo_default' | 'teacher', version: 1, coverage: c.status, coverage_source: c.source,
+        coverage_updated_at: null, prerequisites: [], taught_periods: 0, remaining_core: core, remaining_non_core: non,
+      };
+    });
     return {
       teacher_id: teacher, grade, subject, calendar_version: 1,
       capacity: { available_periods: 100, reserved_periods: 10, topic_capacity: 90 },
       allocation: { proposed_total: 0, topic_capacity: 90, remaining: 90, deficit: 0, valid: true, errors: [] },
-      topic_count: rows.length, configured_topic_count: rows.length,
-      topics: rows.map(([k, c]) => ({
-        topic_key: k, chapter_number: '1', chapter_title: 't', section: k, classification: (fakeStore.classes.get(teacher)?.get(k)?.classification ?? 'mixed') as 'core' | 'mixed' | 'non_core', core_periods: fakeStore.classes.get(teacher)?.get(k)?.core ?? 1,
-        non_core_periods: fakeStore.classes.get(teacher)?.get(k)?.non ?? 1, teaching_mode: 'INDEPENDENT' as const, independent_periods: 0, classroom_periods: 2, origin: 'demo_default' as const, version: 1, coverage: c.status, coverage_source: c.source,
-        coverage_updated_at: null, prerequisites: [],
-      })),
-      coverage: { eligible: rows.length, done: 0, in_progress: 0, not_done: 0, percent: 0 },
+      topic_count: topics.length, configured_topic_count: topics.length, topics,
+      coverage: { eligible: topics.length, done: 0, in_progress: 0, not_done: 0, percent: 0 },
     };
   };
   return {

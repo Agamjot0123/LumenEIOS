@@ -11,7 +11,7 @@ import { TeacherPlanPanel } from '../../features/teacherPlan/TeacherPlanPanel';
 export const SyllabusPanel: React.FC<{ dataset: SyllabusDataset; grade: number; subject: PlanningSubject }> = ({ grade, subject }) => (
   <div className="space-y-3" data-testid="approved-requirements-list">
     <p className="text-[11px] text-content-muted">
-      Each topic has a planning baseline. Teacher edits and approved imports retain their own status; a baseline is not a human approval.
+      Each topic has a saved Core / Non-Core classification and period requirement for this teacher. Change them in Course Curriculum; the Time-Aware Engine reads the same saved values.
     </p>
     <TeacherPlanPanel grade={grade} subject={subject === 'Science' ? 'science' : 'mathematics'} showOrigin />
   </div>

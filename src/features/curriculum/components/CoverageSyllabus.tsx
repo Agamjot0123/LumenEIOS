@@ -29,7 +29,7 @@ export const toPlanningSubject = (s: SubjectKey): PlanningSubject => (s === 'sci
 
 type ClassValue = 'core' | 'mixed' | 'non_core';
 const CLASS_VALUES: ClassValue[] = ['core', 'mixed', 'non_core'];
-const CLASS_LABEL: Record<ClassValue, string> = { core: 'Core', mixed: 'Core + Non-Core (2:1)', non_core: 'Non-Core' };
+const CLASS_LABEL: Record<ClassValue, string> = { core: 'Core', mixed: 'Mixed', non_core: 'Non-Core' };
 
 export const CoverageDot: React.FC<{ status: CoverageStatus; testId?: string }> = ({ status, testId }) => (
   <span aria-hidden="true" data-testid={testId} data-status={status} className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COVERAGE_COLOR[status] }} />
@@ -186,7 +186,6 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
                             <span className={eligible ? 'text-sm text-navy-900' : 'text-sm font-semibold text-navy-900'}>{node.number ? `${node.number} ` : ''}{node.title}</span>
                             {eligible && rec?.source === 'EXECUTION' && <span className="block text-[11px] text-content-muted">Coverage from classroom teaching records.</span>}
                             {eligible && rec?.source === 'MANUAL' && <span className="block text-[11px] text-content-muted">Manual coverage{ev?.taughtPeriods ? ` · ${ev.taughtPeriods} classroom period(s) recorded` : ' · no classroom periods recorded'}.</span>}
-                            {eligible && planRows.get(node.id)?.origin === 'demo_default' && <span className="block text-[11px] text-content-muted" data-testid={`basis-${node.id}`}>Initial planning default, not an official NCERT classification. Change it here.</span>}
                             {eligible && ev?.complete && status !== 'DONE' && <span className="block text-[11px] text-amber-800">Classroom records show this topic as taught.</span>}
                           </span>
                           {eligible && (
@@ -197,7 +196,7 @@ export const CoverageSyllabus: React.FC<{ grade: GradeNumber; subject: SubjectKe
                                   className="text-xs rounded-lg border border-surface-border bg-white px-2 py-1.5 font-medium disabled:opacity-60"
                                   value={planRows.get(node.id)!.classification}
                                   disabled={!canEdit || !!saving[node.id]}
-                                  title={canEdit ? '' : 'Only the owning teacher can change classifications.'}
+                                  title={canEdit ? 'Change the classification' : 'Only the owning teacher can change classifications.'}
                                   onChange={(e) => changeClassification(node, e.target.value as ClassValue)}
                                 >
                                   {CLASS_VALUES.map((v) => (

@@ -15,12 +15,16 @@ export interface PlanTopicRow {
   teaching_mode: 'SHARED' | 'INDEPENDENT';
   independent_periods: number;
   classroom_periods: number;
-  origin: 'demo_default' | 'teacher';
+  origin: 'demo_default' | 'teacher' | 'approved_import';
   version: number;
   coverage: Coverage;
   coverage_source: 'MANUAL' | 'EXECUTION';
   coverage_updated_at: string | null;
   prerequisites: string[];
+  /** Actually taught periods (classroom execution records of every plan of this teacher, class and subject). */
+  taught_periods?: number;
+  remaining_core?: number;
+  remaining_non_core?: number;
 }
 export interface AllocationCheck {
   proposed_total: number;

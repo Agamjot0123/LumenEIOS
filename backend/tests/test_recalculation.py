@@ -98,3 +98,12 @@ def test_taught_periods_of_a_locked_topic_reduce_what_remains_to_teach_without_c
     res = rc.compute(topics, 100, remaining_capacity=10)  # locked still needs 2 -> 8 for the auto topic
     m = next(r for r in res["rows"] if r["topic_key"] == "m")
     assert (m["new_core"], m["new_non_core"], m["remaining_core"], m["remaining_non_core"]) == (3, 1, 1, 1) and alloc_of(res, "a") == 8
+
+
+def test_a_mixed_topic_always_keeps_a_non_core_period_when_it_has_two_or_more():
+    assert alloc.split_core_noncore(2, "mixed") == {"core": 1, "non_core": 1}
+    assert alloc.split_core_noncore(3, "mixed") == {"core": 2, "non_core": 1}
+    assert alloc.split_core_noncore(4, "mixed") == {"core": 3, "non_core": 1}
+    assert alloc.split_core_noncore(5, "mixed") == {"core": 4, "non_core": 1}
+    assert alloc.split_core_noncore(1, "mixed") == {"core": 1, "non_core": 0}  # one period cannot be both
+    assert alloc.split_core_noncore(0, "mixed") == {"core": 0, "non_core": 0}
