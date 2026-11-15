@@ -578,3 +578,42 @@ class WorkshopRun(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+class LearningIntervention(Base):
+    """AI-assisted learning intervention proposal (never verified competency evidence)."""
+
+    __tablename__ = "learning_interventions"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    school_id = Column(String(64), nullable=False, index=True)
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    subject_id = Column(String(64), nullable=False, index=True)
+    competency = Column(String(20), nullable=False)  # LU, CU, AU, CT
+    finding_kind = Column(String(64), nullable=True)
+    gap_summary = Column(Text, nullable=False)
+    evidence_refs_json = Column(JSON, default=list, nullable=False)
+    baseline_score = Column(Float, nullable=True)
+    baseline_checkpoint_json = Column(JSON, default=dict, nullable=False)
+    learning_objective = Column(Text, nullable=False, default="")
+    recommended_activities_json = Column(JSON, default=list, nullable=False)
+    suggested_duration_days = Column(Integer, nullable=True)
+    practice_recommendation_json = Column(JSON, default=dict, nullable=False)
+    expected_outcome = Column(Text, nullable=False, default="")
+    reassessment_criteria = Column(Text, nullable=False, default="")
+    ai_provider = Column(String(50), nullable=True)
+    ai_model = Column(String(100), nullable=True)
+    ai_generated = Column(Boolean, default=True, nullable=False)
+    teacher_edited = Column(Boolean, default=False, nullable=False)
+    status = Column(String(50), default="pending_review", nullable=False, index=True)
+    created_by_user_id = Column(String(64), nullable=False)
+    reviewed_by_user_id = Column(String(64), nullable=True)
+    review_notes = Column(Text, nullable=True)
+    assigned_homework_id = Column(String(64), nullable=True, index=True)
+    follow_up_evidence_refs_json = Column(JSON, default=list, nullable=False)
+    follow_up_checkpoint_json = Column(JSON, default=dict, nullable=False)
+    outcome_status = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    reviewed_at = Column(DateTime, nullable=True)
+    assigned_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+

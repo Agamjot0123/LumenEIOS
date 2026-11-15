@@ -11,6 +11,7 @@ from backend.app.api.v1.assessment_results import router as assessment_results_r
 from backend.app.api.v1.competencies import router as competencies_router
 from backend.app.modules.differentiated_homework.router import router as homework_router
 from backend.app.modules.student_progress.router import router as student_progress_router
+from backend.app.modules.interventions.router import router as interventions_router
 from backend.app.api.v1.curriculum import router as curriculum_router
 from backend.app.api.v1.time_aware import router as time_aware_router
 from backend.app.api.v1.documents import router as documents_router
@@ -45,6 +46,7 @@ api_router.include_router(assessment_results_router)
 api_router.include_router(competencies_router)
 api_router.include_router(homework_router)
 api_router.include_router(student_progress_router)
+api_router.include_router(interventions_router)
 api_router.include_router(curriculum_router)
 api_router.include_router(time_aware_router)
 api_router.include_router(documents_router)

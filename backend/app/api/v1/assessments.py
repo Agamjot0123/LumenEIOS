@@ -275,6 +275,67 @@ async def get_question_bank(
     ]
 
 
+@router.post(
+    "/assessments/question-bank/template",
+    dependencies=[Depends(_require_question_bank_login)],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_template_question(
+    subject_id: str = Query(..., min_length=1),
+    bloom_level: str = Query("Understand"),
+    competency: str = Query("CU"),
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
+):
+    """Deterministic question-bank authoring helper. Does not call Gemini or any AI provider.
+
+    Teachers use this to seed the central bank, then edit the text/key/rubric before assembly.
+    """
+    subject = await db.get(Subject, subject_id)
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found.")
+    allowed_bloom = {"Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"}
+    if bloom_level not in allowed_bloom:
+        raise HTTPException(status_code=422, detail="Invalid Bloom's Taxonomy level.")
+    if competency not in {"LU", "CU", "AU", "CT"}:
+        raise HTTPException(status_code=422, detail="Invalid competency.")
+
+    item = QuestionBankItem(
+        school_id=school_id,
+        subject_id=subject_id,
+        text=(
+            f"Template {competency} question for {subject.name}: "
+            f"explain one key idea at Bloom level {bloom_level}."
+        ),
+        type="mcq",
+        options_json=["Option A", "Option B", "Option C", "Option D"],
+        correct_answer="Option A",
+        marking_rubric="1 mark for selecting the correct option.",
+        marks=1,
+        competency=competency,
+        bloom_level=bloom_level,
+        source_document_ids_json=[],
+        source_document_names_json=[],
+        is_ai_generated=False,
+        created_by=educator.id,
+    )
+    db.add(item)
+    db.add(
+        AuditEvent(
+            timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
+            user_id=educator.id,
+            user_name=educator.name,
+            action="Created Template Question",
+            details=f"Added non-AI template question for subject {subject_id}.",
+            category="assessment",
+        )
+    )
+    await db.commit()
+    await db.refresh(item)
+    return {"generated_count": 1, "subject_id": subject_id, "questions": [_serialize_qb_item(item)]}
+
+
 @router.post("/assessments/generate-questions", dependencies=[Depends(_require_question_bank_login)])
 async def generate_questions_ai(
     req: GenerateQuestionsRequest,
