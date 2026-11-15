@@ -58,6 +58,8 @@ export const TimeAwareEngine: React.FC = () => {
   const approved = plans.find((pl) => pl.status === 'APPROVED');
   const pace = approved ? paceReport(approved, effectiveAsOf(workspace)) : null;
   const completion = approved ? planProgress(approved) : null;
+const snapshotDiffers = !!approved && configChangedSinceApproval(approved, workspace.config);
+  const approvedVersionNo = approved ? approved.versions[approved.versions.length - 1]?.version : undefined;
   const requirementGaps = pace?.topicsWithoutRequirement ?? result?.metrics.pending.units ?? 0;
   const canSubmit = !!result && !!view.units.length && !result.conflicts.some((c) => c.code === 'REQUIREMENT_MISSING' || c.code === 'PREREQUISITE_ORDER') && p.mode !== 'loading';
 
@@ -200,12 +202,12 @@ export const TimeAwareEngine: React.FC = () => {
         </div>
       )}
       {capacityPlan.data && !needsTeacher && (
-        <SectionCard title="Annual capacity and remaining syllabus" subtitle="Persisted required, taught and remaining periods for this teacher's plan">
+        <SectionCard title={`Current academic calendar${p.calendarVersion ? ` (version ${p.calendarVersion})` : ''}: capacity and remaining syllabus`} subtitle="Uses the school's current calendar. Persisted required, taught and remaining periods for this teacher's plan.">
           <PlanCapacitySummary plan={capacityPlan.data} />
         </SectionCard>
       )}
 
-      {p.isTeacher && <TeacherLostDays grade={grade} subject={subject} />}
+      {p.isTeacher && <TeacherLostDays grade={grade} subject={subject} calendarVersion={p.calendarVersion} />}
 
       {tab === 'requirements' && <SyllabusPanel dataset={dataset} grade={grade} subject={subject} />}
       {tab === 'relationships' && <RelationshipsPanel grade={grade} />}
@@ -220,11 +222,47 @@ export const TimeAwareEngine: React.FC = () => {
             </SectionCard>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3" data-testid="engine-metrics">
-              <Stat label="Teaching days left" value={pace?.daysRemaining ?? daysLeft} hint={`Academic day ${pace?.academicDay ?? calendarDay} of ${pace?.academicDaysTotal ?? calendar!.planningDates.length}`} />
+              <Stat label={pace ? `Approved schedule v${approvedVersionNo}: days left` : 'Teaching days left'} value={pace?.daysRemaining ?? daysLeft} hint={pace ? `Academic day ${pace.academicDay} of ${pace.academicDaysTotal} · calendar snapshot${snapshotDiffers ? ' (earlier than the current calendar)' : ''}` : `Academic day ${calendarDay} of ${calendar!.planningDates.length} · current calendar`} />
               <Stat label="Core periods" value={`${pace?.core.required ?? result!.metrics.core.requiredPeriods} ${pace ? 'approved' : 'configured'}`} hint={`${pace?.core.scheduled ?? result!.metrics.core.scheduledPeriods} scheduled · ${pace?.core.taught ?? 0} taught · ${pace?.core.remaining ?? result!.metrics.core.requiredPeriods} remaining${requirementGaps ? ` · ${requirementGaps} topic(s) missing counts` : ''}`} tone={requirementGaps ? 'rose' : 'teal'} />
               <Stat label="Non-Core periods" value={`${pace?.nonCore.required ?? result!.metrics.nonCore.requiredPeriods} ${pace ? 'approved' : 'configured'}`} hint={`${pace?.nonCore.scheduled ?? result!.metrics.nonCore.scheduledPeriods} scheduled · ${pace?.nonCore.taught ?? 0} taught · ${pace?.nonCore.remaining ?? result!.metrics.nonCore.requiredPeriods} remaining${requirementGaps ? ` · ${requirementGaps} topic(s) missing counts` : ''}`} tone={requirementGaps ? 'rose' : 'amber'} />
               <Stat label="Independent learning" value={`${pace?.nonCore.independent ?? result!.metrics.independentPeriods} periods`} hint="Never counted as classroom teaching" />
               <Stat label="Topics completed" value={`${completion?.unitsTaught ?? 0} / ${completion?.unitsTotal ?? view.units.length}`} hint={pace ? PACE_LABEL[pace.state] : 'No approved plan yet'} tone={pace?.state === 'BEHIND_CORE' || pace?.state === 'REQUIREMENTS_MISSING' ? 'rose' : 'teal'} />
+              {snapshotDiffers && pace && approved && (
+                <div className="col-span-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1" data-testid="calendar-snapshot-notice" role="status">
+                  <p className="font-semibold">Two calendars are shown, on purpose.</p>
+                  <p>
+                    <b>Current academic calendar{p.calendarVersion ? ` (version ${p.calendarVersion})` : ''}:</b> {calendar!.planningDates.length} instructional days, {daysLeft} left. It drives the capacity card above and the recalculated requirements.{' '}
+                    <b>Approved schedule v{approvedVersionNo}:</b> approved on an earlier calendar snapshot with {pace.academicDaysTotal} instructional days, {pace.daysRemaining} left. The schedule figures in this row are that historical snapshot until the schedule is recalculated and approved again.
+                  </p>
+                  {(() => {
+                    const blocked = recalculationBlocked(approved, workspace.config);
+                    return (
+                      <p data-testid="calendar-snapshot-status">
+                        Status:{' '}
+                        <b>
+                          {pendingProposal(approved)
+                            ? 'Recalculation proposal is waiting for Principal/Admin approval.'
+                            : blocked
+                              ? 'School working days changed, so this approved schedule cannot be recalculated in place. A new schedule must be generated from the current calendar and approved by a Principal/Admin.'
+                              : 'The approved schedule needs recalculation with the current calendar, then Principal/Admin approval.'}
+                        </b>{' '}
+                        Nothing changes the approved schedule until the new one is approved.
+                        {p.isTeacher && !pendingProposal(approved) && (
+                          blocked ? (
+                            <Button size="sm" variant="outline" className="ml-2" icon={<RefreshCw className="w-3.5 h-3.5" />} disabled={busy || !canSubmit} onClick={submitDraft}>
+                              Generate new draft from the current calendar
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="outline" className="ml-2" icon={<RefreshCw className="w-3.5 h-3.5" />} onClick={() => recalculate(approved)}>
+                              Recalculate with current calendar
+                            </Button>
+                          )
+                        )}
+                      </p>
+                    );
+                  })()}
+                </div>
+              )}
               {pace && <p className={`col-span-full rounded-lg border px-3 py-2 text-xs ${pace.state === 'BEHIND_CORE' || pace.state === 'REQUIREMENTS_MISSING' ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-surface-border bg-white text-content-secondary'}`} data-testid="pace-status">{pace.headline}</p>}
             </div>
           )}

@@ -227,7 +227,7 @@ async def build_plan(db: AsyncSession, school_id: str, teacher_id: str, year: st
         "required_core": sum(r["core_periods"] for r in rows), "required_non_core": sum(r["non_core_periods"] for r in rows),
         "taught_periods": sum(r["taught_periods"] for r in rows), "done_topics": comp["done_topics"], "open_topics": comp["open_topics"],
         "remaining_required_core": sum(r["remaining_core"] for r in rows), "remaining_required_non_core": sum(r["remaining_non_core"] for r in rows),
-        "window": window, "remaining_capacity": comp["pool"], "unallocated_capacity": cap["topic_capacity"] - sum(r["core_periods"] + r["non_core_periods"] for r in rows), "core_shortfall": comp["core_shortfall"], "total_shortfall": comp["total_shortfall"], "fits": comp["fits"],
+        "window": window, "remaining_capacity": comp["pool"], "locked_topics": comp["locked_topics"], "locked_remaining_periods": comp["locked_remaining_periods"], "overcommitted_periods": comp["overcommitted_periods"], "unallocated_capacity": cap["topic_capacity"] - sum(r["core_periods"] + r["non_core_periods"] for r in rows), "core_shortfall": comp["core_shortfall"], "total_shortfall": comp["total_shortfall"], "fits": comp["fits"],
     }
     last = (await db.execute(select(PlanAuditEvent).filter_by(school_id=school_id, teacher_id=teacher_id, grade=grade, subject=subject,
                                                               category="calendar_recalculation").order_by(PlanAuditEvent.occurred_at.desc()).limit(1))).scalars().first()

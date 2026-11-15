@@ -260,3 +260,21 @@ async def test_new_planning_endpoints_never_fall_back_to_the_demo_admin(client):
     for method, url in probes:
         r = await getattr(client, method)(url, **({"json": {}} if method in ("post", "put") else {}))
         assert r.status_code == 401, (method, url, r.status_code)
+
+
+@pytest.mark.asyncio
+async def test_teacher_set_classification_and_periods_survive_calendar_changes_both_ways(cal):
+    plan = (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}", params=MATH, headers=cal.h(cal.t0))).json()
+    keys = [t["topic_key"] for t in plan["topics"]]
+    mixed = {**MATH, "items": [{"topic_key": keys[0], "core_periods": 3, "non_core_periods": 1, "classification": "mixed"}]}
+    assert (await cal.c.put(f"/api/v1/teacher-plans/{cal.t0}/requirements", json=mixed, headers=cal.h(cal.t0))).status_code == 200
+    def row(p, k):
+        return next(t for t in p["topics"] if t["topic_key"] == k)
+    for cfg, reason in (({**BASE, "entries": [HOLIDAY]}, "add holiday"), (BASE, "remove holiday"), ({**BASE, "subjectPeriodsPerDay": {"Mathematics": 1, "Science": 1}}, "fewer periods"), (BASE, "restore")):
+        assert (await cal.c.put(BASE_URL, json={"config": cfg, "reason": reason}, headers=cal.h(cal.pr))).status_code == 200
+        p = (await cal.c.get(f"/api/v1/teacher-plans/{cal.t0}", params=MATH, headers=cal.h(cal.t0))).json()
+        r0 = row(p, keys[0])
+        assert (r0["classification"], r0["core_periods"], r0["non_core_periods"], r0["origin"]) == ("mixed", 3, 1, "teacher"), (reason, r0)
+        # the other topic (an auto-derived default) is what absorbs the change: total = capacity - the teacher's own 4
+        assert row(p, keys[1])["core_periods"] + row(p, keys[1])["non_core_periods"] == p["capacity"]["topic_capacity"] - 4, reason
+        assert p["allocation"]["valid"] is True

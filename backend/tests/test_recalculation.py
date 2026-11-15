@@ -67,3 +67,34 @@ def test_holiday_removes_remaining_capacity_and_removal_restores_it():
     assert alloc.remaining_periods(holiday, "Mathematics", "2026-04-10") == 28 - 6
     assert alloc.remaining_periods(cfg, "Mathematics", "2026-04-10") == base  # removal restores exactly
     assert alloc.reserve_periods(28) == 3 and alloc.capacity(28)["topic_capacity"] == 25
+
+
+def locked(key, cls, core, non, **kw):
+    return {**t(key, cls=cls, core=core, non=non, **kw), "origin": "teacher"}
+
+
+def test_teacher_set_classification_and_periods_survive_any_calendar_change():
+    topics = [locked("m", "mixed", 3, 1), locked("c", "core", 4, 0), locked("n", "non_core", 0, 4), t("a"), t("b")]
+    for cap in (60, 30, 17, 11, 9, 8, 3, 0):  # holidays added (capacity down) and removed (capacity up), repeatedly
+        res = rc.compute(topics, 100, remaining_capacity=cap)
+        rows = {r["topic_key"]: r for r in res["rows"]}
+        assert (rows["m"]["new_core"], rows["m"]["new_non_core"], rows["m"]["classification"]) == (3, 1, "mixed") and not rows["m"]["changed"]
+        assert (rows["c"]["new_core"], rows["c"]["new_non_core"], rows["c"]["classification"]) == (4, 0, "core") and not rows["c"]["changed"]
+        assert (rows["n"]["new_core"], rows["n"]["new_non_core"], rows["n"]["classification"]) == (0, 4, "non_core") and not rows["n"]["changed"]
+    again = rc.compute(topics, 100, remaining_capacity=60)
+    assert {r["topic_key"] for r in again["rows"] if r["changed"]} <= {"a", "b"}  # only auto-derived defaults ever change
+
+
+def test_locked_requirements_are_subtracted_first_and_overcommitment_is_reported_not_trimmed():
+    topics = [locked("m", "mixed", 3, 1), t("a"), t("b")]
+    res = rc.compute(topics, 100, remaining_capacity=12)  # 4 locked -> 8 left for 2 auto topics = 4 each
+    assert alloc_of(res, "a") + alloc_of(res, "b") == 8 and alloc_of(res, "m") == 4 and res["locked_remaining_periods"] == 4
+    short = rc.compute(topics, 100, remaining_capacity=3)  # the teacher's own 4 periods already exceed the 3 left
+    assert alloc_of(short, "m") == 4 and short["overcommitted_periods"] == 1 and short["fits"] is False and short["total_shortfall"] >= 1
+
+
+def test_taught_periods_of_a_locked_topic_reduce_what_remains_to_teach_without_changing_the_requirement():
+    topics = [locked("m", "mixed", 3, 1, coverage="in_progress", taught=2), t("a")]
+    res = rc.compute(topics, 100, remaining_capacity=10)  # locked still needs 2 -> 8 for the auto topic
+    m = next(r for r in res["rows"] if r["topic_key"] == "m")
+    assert (m["new_core"], m["new_non_core"], m["remaining_core"], m["remaining_non_core"]) == (3, 1, 1, 1) and alloc_of(res, "a") == 8
