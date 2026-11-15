@@ -10,7 +10,11 @@ say() { printf '\033[1;36m[lumeneios]\033[0m %s\n' "$*"; }
 list() { # pattern -> "pid port cwd" lines for matching processes
   local pid
   for pid in $(pgrep -f "$1" 2>/dev/null); do
-    [ "$pid" = "$$" ] && continue
+    # Never match this script, the shell that launched it, or any command line that merely mentions it.
+    [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ] && continue
+    local cmd
+    cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+    case "$cmd" in *stop-all.sh*|*stop-lumeneios*|*pgrep*) continue ;; esac
     local cwd port
     cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || echo '?')"
     port="$(ss -ltnp 2>/dev/null | awk -v p="pid=$pid," '$0 ~ p {split($4, a, ":"); print a[length(a)]; exit}')"
@@ -21,7 +25,12 @@ list() { # pattern -> "pid port cwd" lines for matching processes
 backends="$(list 'uvicorn backend.app.main:app')"
 # Vite can be started directly, through npm/npx, or from a wrapper script, so match any process with
 # "vite" in its command line whose working directory is a LumenEIOS checkout.
-frontends="$(list 'vite' | awk '$3 ~ /apps\/lumeneios/')"
+frontends="$(for line in $(list 'vite' | awk '$3 ~ /apps\/lumeneios/ {print $1}'); do
+  # Only real Node/npm processes are frontends (not shells whose text happens to contain "vite").
+  case "$(basename "$(tr '\0' '\n' < "/proc/$line/cmdline" 2>/dev/null | head -1)")" in
+    node|npm|npx) list 'vite' | awk -v p="$line" '$1 == p' ;;
+  esac
+done)"
 
 if [ -z "$backends$frontends" ]; then
   say "Nothing to stop: no LumenEIOS servers are running."
