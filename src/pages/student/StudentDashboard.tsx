@@ -9,6 +9,7 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarChart';
+import { KnowledgeComponentGraph } from './KnowledgeComponentGraph';
 import {
   GraduationCap,
   Sparkles,
@@ -235,6 +236,8 @@ function StudentDashboardContent({ student }: { student: Student }) {
           </div>
         </div>
       </div>
+
+      <KnowledgeComponentGraph />
 
       {/* Assigned Homework & Quizzes */}
       <Card id="practice" className="scroll-mt-6">

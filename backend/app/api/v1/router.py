@@ -27,6 +27,7 @@ from backend.app.api.v1.planning import router as planning_router
 from backend.app.api.v1.teacher_planning import router as teacher_plan_router, oversight as plan_oversight_router, logs as plan_logs_router, calendar_router as plan_calendar_router
 
 from backend.app.api.v1.plans import router as plans_router
+from backend.app.api.v1.knowledge_graph import router as knowledge_graph_router
 
 api_router = APIRouter(dependencies=[Depends(reject_non_finite_json)])
 
@@ -59,3 +60,4 @@ api_router.include_router(plan_oversight_router)
 api_router.include_router(plan_logs_router)
 api_router.include_router(plan_calendar_router)
 api_router.include_router(plans_router)
+api_router.include_router(knowledge_graph_router)

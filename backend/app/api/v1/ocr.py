@@ -45,12 +45,20 @@ from backend.app.services.ai_gateway import (
     AIGatewayError,
     AINotConfigured,
     AIProviderTimeout,
+    QwenTextProvider,
     active_gemini_model,
     get_ai_provider,
 )
 from backend.app.services.evaluation_service import build_evaluation_messages, parse_and_validate_evaluation
+from backend.app.services.kc_graph_service import record_knowledge_graph
 from backend.app.services.gemini_ocr_service import OCRInputError, extract_gemini_text
-from backend.app.services.ocr_service import get_ocr_provider
+from backend.app.services.ocr_service import (
+    QwenOCRInferenceError,
+    QwenOCRInputError,
+    QwenOCRUnavailableError,
+    get_ocr_provider,
+    qwen_model,
+)
 from backend.app.services.progress import report_progress, stream_job
 from backend.app.services.storage_service import storage_service
 from backend.app.services.assessment_audience import upload_assignments
@@ -79,6 +87,15 @@ class ProcessOCRRequest(BaseModel):
 class EvaluateScanRequest(BaseModel):
     assessment_id: str
     extracted_text: str = Field(min_length=1, max_length=100_000)
+    history_id: Optional[str] = None
+    provider: str = "gemini"
+
+
+def _model_choice(provider: str) -> str:
+    chosen = (provider or "gemini").strip().lower()
+    if chosen not in {"gemini", "qwen"}:
+        raise HTTPException(status_code=422, detail="Choose Gemini or Qwen.")
+    return chosen
 
 
 @router.post("/evaluate-scan", response_model=EvaluationResult)
@@ -88,6 +105,7 @@ async def evaluate_scan(
     educator: User = Depends(require_roles("teacher", authenticated=True)),
 ):
     extracted_text = req.extracted_text.strip()
+    provider_name = _model_choice(req.provider)
     if not extracted_text:
         raise HTTPException(status_code=422, detail="Enter the extracted answers before evaluating.")
 
@@ -122,9 +140,21 @@ async def evaluate_scan(
         raise HTTPException(status_code=422, detail="This assignment has no questions to evaluate.")
 
     system, prompt = build_evaluation_messages(subject.name, assessment.title, str(section.grade), questions, extracted_text)
+    graph_context = {
+        "assessment_id": assessment.id,
+        "school_id": assessment.school_id,
+        "class_id": assessment.class_id,
+        "subject_id": subject.id,
+        "subject_name": subject.name,
+        "questions": questions,
+        "extracted_text": extracted_text,
+        "history_id": req.history_id,
+        "provider": provider_name,
+    }
     await db.rollback()
     try:
-        raw = await get_ai_provider().generate_json(system=system, prompt=prompt, schema=EvaluationResult)
+        generator = QwenTextProvider() if provider_name == "qwen" else get_ai_provider()
+        raw = await generator.generate_json(system=system, prompt=prompt, schema=EvaluationResult)
         result = parse_and_validate_evaluation(raw)
         by_id = {item.question_id: item for item in result.question_evaluations}
         if len(result.question_evaluations) != len(questions) or by_id.keys() != {q["id"] for q in questions}:
@@ -139,6 +169,7 @@ async def evaluate_scan(
             ordered.append(item)
         result.question_evaluations = ordered
         result.student_info = StudentInfo()
+        await record_knowledge_graph(db, graph_context, result)
         return result
     except AIGatewayError as exc:
         code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502
@@ -173,7 +204,9 @@ async def extract_ocr_preview(
     current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
     db: AsyncSession = Depends(get_db),
     assessment_id: str | None = Form(None),
+    provider: str = Form("gemini"),
 ):
+    provider_name = _model_choice(provider)
     if not files:
         raise HTTPException(status_code=400, detail="Please select at least one image or PDF.")
     if len(files) > 50:
@@ -219,12 +252,23 @@ async def extract_ocr_preview(
                     detail=f"Unsupported OCR file '{detail['file_name']}'. Upload JPG, PNG, or PDF.",
                 )
 
-            extracted_text, pages_processed = await extract_gemini_text(
-                Path(detail["storage_path"]),
-                file_name=detail["file_name"],
-                mime_type=detail["mime_type"],
-                wait_before_each_image=wait_before_each_image,
-            )
+            if provider_name == "qwen":
+                extraction = await qwen_model.extract_document(
+                    detail["storage_path"],
+                    {
+                        "buffer_seconds": 5 if wait_before_each_image else 0,
+                        "file_name": detail["file_name"],
+                    },
+                )
+                extracted_text = extraction["extracted_text"]
+                pages_processed = extraction["pages_processed"]
+            else:
+                extracted_text, pages_processed = await extract_gemini_text(
+                    Path(detail["storage_path"]),
+                    file_name=detail["file_name"],
+                    mime_type=detail["mime_type"],
+                    wait_before_each_image=wait_before_each_image,
+                )
             results.append(
                 {
                     "file_name": detail["file_name"],
@@ -238,8 +282,12 @@ async def extract_ocr_preview(
                 index,
                 total_files,
             )
-        except OCRInputError as exc:
+        except (OCRInputError, QwenOCRInputError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except QwenOCRUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except QwenOCRInferenceError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         except AIGatewayError as exc:
             code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502
             raise HTTPException(status_code=code, detail=exc.public_message) from exc
@@ -266,8 +314,8 @@ async def extract_ocr_preview(
         await db.commit()
 
     return {
-        "provider": "gemini",
-        "model_version": active_gemini_model(),
+        "provider": provider_name,
+        "model_version": settings.QWEN_VL_MODEL_ID if provider_name == "qwen" else active_gemini_model(),
         "results": results,
     }
 
@@ -279,8 +327,11 @@ async def stream_extract_ocr_preview(
     current_user: User = Depends(require_roles("admin", "principal", "teacher", "student")),
     db: AsyncSession = Depends(get_db),
     assessment_id: str | None = Form(None),
+    provider: str = Form("gemini"),
 ):
-    return stream_job(lambda: extract_ocr_preview(files, wait_before_each_image, current_user, db, assessment_id))
+    return stream_job(lambda: extract_ocr_preview(
+        files, wait_before_each_image, current_user, db, assessment_id, provider,
+    ))
 
 
 @router.post("/process", response_model=OCRRunOut)

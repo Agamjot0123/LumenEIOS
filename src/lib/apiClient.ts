@@ -442,6 +442,46 @@ export const apiClient = {
     },
   },
 
+  knowledgeGraph: {
+    mine() {
+      return request<{
+        nodes: Array<{
+          id: string;
+          name: string;
+          description: string;
+          subject: string;
+          topic: string;
+          overall_mastery: number | null;
+          lu: number | null;
+          cu: number | null;
+          ct: number | null;
+          au: number | null;
+          attempt_count: number;
+          correct_count: number;
+          incorrect_count: number;
+          learning_status: 'proficient' | 'developing' | 'needs_improvement' | 'not_assessed';
+          last_assessed_at: string | null;
+          latest: { LU: number | null; CU: number | null; CT: number | null; AU: number | null };
+          previous: { LU: number | null; CU: number | null; CT: number | null; AU: number | null };
+          history: Array<{
+            assessed_at: string;
+            question_id: string;
+            competency: 'LU' | 'CU' | 'CT' | 'AU';
+            score: number;
+            awarded_marks: number;
+            max_marks: number;
+            correct: boolean;
+          }>;
+          prerequisites: Array<{ id: string; name: string; relationship: string; overall_mastery: number | null; learning_status: string }>;
+          related: Array<{ id: string; name: string; relationship: string; overall_mastery: number | null; learning_status: string }>;
+          recommendations: string[];
+        }>;
+        edges: Array<{ source_id: string; target_id: string; relationship: string }>;
+        insights: string[];
+      }>('/students/me/knowledge-graph');
+    },
+  },
+
   student: {
     async profile(): Promise<Student> {
       const student = await request<any>('/classes/students/me');
@@ -767,7 +807,7 @@ export const apiClient = {
 
   // OCR, Optical Verification & Auto-Grade Batch Engine
   ocr: {
-    async evaluateScan(assessmentId: string, extractedText: string) {
+    async evaluateScan(assessmentId: string, extractedText: string, provider: 'gemini' | 'qwen' = 'gemini') {
       return request<{
         scoring_summary: {
           total_marks_obtained: number;
@@ -791,7 +831,7 @@ export const apiClient = {
         }>;
       }>('/ocr/evaluate-scan', {
         method: 'POST',
-        body: JSON.stringify({ assessment_id: assessmentId, extracted_text: extractedText }),
+        body: JSON.stringify({ assessment_id: assessmentId, extracted_text: extractedText, provider }),
       });
     },
     async history() {
@@ -802,9 +842,11 @@ export const apiClient = {
       waitBeforeEachImage: boolean,
       onProgress?: (step: ProcessStep) => void,
       assessmentId?: string,
+      provider: 'gemini' | 'qwen' = 'gemini',
     ) {
       const formData = new FormData();
       formData.append('wait_before_each_image', String(waitBeforeEachImage));
+      formData.append('provider', provider);
       if (assessmentId) formData.append('assessment_id', assessmentId);
       files.forEach((file) => formData.append('files', file));
 

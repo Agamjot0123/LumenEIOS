@@ -131,6 +131,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     null
   );
   const [waitBeforeEachImage, setWaitBeforeEachImage] = useState(false);
+  const [modelProvider, setModelProvider] = useState<'gemini' | 'qwen'>('gemini');
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrSteps, setOcrSteps] = useState<ProcessStep[]>([]);
@@ -200,7 +201,9 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     setResults(null);
     setOcrSteps([]);
     try {
-      setResults(await apiClient.ocr.extractPreview(files, waitBeforeEachImage, recordOcrStep, assignment?.id));
+      setResults(await apiClient.ocr.extractPreview(
+        files, waitBeforeEachImage, recordOcrStep, assignment?.id, modelProvider,
+      ));
       onProcessed?.();
     } catch (requestError) {
       setError(
@@ -227,11 +230,11 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           <ScanLine className="h-5 w-5 text-teal-600" />
           <h1 className="text-xl font-bold tracking-tight text-navy-900">{assignment ? 'Upload Beta' : 'Upload'}</h1>
           <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700">
-            Gemini
+            {modelProvider === 'qwen' ? 'Qwen' : 'Gemini'}
           </span>
         </div>
         <p className="mt-2 text-sm text-content-secondary">
-          Upload a photo or PDF to extract text with Google’s Gemini API.
+          Upload a photo or PDF to extract text with {modelProvider === 'qwen' ? 'Qwen' : 'Gemini'}.
           {!isStudent && ' Review the extracted answers and evaluate them against an assignment.'}
           {isStudent && !assignment && (
             <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
@@ -306,6 +309,20 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           <p className="mt-1 text-xs text-content-secondary">
             PDF, JPG, JPEG, or PNG · up to 15 MB each · maximum {MAX_FILES} files
           </p>
+        </label>
+
+        <label className="mt-4 block text-sm font-semibold text-navy-900" htmlFor="ocr-model">
+          Model
+          <select
+            id="ocr-model"
+            value={modelProvider}
+            disabled={isProcessing}
+            onChange={(event) => setModelProvider(event.target.value as 'gemini' | 'qwen')}
+            className="mt-1 block w-full max-w-xs rounded-lg border border-surface-border bg-white px-3 py-2 text-sm font-normal"
+          >
+            <option value="gemini">Gemini</option>
+            <option value="qwen">Qwen</option>
+          </select>
         </label>
 
         <label className="mt-4 flex w-fit cursor-pointer items-center gap-2 text-sm text-navy-900">
@@ -442,7 +459,11 @@ function UploadPage({ assignment, onBack, onProcessed }: {
                 </span>
               </div>
               {!isStudent && result.extractedText.trim() ? (
-                <ScanEvaluation extractedText={result.extractedText} assessmentId={evaluationAssignmentId} />
+                <ScanEvaluation
+                  extractedText={result.extractedText}
+                  assessmentId={evaluationAssignmentId}
+                  provider={modelProvider}
+                />
               ) : (
                 <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-bg p-3 text-sm text-navy-900">
                   {result.extractedText || '[No text extracted]'}
@@ -461,7 +482,13 @@ function UploadPage({ assignment, onBack, onProcessed }: {
   );
 }
 
-function ScanEvaluation({ extractedText, assessmentId }: { extractedText: string; assessmentId: string }) {
+function ScanEvaluation({
+  extractedText, assessmentId, provider,
+}: {
+  extractedText: string;
+  assessmentId: string;
+  provider: 'gemini' | 'qwen';
+}) {
   const [text, setText] = useState(extractedText);
   const [pending, setPending] = useState(false);
   const [outcome, setOutcome] = useState<{
@@ -477,7 +504,7 @@ function ScanEvaluation({ extractedText, assessmentId }: { extractedText: string
     setPending(true);
     setOutcome(undefined);
     try {
-      const result = await apiClient.ocr.evaluateScan(assessmentId, text.trim());
+      const result = await apiClient.ocr.evaluateScan(assessmentId, text.trim(), provider);
       setOutcome({ assessmentId, text, result });
     } catch (err) {
       setOutcome({
@@ -505,7 +532,7 @@ function ScanEvaluation({ extractedText, assessmentId }: { extractedText: string
           className="mt-1 block w-full rounded-lg border border-surface-border p-2 font-normal"
         />
       </label>
-      <p className="text-xs text-content-secondary">Correct OCR errors and remove student names and identifiers before sending the answers to Gemini for draft marking.</p>
+      <p className="text-xs text-content-secondary">Correct OCR errors and remove student names and identifiers before sending the answers to {provider === 'qwen' ? 'Qwen' : 'Gemini'} for draft marking.</p>
       <button
         type="button"
         onClick={evaluate}
