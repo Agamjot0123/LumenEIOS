@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Enum as SQLEnum,
     JSON
 )
@@ -30,6 +31,8 @@ class User(Base):
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     email = Column(String(255), unique=True, index=True, nullable=False)
+    # Optional short login (admission number for students, staff code for teachers, mobile for parents).
+    username = Column(String(100), unique=True, index=True, nullable=True)
     name = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), nullable=False, index=True)  # admin, principal, teacher, student, parent
@@ -122,6 +125,8 @@ class Student(Base):
     class_name = Column(String(100), nullable=False)
     name = Column(String(255), nullable=False, index=True)
     roll_no = Column(Integer, nullable=False)
+    admission_no = Column(String(32), nullable=True, index=True)
+    date_of_birth = Column(String(10), nullable=True)  # YYYY-MM-DD
     gender = Column(String(20), default="Other", nullable=False)
     attendance_pct = Column(Float, default=90.0, nullable=False)
     
@@ -474,6 +479,8 @@ class QuestionBankItem(Base):
     # Chapter / topic the question belongs to (free text, e.g. "Mensuration"). Lets Differentiated
     # Homework limit selection to what the class is studying. Null for older, untagged questions.
     topic = Column(String(255), nullable=True, index=True)
+    # Class/grade the question is written for (6, 7, 8 ...). Null = any grade (older questions).
+    grade = Column(Integer, nullable=True, index=True)
     source_document_ids_json = Column(JSON, default=list, nullable=False)
     source_document_names_json = Column(JSON, default=list, nullable=False)
     is_ai_generated = Column(Boolean, default=False, nullable=False)
@@ -620,3 +627,17 @@ class LearningIntervention(Base):
     assigned_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+
+
+class TeacherAssignment(Base):
+    """Which teacher teaches which subject to which class section (the school timetable allocation)."""
+
+    __tablename__ = "teacher_assignments"
+    __table_args__ = (UniqueConstraint("teacher_id", "class_id", "subject_id", name="uq_teacher_class_subject"),)
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    teacher_id = Column(String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    school_id = Column(String(64), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, index=True)
+    class_id = Column(String(64), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False, index=True)
+    subject_id = Column(String(64), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False)

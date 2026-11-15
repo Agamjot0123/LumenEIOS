@@ -172,6 +172,8 @@ async def world(db_session, client, monkeypatch):
             "DELETE FROM homework_draft_items WHERE draft_id IN (SELECT id FROM homework_drafts WHERE student_id = :s)",
             "DELETE FROM homework_drafts WHERE student_id = :s",
             "DELETE FROM student_account_links WHERE student_id = :s",
+            "DELETE FROM student_competency_snapshots WHERE student_id = :s",
+            "DELETE FROM notifications WHERE user_id = :s",
             "DELETE FROM parent_student_links WHERE student_id = :s",
             "DELETE FROM students WHERE id = :s",
         ):
@@ -760,11 +762,13 @@ async def test_reads_change_nothing(client, db_session, world, teacher_token):
 
 @pytest.mark.asyncio
 async def test_grading_never_changes_the_submission_or_competency_scores(client, db_session, world, teacher_token):
+    """Marking and finalizing never touch scores. Releasing the result is graded evidence: it moves only that
+    student's parameters, adds exactly one progress snapshot and never changes submissions or answers."""
     async def scores():
         await db_session.rollback()
-        students = [tuple(r) for r in (await db_session.execute(text(
+        students = {r[0]: tuple(r[1:]) for r in (await db_session.execute(text(
             "SELECT id, lu_score, cu_score, au_score, ct_score, overall_score, baseline_lu, baseline_cu, "
-            "baseline_au, baseline_ct, baseline_overall, needs_support FROM students ORDER BY id"))).all()]
+            "baseline_au, baseline_ct, baseline_overall FROM students ORDER BY id"))).all()}
         snapshots = (await db_session.execute(text("SELECT COUNT(*) FROM student_competency_snapshots"))).scalar()
         assessment_subs = (await db_session.execute(text("SELECT COUNT(*) FROM assessment_submissions"))).scalar()
         return students, snapshots, assessment_subs
@@ -772,11 +776,16 @@ async def test_grading_never_changes_the_submission_or_competency_scores(client,
     before_scores = await scores()
     before = await snapshot(db_session, world)
     await marked_and_finalized(client, world, auth(teacher_token))
+    assert await scores() == before_scores  # marking/finalizing alone changes nothing
     await transition(client, RELEASE, world, "a_alice", 3, auth(teacher_token))
     after = await snapshot(db_session, world)
     assert (after["submissions"], after["answers"], after["assignments"]) == (
         before["submissions"], before["answers"], before["assignments"])
-    assert await scores() == before_scores
+    students, snapshots, assessment_subs = await scores()
+    changed = {sid for sid in students if students[sid] != before_scores[0][sid]}
+    assert changed <= {world["alice"]}  # only the student whose homework was released
+    assert all(students[sid][5:] == before_scores[0][sid][5:] for sid in students)  # baselines never move
+    assert snapshots == before_scores[1] + 1 and assessment_subs == before_scores[2]
 
 
 # --- API schema -----------------------------------------------------------------------------------------

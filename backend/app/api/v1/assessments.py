@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import get_current_user, require_roles, oauth2_scheme, get_current_school_context
@@ -229,6 +229,7 @@ def _serialize_qb_item(item: QuestionBankItem) -> Dict[str, Any]:
         "competency": item.competency,
         "bloom_level": item.bloom_level,
         "topic": item.topic,
+        "grade": item.grade,
         "source_document_ids": item.source_document_ids_json or [],
         "source_document_names": item.source_document_names_json or [],
         "is_ai_generated": item.is_ai_generated,
@@ -288,6 +289,7 @@ def _clean_topic(value: Optional[str]) -> Optional[str]:
 @router.get("/assessments/question-bank/topics", dependencies=[Depends(_require_question_bank_login)])
 async def list_bank_topics(
     subject_id: str = Query(..., min_length=1),
+    grade: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
     school_id: str = Depends(get_current_school_context),
@@ -296,7 +298,8 @@ async def list_bank_topics(
     Untagged questions are reported separately so teachers can see what still needs a topic."""
     rows = (await db.execute(
         select(QuestionBankItem.topic, QuestionBankItem.competency).filter(
-            QuestionBankItem.school_id == school_id, QuestionBankItem.subject_id == subject_id)
+            QuestionBankItem.school_id == school_id, QuestionBankItem.subject_id == subject_id,
+            *([or_(QuestionBankItem.grade == grade, QuestionBankItem.grade.is_(None))] if grade is not None else []))
     )).all()
     topics: Dict[str, Dict[str, Any]] = {}
     untagged = 0
@@ -376,6 +379,7 @@ async def create_bank_question(
         competency=req.competency,
         bloom_level=req.bloom_level,
         topic=_clean_topic(req.topic),
+        grade=req.grade,
         source_document_ids_json=[],
         source_document_names_json=[],
         is_ai_generated=False,
@@ -785,6 +789,8 @@ async def update_question_endpoint(
         item.bloom_level = req.bloom_level
     if req.topic is not None:
         item.topic = _clean_topic(req.topic)
+    if req.grade is not None:
+        item.grade = req.grade or None
 
     await db.commit()
     await db.refresh(item)

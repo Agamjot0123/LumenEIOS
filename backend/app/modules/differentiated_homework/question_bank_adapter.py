@@ -20,7 +20,7 @@ import logging
 from typing import Dict, List, Optional, Sequence
 
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.entities import QuestionBankItem
@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 
 async def load_candidate_questions(
-    db: AsyncSession, school_id: str, subject_id: str, topics: Optional[Sequence[str]] = None
+    db: AsyncSession, school_id: str, subject_id: str, topics: Optional[Sequence[str]] = None,
+    grade: Optional[int] = None,
 ) -> QuestionBankLoad:
     """Return the school's questions for one subject (optionally only the given topics), ordered by ID."""
     wanted = sorted({t.strip().casefold() for t in (topics or []) if t and t.strip()})
@@ -55,6 +56,9 @@ async def load_candidate_questions(
     )
     if wanted:
         query = query.filter(func.lower(func.trim(QuestionBankItem.topic)).in_(wanted))
+    if grade is not None:
+        # A Class 6 student never gets Class 8 questions; untagged (older) questions stay eligible.
+        query = query.filter(or_(QuestionBankItem.grade == grade, QuestionBankItem.grade.is_(None)))
     result = await db.execute(query)
 
     candidates, malformed = [], []

@@ -316,7 +316,16 @@ export type AssistantReply = {
   model_available: boolean;
 };
 
+export interface DevAccount {
+  id: string; name: string; role: Role; email: string; username: string | null; school_id: string | null;
+  school_name: string | null; designation: string | null; featured: boolean;
+}
+
 export const apiClient = {
+  /** Role-scoped database workspace for the dashboards. */
+  workspace() {
+    return request<import('./workspace').Workspace>('/workspace');
+  },
   homework: {
     call<T = any>(path: string, method = 'GET', body?: unknown) {
       return request<T>(path, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -434,6 +443,23 @@ export const apiClient = {
     },
     async me() {
       return request<ApiUser>('/auth/me', { signal: AbortSignal.timeout(8000) });
+    },
+    /** Development only: every account, featured personas first. 404 when the bypass is disabled. */
+    devAccounts() {
+      return request<{ enabled: boolean; accounts: DevAccount[] }>('/auth/dev/accounts', { signal: AbortSignal.timeout(8000) });
+    },
+    /** Development only: sign in as an account without its password. */
+    async devLogin(userId: string) {
+      const res = await request<{ access_token: string; user: ApiUser }>('/auth/dev/login', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId }),
+      });
+      if (res.access_token) {
+        clearTeachingCache();
+        localStorage.setItem('lumeneios_token', res.access_token);
+        localStorage.setItem('lumeneios_auth_user', JSON.stringify(res.user));
+      }
+      return res;
     },
     async switchDemoRole(role: Role | string) {
       const response = await request<{ access_token: string; user: ApiUser }>('/auth/demo-root/role', {

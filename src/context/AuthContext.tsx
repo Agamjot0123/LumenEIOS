@@ -13,6 +13,7 @@ interface AuthContextType {
   isLoading: boolean;
   isRestoringSession: boolean;
   login: (email: string, password?: string) => Promise<User> | boolean;
+  loginAsAccount: (userId: string) => Promise<User>;
   loginWithPassword: (email: string, password: string) => Promise<User>;
   loginAsRole: (role: Role) => Promise<User>;
   logout: () => void;
@@ -124,10 +125,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       acceptUser(user);
       return user;
     }
-    const persona = initialUsers.find((candidate) => candidate.role === role);
-    if (!persona) throw new Error('Demo sign-in is disabled.');
-    // Seeded backend persona accounts use demo123; onboarded users do not.
-    return loginWithPassword(persona.email, 'demo123');
+    // Live: the featured account for that role, through the developer bypass (development only).
+    const { accounts } = await apiClient.auth.devAccounts();
+    const persona = accounts.find((a) => a.featured && a.role === role) ?? accounts.find((a) => a.role === role);
+    if (!persona) throw new Error('No account exists for that role.');
+    return loginAsAccount(persona.id);
+  };
+
+  /** Developer bypass: sign in as any account without its password (backend APP_ENV=development only). */
+  const loginAsAccount = async (userId: string): Promise<User> => {
+    const response = await apiClient.auth.devLogin(userId);
+    const user = mapUser(response.user);
+    acceptUser(user);
+    return user;
   };
 
   const logout = () => {
@@ -154,6 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         loginWithPassword,
         loginAsRole,
+        loginAsAccount,
         logout,
         switchSchool,
         availableUsers: DEMO_MODE ? initialUsers : initialUsers,

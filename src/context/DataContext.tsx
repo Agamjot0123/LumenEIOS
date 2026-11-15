@@ -36,6 +36,8 @@ import {
   initialSheetAssignments,
 } from '../data/seedData';
 import { CompressionPlanProposal } from '../lib/calculations';
+import { DEMO_MODE } from '../lib/runtime';
+import type { Workspace, WorkspaceTeacher, WorkspaceAssignment, WorkspaceSnapshot } from '../lib/workspace';
 import { classIdentity, parseClassName } from '../lib/className';
 import { apiClient } from '../lib/apiClient';
 
@@ -133,6 +135,13 @@ interface DataContextType {
   notifications: NotificationItem[];
   sourceDocuments: SourceDocument[];
   questionBank: Question[];
+  /** Live database workspace (role-scoped). Null until loaded, and always null in offline demo mode. */
+  workspace: Workspace | null;
+  workspaceLoading: boolean;
+  teachers: WorkspaceTeacher[];
+  teacherAssignments: WorkspaceAssignment[];
+  snapshots: WorkspaceSnapshot[];
+  refreshWorkspace: () => Promise<void>;
 
   // Mutators
   addSchool: (school: Partial<School>) => void;
@@ -185,7 +194,12 @@ function loadStorage<T>(key: string, defaultValue: T): T {
   }
 }
 
+/** Live mode reads schools/classes/students/assessments from the database, never from browser storage. */
+const LIVE = !DEMO_MODE;
+const LIVE_KEYS = new Set(['schools', 'classes', 'students', 'assessments', 'assessmentResults']);
+
 function saveStorage<T>(key: string, value: T): void {
+  if (LIVE && LIVE_KEYS.has(key)) return;
   try {
     localStorage.setItem(`lumeneios_${key}`, JSON.stringify(value));
   } catch (err) {
@@ -202,14 +216,38 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [],
   );
   const planning = usePlanningStore(getActor, planningUser ? `${planningUser.id}:${planningUser.role}` : '');
-  const [schools, setSchools] = useState<School[]>(() => loadStorage('schools', initialSchools));
-  const [classes, setClasses] = useState<ClassSection[]>(() => loadStorage('classes', initialClasses));
-  const [subjects] = useState<Subject[]>(initialSubjects);
-  const [students, setStudents] = useState<Student[]>(() => loadStorage('students', initialStudents));
-  const [assessments, setAssessments] = useState<Assessment[]>(() => loadStorage('assessments', initialAssessments));
+  const [schools, setSchools] = useState<School[]>(() => (LIVE ? [] : loadStorage('schools', initialSchools)));
+  const [classes, setClasses] = useState<ClassSection[]>(() => (LIVE ? [] : loadStorage('classes', initialClasses)));
+  const [subjects, setSubjects] = useState<Subject[]>(initialSubjects);
+  const [students, setStudents] = useState<Student[]>(() => (LIVE ? [] : loadStorage('students', initialStudents)));
+  const [assessments, setAssessments] = useState<Assessment[]>(() => (LIVE ? [] : loadStorage('assessments', initialAssessments)));
   const [assessmentResults, setAssessmentResults] = useState<AssessmentResult[]>(() =>
-    loadStorage('assessmentResults', initialAssessmentResults)
+    LIVE ? [] : loadStorage('assessmentResults', initialAssessmentResults)
   );
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(LIVE);
+  const workspaceKey = planningUser ? `${planningUser.id}:${planningUser.role}:${planningUser.schoolId}` : '';
+  const refreshWorkspace = React.useCallback(async () => {
+    if (!LIVE || !localStorage.getItem('lumeneios_token')) return;
+    const ws = await apiClient.workspace();
+    setSchools(ws.schools as School[]);
+    setClasses(ws.classes as ClassSection[]);
+    if (ws.subjects.length) setSubjects(ws.subjects as Subject[]);
+    setStudents(ws.students as Student[]);
+    setAssessments(ws.assessments as Assessment[]);
+    setAssessmentResults(ws.assessmentResults as AssessmentResult[]);
+    setWorkspace(ws);
+  }, []);
+  // Every account switch starts from an empty workspace, so one user's data never shows for another.
+  useEffect(() => {
+    if (!LIVE) return;
+    let active = true;
+    setWorkspace(null); setSchools([]); setClasses([]); setStudents([]); setAssessments([]); setAssessmentResults([]);
+    if (!workspaceKey) { setWorkspaceLoading(false); return; }
+    setWorkspaceLoading(true);
+    refreshWorkspace().catch(() => undefined).finally(() => { if (active) setWorkspaceLoading(false); });
+    return () => { active = false; };
+  }, [workspaceKey, refreshWorkspace]);
   const [curriculumDays, setCurriculumDays] = useState<CurriculumDay[]>(() =>
     loadStorage('curriculumDays', initialCurriculumDays)
   );
@@ -791,6 +829,12 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         notifications,
         sourceDocuments,
         questionBank,
+        workspace,
+        workspaceLoading,
+        teachers: workspace?.teachers ?? [],
+        teacherAssignments: workspace?.teacherAssignments ?? [],
+        snapshots: workspace?.snapshots ?? [],
+        refreshWorkspace,
         addSchool,
         updateSchool,
         addStudent,

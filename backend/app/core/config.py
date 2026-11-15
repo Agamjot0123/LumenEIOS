@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     # Development root login: LEOFELIX or leofelix@lumeneios.demo.
     # Defaults to the password shown on the sign-in page. Blank or production disables it.
     DEMO_ROOT_PASSWORD: SecretStr | None = SecretStr("KVR")
+    # Developer bypass on the sign-in page (pick any account, no password). Only honoured when APP_ENV=development.
+    DEV_LOGIN_BYPASS: bool = True
 
     @property
     def demo_root_password(self) -> str | None:

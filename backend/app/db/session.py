@@ -59,13 +59,21 @@ async def init_db():
             if name not in existing:
                 await conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {definition}"))
 
-        # Question-bank topics (nullable; older questions stay untagged).
-        qb_cols = await conn.run_sync(lambda sync: {
-            column["name"] for column in inspect(sync).get_columns("question_bank_items")
-        }) if await conn.run_sync(lambda sync: inspect(sync).has_table("question_bank_items")) else set()
-        if qb_cols and "topic" not in qb_cols:
-            await conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN topic VARCHAR(255)"))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_question_bank_items_topic ON question_bank_items (topic)"))
+        # Additive optional columns for databases created by older versions (never dropped or rewritten).
+        additive = {
+            "question_bank_items": {"topic": "VARCHAR(255)", "grade": "INTEGER"},
+            "users": {"username": "VARCHAR(100)"},
+            "students": {"admission_no": "VARCHAR(32)", "date_of_birth": "VARCHAR(10)"},
+        }
+        for table, columns in additive.items():
+            if not await conn.run_sync(lambda sync, t=table: inspect(sync).has_table(t)):
+                continue
+            present = await conn.run_sync(lambda sync, t=table: {c["name"] for c in inspect(sync).get_columns(t)})
+            for name, definition in columns.items():
+                if name not in present:
+                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
+                    unique = "UNIQUE " if (table, name) == ("users", "username") else ""
+                    await conn.execute(text(f"CREATE {unique}INDEX IF NOT EXISTS ix_{table}_{name} ON {table} ({name})"))
 
         # Subject-aware competency snapshots (nullable; historical rows remain global).
         snap_cols = await conn.run_sync(lambda sync: {

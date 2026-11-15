@@ -7,6 +7,8 @@ from backend.app.api.v1.teachers import router as teachers_router
 from backend.app.api.v1.classes import router as classes_router
 from backend.app.api.v1.calendar import router as calendar_router
 from backend.app.api.v1.assessments import router as assessments_router
+from backend.app.api.v1.scan_grading import router as scan_grading_router
+from backend.app.api.v1.workspace import router as workspace_router
 from backend.app.api.v1.assessment_results import router as assessment_results_router
 from backend.app.api.v1.competencies import router as competencies_router
 from backend.app.modules.differentiated_homework.router import router as homework_router
@@ -41,6 +43,8 @@ api_router.include_router(users_router)
 api_router.include_router(teachers_router)
 api_router.include_router(classes_router)
 api_router.include_router(calendar_router)
+api_router.include_router(scan_grading_router)
+api_router.include_router(workspace_router)
 api_router.include_router(assessments_router)
 api_router.include_router(assessment_results_router)
 api_router.include_router(competencies_router)

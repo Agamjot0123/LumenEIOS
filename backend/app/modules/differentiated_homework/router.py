@@ -379,7 +379,8 @@ async def _generate_draft(
         max_total_marks=body.max_total_marks,
         include_ai_generated=body.include_ai_generated,
     )
-    loaded = await load_candidate_questions(db, student.school_id, body.subject_id, body.topics)
+    loaded = await load_candidate_questions(db, student.school_id, body.subject_id, body.topics,
+                                            grade=student_class.grade)
     selection = select_questions(analysis, loaded.candidates, selection_request)
 
     try:
@@ -1336,6 +1337,33 @@ async def finalize_homework_evaluation(
     return _render_evaluation(evaluation, assignment, submission, student)
 
 
+async def _record_progress_from_release(db: AsyncSession, assignment, evaluation) -> None:
+    """Released homework is graded evidence: move the student's LU/CU/AU/CT parameters for the competencies
+    it assessed, keep a timeline snapshot and tell the student and their parents."""
+    from backend.app.models.entities import Notification, ParentStudentLink, Student as StudentRow
+    from backend.app.services.competency_update import apply_observation, dimension_scores_from_questions, snapshot
+
+    competency = {item.id: item.competency for item in assignment.draft.items}
+    graded = [{"competency": competency.get(item.draft_item_id), "awarded_marks": item.awarded_marks or 0,
+               "max_marks": item.max_marks} for item in evaluation.items]
+    dims = dimension_scores_from_questions(graded)
+    record = await db.get(StudentRow, assignment.student_id)
+    if record is None or not dims:
+        return
+    apply_observation(record, dims, weight=0.25)  # homework counts, but less than a supervised test
+    awarded = sum(item.awarded_marks or 0 for item in evaluation.items)
+    total = sum(item.max_marks for item in evaluation.items)
+    db.add(snapshot(record, cycle_number=4, subject_id=assignment.subject_id, assessment_id=None, submission_id=None,
+                    notes=f"Differentiated homework released ({awarded}/{total})"))
+    message = f"{record.name}'s differentiated homework has been marked: {awarded}/{total}."
+    db.add(Notification(user_id=assignment.student_id, title="Homework results released", message=message,
+                        type="success", link="/student/homework"))
+    for parent_id in (await db.execute(select(ParentStudentLink.parent_user_id).filter_by(
+            student_id=assignment.student_id))).scalars().all():
+        db.add(Notification(user_id=parent_id, title="Homework results released", message=message,
+                            type="info", link="/parent/homework"))
+
+
 @router.post(f"{EVALUATION_PATH}/release", response_model=TeacherEvaluationOut,
              dependencies=[Depends(_require_bearer_token), Depends(_reject_non_finite_json)])
 async def release_homework_evaluation(
@@ -1355,6 +1383,7 @@ async def release_homework_evaluation(
     if released_now:
         db.add(_audit(current_user, "Homework Results Released",
                       f"Released results of assignment {assignment.id}."))
+        await _record_progress_from_release(db, assignment, evaluation)
         assignment_key = assignment.id  # plain value survives a rollback
         try:
             await db.commit()

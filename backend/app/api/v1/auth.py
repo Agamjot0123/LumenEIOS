@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -16,7 +16,9 @@ from backend.app.core.security import (
     verify_password,
 )
 from backend.app.db.session import get_db
-from backend.app.models.entities import AuditEvent, ImpersonationEvent, School, SchoolMembership, User, utc_now
+from backend.app.models.entities import (
+    AuditEvent, ImpersonationEvent, ParentStudentLink, School, SchoolMembership, TeacherAssignment, User, utc_now,
+)
 from backend.app.schemas.auth import LoginRequest, SwitchSchoolRequest, TokenResponse, UserOut
 from backend.app.seed.seed_data import ROOT_PERSONA_EMAILS
 
@@ -29,7 +31,19 @@ class DemoRoleRequest(BaseModel):
     role: Literal["developer", "admin", "principal", "teacher", "student", "parent"]
 
 
-def session_response(user: User, *, demo_root: bool = False, role: str | None = None) -> TokenResponse:
+async def user_scope(db: AsyncSession, user: User) -> dict:
+    """What the account works with: a teacher's classes/subjects, a parent's children, a student's own record."""
+    if user.role == "teacher":
+        rows = (await db.execute(select(TeacherAssignment.class_id, TeacherAssignment.subject_id)
+                                 .filter(TeacherAssignment.teacher_id == user.id))).all()
+        return {"assigned_class_ids": sorted({c for c, _ in rows}), "assigned_subject_ids": sorted({s for _, s in rows})}
+    if user.role == "parent":
+        kids = (await db.execute(select(ParentStudentLink.student_id).filter_by(parent_user_id=user.id))).scalars().all()
+        return {"linked_child_ids": list(kids)}
+    return {}
+
+
+def session_response(user: User, *, demo_root: bool = False, role: str | None = None, scope: dict | None = None) -> TokenResponse:
     presented_role = role or user.role
     return TokenResponse(
         access_token=create_access_token(
@@ -38,9 +52,13 @@ def session_response(user: User, *, demo_root: bool = False, role: str | None = 
         refresh_token=create_refresh_token(user.id),
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=UserOut.model_validate(user).model_copy(
-            update={"demo_root": demo_root, "role": presented_role}
+            update={"demo_root": demo_root, "role": presented_role, **(scope or {})}
         ),
     )
+
+
+async def scoped_session(db: AsyncSession, user: User, **kwargs) -> TokenResponse:
+    return session_response(user, scope=await user_scope(db, user), **kwargs)
 
 
 def developer_role_from_token(token: str | None) -> str | None:
@@ -83,7 +101,9 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if demo_root and password and compare_digest(req.password.encode(), password.encode()):
         user = await demo_persona(db, "admin")
     elif not demo_root:
-        result = await db.execute(select(User).filter(User.email == login_id))
+        # Sign in with the email address or the username (admission number, staff code or mobile number).
+        result = await db.execute(select(User).filter(or_(
+            func.lower(User.email) == login_id, func.lower(User.username) == login_id)))
         user = result.scalars().first()
         if user and not await run_in_threadpool(
             verify_password, req.password, user.hashed_password
@@ -95,7 +115,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Invalid username/email or password.",
         )
 
     db.add(
@@ -113,18 +133,20 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
     )
     await db.commit()
-    return session_response(user, demo_root=demo_root, role="developer" if demo_root else None)
+    return await scoped_session(db, user, demo_root=demo_root, role="developer" if demo_root else None)
 
 
 @router.get("/me", response_model=UserOut, dependencies=[Depends(require_bearer_token)])
 async def get_me(
     current_user: User = Depends(get_current_user),
     token: str | None = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
 ):
     demo_root = bool(token and decode_token(token).get("demo_root"))
     updates: dict = {"demo_root": demo_root}
     if developer_role := developer_role_from_token(token):
         updates["role"] = developer_role
+    updates.update(await user_scope(db, current_user))
     return UserOut.model_validate(current_user).model_copy(update=updates)
 
 
@@ -149,8 +171,8 @@ async def switch_demo_role(
     ))
     await db.commit()
     if req.role == "developer":
-        return session_response(await demo_persona(db, "admin"), demo_root=True, role="developer")
-    return session_response(await demo_persona(db, req.role), demo_root=True)
+        return await scoped_session(db, await demo_persona(db, "admin"), demo_root=True, role="developer")
+    return await scoped_session(db, await demo_persona(db, req.role), demo_root=True)
 
 
 @router.get("/memberships", dependencies=[Depends(require_bearer_token)])
@@ -194,7 +216,8 @@ async def switch_school(
     current_user.school_id = req.school_id
     await db.commit()
     await db.refresh(current_user)
-    return session_response(
+    return await scoped_session(
+        db,
         current_user,
         demo_root=bool(token and decode_token(token).get("demo_root")),
         role=developer_role_from_token(token),
@@ -205,3 +228,46 @@ async def switch_school(
 async def logout(current_user: User = Depends(get_current_user)):
     del current_user
     return {"message": "Successfully logged out."}
+
+
+# --- Developer bypass ---------------------------------------------------------------------------
+# For demonstrations and development only: list every account and sign in as any of them without a
+# password. Disabled unless APP_ENV is "development" and DEV_LOGIN_BYPASS is true (the default there).
+
+def _dev_bypass_enabled() -> bool:
+    return settings.APP_ENV.lower() == "development" and settings.DEV_LOGIN_BYPASS
+
+
+class DevLoginRequest(BaseModel):
+    user_id: str
+
+
+@router.get("/dev/accounts")
+async def dev_accounts(db: AsyncSession = Depends(get_db)):
+    """Every account grouped by school and role (development only). Featured personas first."""
+    if not _dev_bypass_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+    featured = {email: role for role, email in ROOT_PERSONA_EMAILS.items()}
+    schools = {s.id: s.name for s in (await db.execute(select(School))).scalars().all()}
+    users = (await db.execute(select(User).order_by(User.role, User.name))).scalars().all()
+    order = {"admin": 0, "principal": 1, "teacher": 2, "student": 3, "parent": 4}
+    rows = [{"id": u.id, "name": u.name, "role": u.role, "email": u.email, "username": u.username,
+             "school_id": u.school_id, "school_name": schools.get(u.school_id), "designation": u.designation,
+             "featured": u.email in featured} for u in users]
+    rows.sort(key=lambda r: (not r["featured"], order.get(r["role"], 9), r["school_name"] or "", r["name"]))
+    return {"enabled": True, "accounts": rows}
+
+
+@router.post("/dev/login", response_model=TokenResponse)
+async def dev_login(req: DevLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Sign in as any account without its password (development only)."""
+    if not _dev_bypass_enabled():
+        raise HTTPException(status_code=404, detail="Not found.")
+    user = await db.get(User, req.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    db.add(AuditEvent(timestamp=utc_now().strftime("%Y-%m-%d %H:%M"), user_id=user.id, user_name=user.name,
+                      action="Developer bypass login", details=f"Signed in as {user.role} {user.email} without a password.",
+                      category="user"))
+    await db.commit()
+    return await scoped_session(db, user)
