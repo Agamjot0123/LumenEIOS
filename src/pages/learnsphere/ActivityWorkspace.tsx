@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { MathText } from '../../components/common/MathText';
 import { useLearning } from './LearnSphereLayout';
 import { learnsphere } from '../../lib/learnsphere';
 import type { Activity, Assignment, Attempt, Topic, Kind, Competency, Stage } from '../../types/learnsphere';
@@ -21,10 +22,10 @@ function AttemptCard({attempt, educator, student, kind, refresh}: {attempt: Atte
     try {await action(); await refresh();} catch(e) {setError((e as Error).message); await refresh();} finally {setBusy(false);}
   }
   return <div className="border rounded-xl p-4 space-y-3 bg-slate-50">
-    <h4 className="font-semibold">Response · {new Date(attempt.submitted_at).toLocaleString()}</h4><p className="whitespace-pre-wrap">{attempt.response}</p>
+    <h4 className="font-semibold">Response · {new Date(attempt.submitted_at).toLocaleString()}</h4><p className="whitespace-pre-wrap"><MathText text={attempt.response} /></p>
     <p className="text-sm">Hints reported: {attempt.hints ?? 'not recorded'} · {attempt.completed ? 'Teacher recorded completion' : 'Awaiting completion review'}</p>
     {attempt.evaluations.map((r, i) => <div key={i} className="bg-white border rounded-lg p-3"><strong>{r.kind === 'teacher' ? 'Teacher-verified feedback' : r.kind === 'ai' ? 'AI feedback — not teacher verified' : 'AI evaluation could not finish'}</strong><p className="text-xs">{new Date(r.date).toLocaleString()}</p>
-      {typeof r.feedback === 'string' ? <p>{r.feedback}</p> : r.feedback ? <>{[['Correctly understood',r.feedback.correctly_understood], ['Missing concepts',r.feedback.missing_concepts], ['Misconceptions',r.feedback.misconceptions], ['Strengths',r.feedback.strengths]].map(([label, items]) => <div key={label as string}><h5 className="font-medium">{label as string}</h5>{(items as string[]).length ? <ul className="list-disc ml-5">{(items as string[]).map((text, j) => <li key={j}>{text}</li>)}</ul> : <p>None identified.</p>}</div>)}<p>Next step: {r.feedback.next_step}</p></> : null}
+      {typeof r.feedback === 'string' ? <p><MathText text={r.feedback} /></p> : r.feedback ? <>{[['Correctly understood',r.feedback.correctly_understood], ['Missing concepts',r.feedback.missing_concepts], ['Misconceptions',r.feedback.misconceptions], ['Strengths',r.feedback.strengths]].map(([label, items]) => <div key={label as string}><h5 className="font-medium">{label as string}</h5>{(items as string[]).length ? <ul className="list-disc ml-5">{(items as string[]).map((text, j) => <li key={j}><MathText text={text} /></li>)}</ul> : <p>None identified.</p>}</div>)}<p>Next step: <MathText text={r.feedback.next_step} /></p></> : null}
       {r.outcome && <p>Outcome: {r.outcome}</p>}{r.error && <p>{r.error} Your submitted response remains saved.</p>}
     </div>)}
     {kind === 'teach_back' && (student || educator) && <Button variant="secondary" disabled={busy} onClick={() => run(() => learnsphere.evaluate(attempt.id))}>{attempt.evaluations.some(r => r.kind === 'ai') ? 'View saved AI evaluation' : 'Evaluate with Qwen / retry'}</Button>}

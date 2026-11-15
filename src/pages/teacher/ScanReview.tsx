@@ -483,9 +483,9 @@ function UploadPage({ assignment, onBack, onProcessed }: {
                   provider={modelProvider}
                 />
               ) : (
-                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-bg p-3 text-sm text-navy-900">
-                  {result.extractedText || '[No text extracted]'}
-                </pre>
+                <div className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-bg p-3 text-sm text-navy-900">
+                  <MathText text={result.extractedText || '[No text extracted]'} />
+                </div>
               )}
             </div>
             ))}
@@ -550,6 +550,12 @@ function ScanEvaluation({
           className="mt-1 block w-full rounded-lg border border-surface-border p-2 font-normal"
         />
       </label>
+      {/\\[([a-zA-Z]/.test(text) && (
+        <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-dashed border-teal-200 bg-teal-50/40 p-2 text-sm" aria-label="Formatted preview">
+          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">Preview</span>
+          <MathText text={text} />
+        </div>
+      )}
       <p className="text-xs text-content-secondary">Correct OCR errors and remove student names and identifiers before sending the answers to {provider === 'qwen' ? 'Qwen' : 'Gemini'} for draft marking.</p>
       <button
         type="button"
@@ -563,19 +569,19 @@ function ScanEvaluation({
       {summary && (
         <div className="space-y-2 rounded-lg border border-surface-border p-3">
           <h4 className="font-semibold">Draft marks · {summary.total_marks_obtained}/{summary.max_possible_marks} ({summary.percentage}%)</h4>
-          {summary.overall_feedback && <p>{summary.overall_feedback}</p>}
+          {summary.overall_feedback && <p><MathText text={summary.overall_feedback} /></p>}
           {summary.needs_teacher_review && <p className="font-semibold text-amber-800">Teacher review required</p>}
           {summary.review_reasons.map((reason, index) => <p key={index} className="text-amber-800">{reason}</p>)}
           {current.result?.question_evaluations.map((question) => (
             <div key={question.question_id} className="border-t border-surface-border pt-2">
-              <p className="font-semibold">Q{question.question_index}. {question.question_text} · {question.awarded_marks}/{question.max_marks}</p>
+              <p className="font-semibold">Q{question.question_index}. <MathText text={question.question_text} /> · {question.awarded_marks}/{question.max_marks}</p>
               {question.status === 'unattempted' && <p>Unattempted</p>}
-              {question.feedback && <p>{question.feedback}</p>}
+              {question.feedback && <p><MathText text={question.feedback} /></p>}
               {question.flag_for_review && <p className="text-amber-800">{question.flag_reason || 'Review required'}</p>}
               {!!question.step_breakdown.length && (
                 <ul className="ml-5 list-disc">
                   {question.step_breakdown.map((step, index) => (
-                    <li key={index}>{step.criterion} ({step.marks_awarded}/{step.max})</li>
+                    <li key={index}><MathText text={step.criterion} /> ({step.marks_awarded}/{step.max})</li>
                   ))}
                 </ul>
               )}

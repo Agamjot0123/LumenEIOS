@@ -3,6 +3,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { Badge } from '../../components/common/Badge';
 import { MathText } from '../../components/common/MathText';
 import { apiClient } from '../../lib/apiClient';
+import { sameAnswer } from '../../lib/mathText';
 
 // Shared helpers for the live homework workspaces. All data comes from the live API;
 // nothing here is synthetic.
@@ -112,7 +113,7 @@ export const OptionList: React.FC<{ options: unknown[]; correct?: string | null;
   <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
     {options.map((o, i) => {
       const text = String(o);
-      const isKey = correct != null && text.trim() === String(correct).trim();
+      const isKey = correct != null && sameAnswer(text, String(correct));
       const isPicked = selected === i;
       return <li key={i} className={'flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-sm ' +
         (isKey ? 'border-emerald-300 bg-emerald-50/70 text-emerald-950' : isPicked ? 'border-sky-300 bg-sky-50' : 'border-surface-border bg-surface-bg/40')}>
@@ -181,7 +182,7 @@ export const Segmented: React.FC<{ value: string; onChange: (v: string) => void;
 
 /** Live typeset preview for teacher-entered text containing \( … \) formulas. */
 export const MathPreview: React.FC<{ text?: string | null }> = ({ text }) =>
-  text && /\\[([a-zA-Z]/.test(text)
+  text && /\\[([a-zA-Z]|\$/.test(text)
     ? <div className="rounded-lg border border-dashed border-teal-200 bg-teal-50/40 px-3 py-2 text-sm" aria-label="Formatted preview">
         <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-teal-700">Preview</span><MathText text={text} />
       </div>
