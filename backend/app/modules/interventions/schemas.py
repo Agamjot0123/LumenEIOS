@@ -1,7 +1,7 @@
 """Pydantic schemas for interventions (API + AI structured output)."""
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,6 +23,8 @@ class AIInterventionContent(BaseModel):
     Evidence references and scores are attached by the backend from verified
     ledger data — the model must not invent them.
     """
+
+    ai_temperature: ClassVar[float] = 0.4  # grounded planning: some variety, little invention
 
     learning_objective: str = Field(min_length=8, max_length=800)
     recommended_activities: List[str] = Field(min_length=1, max_length=8)

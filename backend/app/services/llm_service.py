@@ -397,8 +397,10 @@ Return only a JSON object. Put multiple-choice questions in mcqs and open-ended 
 Design every question and its recommended answer for the competency assigned below. Do not tag a question from the topic name alone.
 {assignment_block}
 For each MCQ, options must be a JSON array of exactly 4 distinct plain strings.
-Each option is one short choice only. Do not put A/B/C/D labels, newlines, or multiple choices inside one option string.
-correct_answer must copy one option string exactly.
+Exactly one option is correct. Each of the other three must be a believable wrong answer from a common mistake, never a second correct answer.
+Each option is one short choice only. Do not put A/B/C/D labels, newlines, or multiple choices inside one option string. Do not use "all of the above" or "none of the above".
+correct_answer must copy one option string exactly, character for character.
+Write formulas in LaTeX inside \\( and \\), for example \\( \\frac{{1}}{{2}} \\) or \\( x^2 \\), and write them the same way in options and correct_answer.
 Theory type must be short, descriptive, or practical. Ask for a written response and omit multiple-choice options.
 
 <chapter_context>

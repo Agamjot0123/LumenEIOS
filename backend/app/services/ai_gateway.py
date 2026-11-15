@@ -79,7 +79,7 @@ class GeminiProvider:
             system_instruction=system,
             response_mime_type="application/json",
             response_json_schema=_gemini_json_schema(schema),
-            temperature=0.7,
+            temperature=schema_temperature(schema),
         )
         return await self._generate(prompt, config)
 
@@ -186,6 +186,19 @@ class QwenTextProvider:
         except QwenOCRInferenceError:
             logger.warning("Qwen generation failed.")
             raise AIProviderError() from None
+
+
+DEFAULT_TEMPERATURE = 0.7
+
+
+def schema_temperature(schema: Type[BaseModel]) -> float:
+    """Sampling temperature for a response schema.
+
+    A schema opts in with `ai_temperature: ClassVar[float]`. Marking and mapping schemas use a low
+    value so the same answer gets the same marks on every run; question writing uses a higher one
+    for variety."""
+    value = getattr(schema, "ai_temperature", DEFAULT_TEMPERATURE)
+    return float(value) if isinstance(value, (int, float)) else DEFAULT_TEMPERATURE
 
 
 def get_ai_provider() -> GeminiProvider:
