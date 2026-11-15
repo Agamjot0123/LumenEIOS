@@ -56,7 +56,7 @@ html[data-theme='light'] {
   --surface-border-hover: 203 213 225;
   --content-primary: 24 34 48;
   --content-secondary: 102 112 133;
-  --content-muted: 152 162 179;
+  --content-muted: 112 122 140; /* 4.4:1 on white; was 152 162 179 (2.6:1) */
   color-scheme: light;
 }
 
@@ -299,4 +299,14 @@ html[data-theme='dark'] .from-teal-50 {
   --tw-gradient-from: rgb(12 40 36) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(12 40 36 / 0) var(--tw-gradient-to-position);
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+}
+
+/* Dark mode inverts navy ink, so text written as "dark on amber" or "pale on navy" needs pinning. */
+html[data-theme='dark'] .bg-amber-400.text-navy-950,
+html[data-theme='dark'] .bg-amber-300.text-navy-950 {
+  color: rgb(8 18 30);
+}
+html[data-theme='dark'] .bg-navy-800 .text-navy-200,
+html[data-theme='dark'] .bg-navy-900 .text-navy-200 {
+  color: rgb(188 204 220);
 }

@@ -29,7 +29,7 @@ export const CompetencyBarChart: React.FC<CompetencyBarChartProps> = ({
   const { uiMode } = useTheme();
   const analytics = uiMode === 'analytics';
   const series = analytics
-    ? ['#1E3A8A', '#3B82F6', '#93C5FD', '#BFDBFE']
+    ? ['#1E3A8A', '#2563EB', '#0E7490', '#7C3AED']
     : ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
   const grid = analytics ? '#E2E8F0' : '#E1E7ED';
   const tick = analytics ? '#64748B' : '#667085';

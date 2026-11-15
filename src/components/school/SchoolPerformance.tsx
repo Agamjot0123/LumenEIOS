@@ -503,8 +503,8 @@ export const SchoolPerformance: React.FC<SchoolPerformanceProps> = ({ schoolId, 
                 <Legend />
                 <Line type="monotone" dataKey="LU" name="Language" stroke={analytics ? '#1E3A8A' : '#3B82F6'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="CU" name="Concept" stroke={analytics ? '#3B82F6' : '#10B981'} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="AU" name="Application" stroke={analytics ? '#93C5FD' : '#F59E0B'} strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke={analytics ? '#BFDBFE' : '#8B5CF6'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="AU" name="Application" stroke={analytics ? '#0E7490' : '#F59E0B'} strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="CT" name="Critical Thinking" stroke={analytics ? '#7C3AED' : '#8B5CF6'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="overall" name="Overall" stroke={analytics ? '#0F172A' : '#142A43'} strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="classAverage" name="Class average" stroke="#64748B" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} />
                 <Line

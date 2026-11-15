@@ -145,7 +145,7 @@ export function useChartPalette(): ChartPalette {
       secondary: analytics ? '#475569' : channel(style, '--content-secondary', '#667085'),
       ink: analytics ? '#0F172A' : channel(style, '--ink-navy-800', '#142A43'),
       accent: analytics ? '#1E3A8A' : channel(style, '--bg-teal-500', '#16A085'),
-      muted: analytics ? '#93C5FD' : channel(style, '--content-muted', '#98A2B3'),
+      muted: analytics ? '#64748B' : channel(style, '--content-muted', '#98A2B3'),
     };
   }, [theme, uiMode]);
 }

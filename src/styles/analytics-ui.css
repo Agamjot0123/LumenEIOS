@@ -258,3 +258,45 @@ html[data-ui='analytics'] [data-analytics-drawer='true'] > [role='dialog'] {
     break-inside: avoid;
   }
 }
+
+/*
+ * Readability fixes (light analytics theme).
+ * The analytics palette maps teal-300/400 to near-white blues and turns every <header> and the
+ * sidebar white, so text that was designed for a dark navy surface vanished ("white on white").
+ */
+
+/* Headers that were navy (e.g. the welcome page) keep a white surface: give their text ink colours. */
+html[data-ui='analytics'] header .text-white:not([class*='bg-']),
+html[data-ui='analytics'] header .text-gray-100,
+html[data-ui='analytics'] header .text-gray-200 {
+  color: #0f172a;
+}
+html[data-ui='analytics'] header .text-navy-100,
+html[data-ui='analytics'] header .text-navy-200,
+html[data-ui='analytics'] header .text-navy-300 {
+  color: #475569;
+}
+
+/* Accent text that relied on a dark background. */
+html[data-ui='analytics'] aside .text-teal-300,
+html[data-ui='analytics'] aside .text-teal-400,
+html[data-ui='analytics'] header .text-teal-300,
+html[data-ui='analytics'] header .text-teal-400 {
+  color: #1e40af;
+}
+html[data-ui='analytics'] aside .bg-teal-500\/10 {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+/* Sidebar badges (AI, OCR, Demo, VI–VIII): were navy with ink text. */
+html[data-ui='analytics'] aside nav a:not(.bg-teal-500) span.bg-navy-700 {
+  background-color: #e0e7ff;
+  color: #1e3a8a;
+}
+
+/* Icons such as check marks drawn in teal-400 on white cards. */
+html[data-ui='analytics'] main .text-teal-300,
+html[data-ui='analytics'] main .text-teal-400 {
+  color: #2563eb;
+}
