@@ -6,6 +6,7 @@ import { ProcessProgress } from '../../components/common/ProcessProgress';
 import { ApiError, apiClient, ProcessStep, UploadAssignment } from '../../lib/apiClient';
 import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
 import { UnauthorizedPage } from '../shared/UnauthorizedPage';
+import { SampleWalkthrough } from './SampleWalkthrough';
 
 const OFFLINE_DEMO_BANNER = 'OFFLINE DEMO - synthetic data, not official student results.';
 
@@ -246,6 +247,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           </p>
         )}
       </header>
+      {!isStudent && <SampleWalkthrough />}
 
       {assignment && (
         <article className="rounded-xl border border-surface-border bg-white p-4 shadow-subtle">

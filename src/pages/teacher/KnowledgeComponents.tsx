@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/common/Button';
 import { Card, CardBody, CardHeader } from '../../components/common/Card';
 import { useAuth } from '../../context/AuthContext';
-import { ApiError, apiClient } from '../../lib/apiClient';
+import { ApiError, apiClient, type DemoWalkthrough } from '../../lib/apiClient';
 import { UnauthorizedPage } from '../shared/UnauthorizedPage';
+import { KnowledgeGraphView, type KnowledgeGraph } from '../student/KnowledgeComponentGraph';
+import { samplesFor, type SampleConcept } from './kcSamples';
 
 const inputClass = 'mt-1 block w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-sm';
 
@@ -20,6 +22,20 @@ const RELATIONSHIP_LABEL: Record<RelationshipKind, string> = {
 
 function message(err: unknown) {
   return err instanceof ApiError ? err.message : 'Could not save.';
+}
+
+function sameText(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function uniqueSamples(items: SampleConcept[], field: keyof SampleConcept) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const value = item[field];
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
 }
 
 export function KnowledgeComponentsPage() {
@@ -42,10 +58,12 @@ function Catalogue() {
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
+  const seededSubjects = useRef(new Set<string>());
   const [sourceId, setSourceId] = useState('');
   const [targetId, setTargetId] = useState('');
   const [kind, setKind] = useState<RelationshipKind>('PREREQUISITE_OF');
   const [revision, setRevision] = useState(0);
+  const [preview, setPreview] = useState<DemoWalkthrough | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -68,26 +86,101 @@ function Catalogue() {
     return () => { active = false; };
   }, []);
 
+  const subjectName = subjects.find((subject) => subject.id === subjectId)?.name ?? '';
+  const samples = samplesFor(subjectName);
+
+  useEffect(() => {
+    const first = samples.concepts[0];
+    if (!first) return;
+    setName(first.name);
+    setTopic(first.topic);
+    setDescription(first.description);
+  }, [subjectId, subjectName]);
+
   useEffect(() => {
     if (!subjectId) return;
     let active = true;
     setError('');
-    Promise.all([
-      apiClient.knowledgeGraph.list(subjectId),
-      apiClient.knowledgeGraph.relationships(subjectId),
-    ]).then(([concepts, links]) => {
-      if (!active) return;
-      setComponents(concepts);
-      setRelationships(links);
-      setSourceId((current) => concepts.some((item) => item.id === current) ? current : concepts[0]?.id || '');
-      setTargetId((current) => concepts.some((item) => item.id === current) ? current : concepts[1]?.id || concepts[0]?.id || '');
-    }).catch((err) => {
-      if (active) setError(message(err));
+    const pack = samplesFor(subjectName);
+    (async () => {
+      try {
+        let concepts = await apiClient.knowledgeGraph.list(subjectId);
+        if (!seededSubjects.current.has(subjectId)) {
+          seededSubjects.current.add(subjectId);
+          const missing = pack.concepts.filter((sample) => !concepts.some(
+            (item) => sameText(item.name, sample.name) && sameText(item.topic, sample.topic),
+          ));
+          for (const sample of missing) {
+            try {
+              await apiClient.knowledgeGraph.create({
+                name: sample.name,
+                description: sample.description,
+                subject_id: subjectId,
+                topic: sample.topic,
+              });
+            } catch (err) {
+              if (!(err instanceof ApiError && err.status === 409)) throw err;
+            }
+          }
+          concepts = await apiClient.knowledgeGraph.list(subjectId);
+          const byName = new Map(concepts.map((item) => [item.name, item]));
+          for (const sampleLink of pack.links) {
+            const source = byName.get(sampleLink.source);
+            const target = byName.get(sampleLink.target);
+            if (!source || !target || source.id === target.id) continue;
+            try {
+              await apiClient.knowledgeGraph.link({
+                source_id: source.id,
+                target_id: target.id,
+                relationship: sampleLink.relationship,
+              });
+            } catch (err) {
+              if (!(err instanceof ApiError && (err.status === 422 || err.status === 409))) throw err;
+            }
+          }
+        }
+        const links = await apiClient.knowledgeGraph.relationships(subjectId);
+        if (!active) return;
+        setComponents(concepts);
+        setRelationships(links);
+        setSourceId((current) => concepts.some((item) => item.id === current) ? current : concepts[0]?.id || '');
+        setTargetId((current) => concepts.some((item) => item.id === current) ? current : concepts[1]?.id || concepts[0]?.id || '');
+      } catch (err) {
+        if (active) setError(message(err));
+      }
+    })();
+    return () => { active = false; };
+  }, [subjectId, subjectName, revision]);
+
+  useEffect(() => {
+    if (!subjectId) return;
+    let active = true;
+    apiClient.knowledgeGraph.demoPreview(subjectId).then((data) => {
+      if (active) setPreview(data);
+    }).catch(() => {
+      if (active) setPreview(null);
     });
     return () => { active = false; };
   }, [subjectId, revision]);
 
   const names = new Map(components.map((item) => [item.id, item.name]));
+  const choices: SampleConcept[] = [...samples.concepts];
+  components.forEach((item) => {
+    if (!choices.some((sample) => sameText(sample.name, item.name) && sameText(sample.topic, item.topic))) {
+      choices.push({ name: item.name, topic: item.topic, description: item.description });
+    }
+  });
+  const topics = uniqueSamples(choices, 'topic');
+  const descriptions = uniqueSamples(choices, 'description');
+
+  function chooseConcept(nextName: string) {
+    const match = choices.find((item) => item.name === nextName);
+    setName(nextName);
+    if (match) {
+      setTopic(match.topic);
+      setDescription(match.description);
+    }
+  }
 
   async function addConcept(event: React.FormEvent) {
     event.preventDefault();
@@ -101,12 +194,14 @@ function Catalogue() {
         subject_id: subjectId,
         topic: topic.trim(),
       });
-      setName('');
-      setDescription('');
       setRevision((value) => value + 1);
-      setNotice('Concept saved. Evaluate a student scan on Upload to attach questions to it.');
+      setNotice('Concept saved. It now appears on this page and on the student graph.');
     } catch (err) {
-      setError(message(err));
+      if (err instanceof ApiError && err.status === 409) {
+        setNotice('That concept is already saved. Students can see it on their graph.');
+      } else {
+        setError(message(err));
+      }
     } finally {
       setSaving(false);
     }
@@ -120,7 +215,7 @@ function Catalogue() {
     try {
       await apiClient.knowledgeGraph.link({ source_id: sourceId, target_id: targetId, relationship: kind });
       setRevision((value) => value + 1);
-      setNotice('Link saved.');
+      setNotice('Link saved. Students see the same link on their graph.');
     } catch (err) {
       setError(message(err));
     } finally {
@@ -131,7 +226,7 @@ function Catalogue() {
   if (loading) return <p role="status" className="text-sm">Loading subjects…</p>;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto max-w-5xl space-y-4">
       <Card>
         <CardHeader
           title="Knowledge Components"
@@ -151,10 +246,22 @@ function Catalogue() {
             </label>
           )}
           <p className="text-xs text-content-secondary">
-            After the concepts exist, open <Link className="font-semibold text-teal-700 underline" to="/upload">Upload</Link>, leave the extracted text unchanged, and evaluate the scan. The student then sees the graph on their dashboard.
+            Step 1. This graph is what the student persona sees for the subject. Grey concepts are not marked yet. Open <Link className="font-semibold text-teal-700 underline" to="/upload">Upload</Link> and evaluate the sample answer to colour them in.
           </p>
         </CardBody>
       </Card>
+
+      {preview && (
+        <Card>
+          <CardHeader
+            title={`${preview.subject_name} concept graph`}
+            subtitle={`${preview.student_name} sees this graph. ${preview.evaluated ? 'The sample paper has been marked.' : 'Mark the sample paper on Upload to add scores.'}`}
+          />
+          <CardBody>
+            <KnowledgeGraphView graph={preview.graph as KnowledgeGraph} />
+          </CardBody>
+        </Card>
+      )}
 
       {subjectId && (
         <Card>
@@ -163,15 +270,21 @@ function Catalogue() {
             <form onSubmit={addConcept} className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium text-navy-900">
                 Name
-                <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} required maxLength={200} />
+                <select className={inputClass} value={name} onChange={(event) => chooseConcept(event.target.value)} required>
+                  {choices.map((item) => <option key={`${item.name}-${item.topic}`} value={item.name}>{item.name}</option>)}
+                </select>
               </label>
               <label className="text-sm font-medium text-navy-900">
                 Topic
-                <input className={inputClass} value={topic} onChange={(event) => setTopic(event.target.value)} required maxLength={200} />
+                <select className={inputClass} value={topic} onChange={(event) => setTopic(event.target.value)} required>
+                  {topics.map((item) => <option key={item.topic} value={item.topic}>{item.topic}</option>)}
+                </select>
               </label>
               <label className="text-sm font-medium text-navy-900 sm:col-span-2">
                 Description
-                <textarea className={inputClass} value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} rows={3} />
+                <select className={inputClass} value={description} onChange={(event) => setDescription(event.target.value)}>
+                  {descriptions.map((item) => <option key={item.description} value={item.description}>{item.description}</option>)}
+                </select>
               </label>
               <div>
                 <Button type="submit" variant="teal" loading={saving} disabled={saving}>Add concept</Button>

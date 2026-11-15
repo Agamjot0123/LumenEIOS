@@ -58,15 +58,34 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraph }) {
     );
   }
 
+  const assessed = graph.nodes.filter((node) => node.learning_status !== 'not_assessed');
+
   return (
     <div className="space-y-4">
+      {assessed.length > 0 && (
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {assessed.map((node) => {
+            const style = STATUS_STYLE[node.learning_status];
+            return (
+              <li key={node.id} className="flex items-center justify-between rounded-lg border border-surface-border bg-white px-3 py-2 text-xs">
+                <span className="flex items-center gap-1.5 font-semibold text-navy-900">
+                  <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
+                  {node.name}
+                </span>
+                <span className="text-content-secondary">{style.label} · {node.overall_mastery}%</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {graph.insights.length > 0 && (
         <ul className="space-y-1 text-xs text-navy-900">
           {graph.insights.map((insight) => <li key={insight}>{insight}</li>)}
         </ul>
       )}
       <div className="overflow-auto rounded-xl border border-surface-border bg-surface-bg/40">
-        <svg width={placed.width} height={placed.height} role="img" aria-label="Knowledge component graph">
+        <div className="relative" style={{ width: placed.width, height: placed.height }}>
+          <svg className="absolute left-0 top-0" width={placed.width} height={placed.height} role="img" aria-label="Knowledge component graph">
           {graph.edges.map((edge) => {
             const from = placed.positions.get(edge.source_id);
             const to = placed.positions.get(edge.target_id);
@@ -85,31 +104,30 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraph }) {
             );
           })}
         </svg>
-        <div className="relative" style={{ marginTop: -placed.height, height: placed.height }}>
-          {graph.nodes.map((node) => {
-            const style = STATUS_STYLE[node.learning_status];
-            const position = placed.positions.get(node.id);
-            if (!position) return null;
-            return (
-              <button
-                key={node.id}
-                type="button"
-                data-status={node.learning_status}
-                aria-pressed={selectedId === node.id}
-                onClick={() => setSelectedId(node.id)}
-                className={`absolute w-36 rounded-lg border bg-white px-2 py-1.5 text-left shadow-subtle ${style.border}`}
-                style={{ left: position.x, top: position.y }}
-              >
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-900">
-                  <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
-                  <span className="truncate">{node.name}</span>
-                </span>
-                <span className="mt-0.5 block text-[11px] text-content-secondary">
-                  {node.overall_mastery == null ? style.label : `${style.label} · ${node.overall_mastery}%`}
-                </span>
-              </button>
-            );
-          })}
+        {graph.nodes.map((node) => {
+          const style = STATUS_STYLE[node.learning_status];
+          const position = placed.positions.get(node.id);
+          if (!position) return null;
+          return (
+            <button
+              key={node.id}
+              type="button"
+              data-status={node.learning_status}
+              aria-pressed={selectedId === node.id}
+              onClick={() => setSelectedId(node.id)}
+              className={`absolute z-10 w-36 rounded-lg border bg-white px-2 py-1.5 text-left shadow-subtle ${style.border}`}
+              style={{ left: position.x, top: position.y }}
+            >
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-navy-900">
+                <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
+                <span className="truncate">{node.name}</span>
+              </span>
+              <span className="mt-0.5 block text-[11px] text-content-secondary">
+                {node.overall_mastery == null ? style.label : `${style.label} · ${node.overall_mastery}%`}
+              </span>
+            </button>
+          );
+        })}
         </div>
       </div>
       {selected && (
@@ -162,6 +180,7 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraph }) {
 
 export const KnowledgeComponentGraph: React.FC = () => {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+  const [subject, setSubject] = useState('all');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -175,16 +194,41 @@ export const KnowledgeComponentGraph: React.FC = () => {
     return () => { active = false; };
   }, []);
 
+  const subjects = graph ? [...new Set(graph.nodes.map((node) => node.subject))].sort() : [];
+  const visible = graph && subject !== 'all'
+    ? {
+        ...graph,
+        nodes: graph.nodes.filter((node) => node.subject === subject),
+        edges: graph.edges.filter((edge) => {
+          const ids = new Set(graph.nodes.filter((node) => node.subject === subject).map((node) => node.id));
+          return ids.has(edge.source_id) && ids.has(edge.target_id);
+        }),
+      }
+    : graph;
+
   return (
     <Card id="knowledge-graph" className="scroll-mt-6">
       <CardHeader
         title="Knowledge Component Graph"
-        subtitle="Concept mastery from your evaluated answers. Green is proficient, yellow is developing, red needs improvement, and grey is not assessed."
+        subtitle="Concepts your teacher added. Green is proficient, yellow is developing, red needs improvement, and grey is not assessed yet."
       />
-      <CardBody>
+      <CardBody className="space-y-4">
         {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
         {!error && !graph && <p role="status" className="text-sm">Loading your knowledge graph…</p>}
-        {graph && <KnowledgeGraphView graph={graph} />}
+        {subjects.length > 0 && (
+          <label className="block text-sm font-medium text-navy-900">
+            Subject
+            <select
+              className="mt-1 block w-full max-w-xs rounded-lg border border-surface-border bg-white px-3 py-2 text-sm"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+            >
+              <option value="all">All subjects</option>
+              {subjects.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        )}
+        {visible && <KnowledgeGraphView graph={visible} />}
       </CardBody>
     </Card>
   );

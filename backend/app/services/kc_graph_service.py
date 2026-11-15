@@ -381,6 +381,7 @@ async def _recompute_mastery(db: AsyncSession, student_id: str, kc_ids: set[str]
         current.incorrect_count = len(distinct - correct)
         current.last_assessed_at = max(as_utc(attempt.assessed_at) for attempt in attempts)
         current.updated_at = now
+    await db.flush()
 
 
 async def apply_reliable_evaluation(
@@ -585,8 +586,11 @@ async def build_student_graph(db: AsyncSession, student_id: str) -> dict:
     )).scalars().all())
     assessed = {row.kc_id: row for row in mastery_rows}
     edges = list((await db.execute(select(KnowledgeComponentRelationship))).scalars().all())
+    catalogue_ids = set((await db.scalars(select(KnowledgeComponent.id))).all())
 
-    visible = set(assessed)
+    # The shared catalogue is visible to every student. Mastery stays on the signed-in student,
+    # so another student sees the same concepts in grey until their own work is evaluated.
+    visible = set(assessed) | catalogue_ids
     for edge in edges:
         if edge.relationship == "PREREQUISITE_OF" and edge.target_id in assessed:
             visible.add(edge.source_id)

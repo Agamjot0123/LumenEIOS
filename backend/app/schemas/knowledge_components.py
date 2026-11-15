@@ -94,3 +94,18 @@ class KnowledgeGraphOut(BaseSchema):
     nodes: list[KnowledgeGraphNode]
     edges: list[KnowledgeGraphEdge]
     insights: list[str]
+
+
+class DemoWalkthroughOut(BaseSchema):
+    student_name: str
+    student_email: str
+    subject_name: str
+    assessment_id: str
+    title: str
+    class_name: str
+    extracted_text: str
+    evaluated: bool
+    total_marks_obtained: Optional[float] = None
+    max_possible_marks: Optional[float] = None
+    percentage: Optional[float] = None
+    graph: KnowledgeGraphOut

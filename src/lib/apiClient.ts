@@ -43,6 +43,25 @@ export type ProcessStep = {
 
 export type AssignmentTarget = { id: string; name: string; subjects: { id: string; name: string }[] };
 
+export type DemoWalkthrough = {
+  student_name: string;
+  student_email: string;
+  subject_name: string;
+  assessment_id: string;
+  title: string;
+  class_name: string;
+  extracted_text: string;
+  evaluated: boolean;
+  total_marks_obtained: number | null;
+  max_possible_marks: number | null;
+  percentage: number | null;
+  graph: {
+    nodes: Array<{ id: string; name: string; subject: string; learning_status: string; overall_mastery: number | null }>;
+    edges: Array<{ source_id: string; target_id: string; relationship: string }>;
+    insights: string[];
+  };
+};
+
 export type UploadAssignment = {
   id: string;
   title: string;
@@ -470,6 +489,12 @@ export const apiClient = {
         target_id: string;
         relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF';
       }>>(`/knowledge-components/relationships?subject_id=${encodeURIComponent(subjectId)}`);
+    },
+    demoPreview(subjectId: string) {
+      return request<DemoWalkthrough>(`/knowledge-components/demo-walkthrough?subject_id=${encodeURIComponent(subjectId)}`);
+    },
+    demoEvaluate(subjectId: string) {
+      return request<DemoWalkthrough>(`/knowledge-components/demo-walkthrough?subject_id=${encodeURIComponent(subjectId)}`, { method: 'POST' });
     },
     link(body: { source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF' }) {
       return request<{

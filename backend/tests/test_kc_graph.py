@@ -258,7 +258,7 @@ async def test_evaluation_updates_only_the_linked_student_graph(client, db_sessi
     graph = await client.get("/api/v1/students/me/knowledge-graph", headers={"Authorization": f"Bearer {student_token}"})
     assert graph.status_code == 200, graph.text
     by_name = {node["name"]: node for node in graph.json()["nodes"]}
-    assert set(by_name) == {"Chain Rule", "Differentiation", "Limits"}
+    assert {"Chain Rule", "Differentiation", "Limits"} <= set(by_name)
     chain = by_name["Chain Rule"]
     assert chain["lu"] == 40
     assert chain["cu"] == 30
@@ -287,8 +287,58 @@ async def test_evaluation_updates_only_the_linked_student_graph(client, db_sessi
         headers={"Authorization": f"Bearer {ananya}"},
     )
     assert other.status_code == 200, other.text
-    assert other.json()["nodes"] == []
+    ananya_nodes = {node["name"]: node for node in other.json()["nodes"]}
+    assert ananya_nodes["Chain Rule"]["lu"] is None
+    assert ananya_nodes["Chain Rule"]["attempt_count"] == 0
+    assert ananya_nodes["Chain Rule"]["learning_status"] == "not_assessed"
     assert (await client.get("/api/v1/students/me/knowledge-graph", headers=teacher)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_sample_walkthrough_updates_the_student_persona(client, teacher_token, student_token):
+    teacher = {"Authorization": f"Bearer {teacher_token}"}
+    student = {"Authorization": f"Bearer {student_token}"}
+    old = await client.post("/api/v1/knowledge-components", headers=teacher, json={
+        "name": "Expressions", "description": "An older sample.", "subject_id": "sub-math", "topic": "Legacy",
+    })
+    assert old.status_code == 201, old.text
+
+    preview = await client.get(
+        "/api/v1/knowledge-components/demo-walkthrough", headers=teacher, params={"subject_id": "sub-math"},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["evaluated"] is False
+    preview_names = [node["name"] for node in preview.json()["graph"]["nodes"]]
+    assert preview_names.count("Expressions") == 1
+    assert any(node["name"] == "Units" and node["learning_status"] == "not_assessed" for node in preview.json()["graph"]["nodes"])
+
+    marked = await client.post(
+        "/api/v1/knowledge-components/demo-walkthrough", headers=teacher, params={"subject_id": "sub-math"},
+    )
+    assert marked.status_code == 200, marked.text
+    body = marked.json()
+    by_name = {node["name"]: node for node in body["graph"]["nodes"]}
+    assert by_name["Number line"]["learning_status"] == "proficient"
+    assert by_name["Expressions"]["learning_status"] == "needs_improvement"
+    assert by_name["Units"]["learning_status"] == "not_assessed"
+    assert any(note.startswith("Revisit Expressions") for note in by_name["Equations"]["recommendations"])
+    assert body["percentage"] is not None
+
+    again = await client.post(
+        "/api/v1/knowledge-components/demo-walkthrough", headers=teacher, params={"subject_id": "sub-math"},
+    )
+    again_by = {node["name"]: node for node in again.json()["graph"]["nodes"]}
+    assert again_by["Expressions"]["attempt_count"] == by_name["Expressions"]["attempt_count"]
+
+    visible = await client.get("/api/v1/students/me/knowledge-graph", headers=student)
+    student_nodes = {node["name"]: node for node in visible.json()["nodes"]}
+    assert student_nodes["Number line"]["learning_status"] == "proficient"
+    assert student_nodes["Units"]["learning_status"] == "not_assessed"
+    assert (await client.post(
+        "/api/v1/knowledge-components/demo-walkthrough",
+        headers=student,
+        params={"subject_id": "sub-math"},
+    )).status_code == 403
 
 
 @pytest.mark.asyncio
