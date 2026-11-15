@@ -379,7 +379,7 @@ async def _generate_draft(
         max_total_marks=body.max_total_marks,
         include_ai_generated=body.include_ai_generated,
     )
-    loaded = await load_candidate_questions(db, student.school_id, body.subject_id)
+    loaded = await load_candidate_questions(db, student.school_id, body.subject_id, body.topics)
     selection = select_questions(analysis, loaded.candidates, selection_request)
 
     try:
@@ -392,6 +392,11 @@ async def _generate_draft(
     if loaded.malformed_question_ids:
         note = f"{len(loaded.malformed_question_ids)} question bank row(s) couldn't be read and were skipped."
         draft = draft.model_copy(update={"notes": [*draft.notes, note]})
+    if body.topics:
+        note = f"Limited to topic(s): {', '.join(body.topics)}."
+        if draft.shortfall:
+            note += " Tag more bank questions with these topics, or widen the topic choice, to fill the gap."
+        draft = draft.model_copy(update={"notes": [note, *draft.notes]})
     return draft
 
 

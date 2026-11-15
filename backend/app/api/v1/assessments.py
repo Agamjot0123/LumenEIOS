@@ -228,6 +228,7 @@ def _serialize_qb_item(item: QuestionBankItem) -> Dict[str, Any]:
         "marks": item.marks,
         "competency": item.competency,
         "bloom_level": item.bloom_level,
+        "topic": item.topic,
         "source_document_ids": item.source_document_ids_json or [],
         "source_document_names": item.source_document_names_json or [],
         "is_ai_generated": item.is_ai_generated,
@@ -274,6 +275,44 @@ async def get_question_bank(
             "is_ai_generated": False,
         }
     ]
+
+
+def _clean_topic(value: Optional[str]) -> Optional[str]:
+    """Normalise a free-text topic: trimmed, single-spaced, at most 255 chars; blank -> None."""
+    if not value:
+        return None
+    cleaned = " ".join(str(value).split())[:255]
+    return cleaned or None
+
+
+@router.get("/assessments/question-bank/topics", dependencies=[Depends(_require_question_bank_login)])
+async def list_bank_topics(
+    subject_id: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+    educator: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
+):
+    """Topics used in this school's bank for a subject, with question counts per competency.
+    Untagged questions are reported separately so teachers can see what still needs a topic."""
+    rows = (await db.execute(
+        select(QuestionBankItem.topic, QuestionBankItem.competency).filter(
+            QuestionBankItem.school_id == school_id, QuestionBankItem.subject_id == subject_id)
+    )).all()
+    topics: Dict[str, Dict[str, Any]] = {}
+    untagged = 0
+    for topic, competency in rows:
+        name = _clean_topic(topic)
+        if not name:
+            untagged += 1
+            continue
+        entry = topics.setdefault(name.casefold(), {"topic": name, "count": 0, "by_competency": {}})
+        entry["count"] += 1
+        entry["by_competency"][competency] = entry["by_competency"].get(competency, 0) + 1
+    return {
+        "subject_id": subject_id,
+        "topics": sorted(topics.values(), key=lambda t: t["topic"].casefold()),
+        "untagged": untagged,
+    }
 
 
 QUESTION_TYPES = {"mcq", "short", "descriptive", "practical"}
@@ -336,6 +375,7 @@ async def create_bank_question(
         marks=req.marks,
         competency=req.competency,
         bloom_level=req.bloom_level,
+        topic=_clean_topic(req.topic),
         source_document_ids_json=[],
         source_document_names_json=[],
         is_ai_generated=False,
@@ -473,6 +513,7 @@ async def generate_questions_ai(
             marks=g.get("marks", 2),
             competency=g.get("competency", "CU"),
             bloom_level=g.get("bloom_level", req.bloom_level),
+            topic=_clean_topic(req.focus_topic),
             source_document_ids_json=g.get("source_document_ids", []),
             source_document_names_json=g.get("source_document_names", []),
             is_ai_generated=True,
@@ -605,6 +646,7 @@ async def generate_questions_beta(
             marks=item["marks"],
             competency=item["competency"],
             bloom_level=req.bloom_level,
+            topic=_clean_topic(req.focus_topic),
             source_document_ids_json=[document.id] if document else [],
             source_document_names_json=source_names,
             is_ai_generated=True,
@@ -741,6 +783,8 @@ async def update_question_endpoint(
         item.competency = req.competency
     if req.bloom_level is not None:
         item.bloom_level = req.bloom_level
+    if req.topic is not None:
+        item.topic = _clean_topic(req.topic)
 
     await db.commit()
     await db.refresh(item)
@@ -832,7 +876,7 @@ async def ai_save_approved_questions(
             options_json=list(q.options), correct_answer=q.correct_answer, marking_rubric=rubric,
             marks=q.marks, competency=q.competency, bloom_level=q.bloom_level,
             source_document_ids_json=[], source_document_names_json=[],
-            is_ai_generated=True, created_by=educator.id,
+            is_ai_generated=True, created_by=educator.id, topic=_clean_topic(q.topic or req.topic),
         ))
     db.add_all(items)
     db.add(AuditEvent(

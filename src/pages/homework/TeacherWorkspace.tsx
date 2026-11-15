@@ -93,6 +93,21 @@ function CreateHomework({ onSaved, onGoToBank, subjectName }: { onSaved: (draftI
   const [includeAI, setIncludeAI] = useState(false);
   const [preview, setPreview] = useState<any>(null);
   const [prefillDone, setPrefillDone] = useState(false);
+  const [topics, setTopics] = useState<string[]>([]);           // chosen; empty = all topics
+  const [bankTopics, setBankTopics] = useState<{ topic: string; count: number; by_competency: Record<string, number> }[]>([]);
+  const [untagged, setUntagged] = useState(0);
+
+  // Topics offered for the chosen subject come from the school's question bank.
+  useEffect(() => {
+    let active = true;
+    setTopics([]); setBankTopics([]); setUntagged(0);
+    if (!subjectId) return;
+    apiClient.assessments.bankTopics(subjectId).then(res => {
+      if (!active) return;
+      setBankTopics(res.topics); setUntagged(res.untagged);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [subjectId]);
 
   useEffect(() => { let active = true;
     hw.call<any[]>(`/schools/${enc(currentSchoolId)}/classes`).then(rows => { if (active) setClasses(rows); })
@@ -136,6 +151,7 @@ function CreateHomework({ onSaved, onGoToBank, subjectName }: { onSaved: (draftI
   const request = () => ({
     subject_id: subjectId, max_questions: count, include_ai_generated: includeAI,
     ...(maxMarks ? { max_total_marks: Number(maxMarks) } : {}),
+    ...(topics.length ? { topics } : {}),
   });
   const student = students.find(s => s.id === studentId);
 
@@ -154,6 +170,8 @@ function CreateHomework({ onSaved, onGoToBank, subjectName }: { onSaved: (draftI
           {(selectedClass?.subject_ids_json ?? []).map((id: string) => <option key={id} value={id}>{subjectName(id)}</option>)}
         </select></label>
     </div>
+    {subjectId && <TopicPicker available={bankTopics} untagged={untagged} chosen={topics} disabled={busy}
+      onChange={next => { setTopics(next); setPreview(null); }} onGoToBank={onGoToBank} />}
     {mode === 'student' && <label className="block"><span className={labelClass}>Student</span>
       <select aria-label="Student" className={inputClass} value={studentId} disabled={busy || !classId || students.length === 0} onChange={e => chooseStudent(e.target.value)}>
         <option value="">{!classId ? 'Choose a class first' : rosterLoaded && students.length === 0 ? 'No students enrolled' : 'Choose a student'}</option>
@@ -301,6 +319,42 @@ function ClassBatch({ settings, classId, className, students, subjectId, subject
         </>}
     </Section>
   </div>;
+}
+
+/** Choose which chapter(s)/topic(s) the homework is drawn from. No selection = the whole subject. */
+function TopicPicker({ available, untagged, chosen, disabled, onChange, onGoToBank }: {
+  available: { topic: string; count: number; by_competency: Record<string, number> }[]; untagged: number;
+  chosen: string[]; disabled?: boolean; onChange: (topics: string[]) => void; onGoToBank: () => void;
+}) {
+  const toggle = (t: string) => onChange(chosen.includes(t) ? chosen.filter(x => x !== t) : [...chosen, t]);
+  const total = available.filter(t => chosen.includes(t.topic)).reduce((n, t) => n + t.count, 0);
+  return <fieldset className="space-y-2" aria-label="Topics">
+    <legend className={labelClass}>Topic / chapter</legend>
+    {available.length === 0
+      ? <p className="rounded-lg border border-dashed border-surface-border px-3 py-2 text-sm text-content-secondary">
+          No topics are tagged in this subject’s question bank yet, so homework can come from any question.{' '}
+          <button type="button" className="font-medium text-teal-700 underline" onClick={onGoToBank}>Tag questions with a topic</button>
+        </p>
+      : <>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" disabled={disabled} aria-pressed={chosen.length === 0} onClick={() => onChange([])}
+            className={'rounded-full border px-3 py-1 text-sm transition ' + (chosen.length === 0 ? 'border-navy-800 bg-navy-800 text-white' : 'border-surface-border bg-white hover:border-teal-300')}>
+            All topics</button>
+          {available.map(t => {
+            const on = chosen.includes(t.topic);
+            return <button key={t.topic} type="button" disabled={disabled} aria-pressed={on} onClick={() => toggle(t.topic)}
+              title={Object.entries(t.by_competency).map(([c, n]) => `${c}: ${n}`).join(' · ')}
+              className={'rounded-full border px-3 py-1 text-sm transition ' + (on ? 'border-teal-600 bg-teal-600 text-white' : 'border-surface-border bg-white hover:border-teal-300')}>
+              {t.topic} <span className={on ? 'text-white/80' : 'text-content-secondary'}>({t.count})</span></button>;
+          })}
+        </div>
+        <p className="text-xs text-content-secondary">
+          {chosen.length === 0
+            ? `Questions can come from any topic${untagged ? `, including ${untagged} untagged question${untagged === 1 ? '' : 's'}` : ''}.`
+            : `${total} question${total === 1 ? '' : 's'} in ${chosen.length} topic${chosen.length === 1 ? '' : 's'}; each student still gets the ones that target their weakest competencies.`}
+        </p>
+      </>}
+  </fieldset>;
 }
 
 function GapPanel({ gap, name }: { gap: any; name?: string }) {
@@ -752,10 +806,10 @@ const ReleasedNote: React.FC<{ at?: string }> = ({ at }) =>
 
 type BankForm = {
   text: string; type: string; options: string[]; correctAnswer: string; markingRubric: string;
-  marks: number; competency: string; bloomLevel: string;
+  marks: number; competency: string; bloomLevel: string; topic: string;
 };
 const blankForm = (): BankForm => ({
-  text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', markingRubric: '', marks: 1, competency: 'CU', bloomLevel: 'Understand',
+  text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', markingRubric: '', marks: 1, competency: 'CU', bloomLevel: 'Understand', topic: '',
 });
 
 function formProblem(f: BankForm): string | null {
@@ -776,7 +830,7 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
   const [subjects, setSubjects] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
   const [questions, setQuestions] = useState<any[]>([]);
-  const [filters, setFilters] = useState({ competency: '', bloom: '', type: '', text: '', source: '' });
+  const [filters, setFilters] = useState({ competency: '', bloom: '', type: '', text: '', source: '', topic: '' });
   const [selected, setSelected] = useState<any>(null);   // null = nothing open; {id:''} = new question
   const [edit, setEdit] = useState<BankForm>(blankForm());
   const [showAi, setShowAi] = useState(false);
@@ -793,19 +847,22 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
 
   const shown = questions.filter(q => (!filters.competency || q.competency === filters.competency) && (!filters.bloom || q.bloomLevel === filters.bloom)
     && (!filters.type || q.type === filters.type) && (!filters.text || q.text.toLowerCase().includes(filters.text.toLowerCase()))
-    && (!filters.source || (filters.source === 'ai') === Boolean(q.isAiGenerated)));
+    && (!filters.source || (filters.source === 'ai') === Boolean(q.isAiGenerated))
+    && (!filters.topic || (filters.topic === '__none' ? !q.topic : (q.topic || '').toLowerCase() === filters.topic.toLowerCase())));
+  const topicNames = useMemo(() => Array.from(new Set(questions.map(q => q.topic).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b)), [questions]);
   const byCompetency = useMemo(() => Object.fromEntries(['LU', 'CU', 'AU', 'CT'].map(c => [c, questions.filter(q => q.competency === c).length])), [questions]);
   const open = (q: any) => {
     setSelected(q);
     const opts = q.options?.length ? [...q.options] : ['', '', '', ''];
     setEdit({ text: q.text, type: q.type, options: opts, correctAnswer: q.correctAnswer ?? '', markingRubric: q.markingRubric ?? '',
-      marks: q.marks, competency: q.competency, bloomLevel: q.bloomLevel || 'Understand' });
+      marks: q.marks, competency: q.competency, bloomLevel: q.bloomLevel || 'Understand', topic: q.topic ?? '' });
   };
-  const startNew = () => { setSelected({ id: '' }); setEdit(blankForm()); };
+  // New questions start in the topic currently filtered on, which is what teachers usually want.
+  const startNew = () => { setSelected({ id: '' }); setEdit({ ...blankForm(), topic: filters.topic && filters.topic !== '__none' ? filters.topic : '' }); };
   const isNew = selected && !selected.id;
   const problem = selected ? formProblem(edit) : null;
   const payload = () => ({ ...edit, options: edit.type === 'mcq' ? edit.options.map(o => o.trim()).filter(Boolean) : [],
-    correctAnswer: edit.correctAnswer.trim() });
+    correctAnswer: edit.correctAnswer.trim(), topic: edit.topic.trim() });
 
   return <div className="space-y-5">
     <div className="grid gap-3 sm:grid-cols-4">
@@ -832,7 +889,7 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Section title="Question bank" subtitle={`Answer keys and rubrics are visible to educators only.`}>
         <Messages error={error} notice={notice} />
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <select aria-label="Bank subject" className={inputClass} value={subject} onChange={e => { setSubject(e.target.value); setSelected(null); }}>
             {subjects.length === 0 && <option value="">No subjects</option>}{subjects.map(s => <option key={s} value={s}>{subjectName(s)}</option>)}</select>
           <select aria-label="Bloom filter" className={inputClass} value={filters.bloom} onChange={e => setFilters({ ...filters, bloom: e.target.value })}>
@@ -841,6 +898,8 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
             <option value="">All types</option>{QUESTION_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           <select aria-label="Competency filter" className={inputClass} value={filters.competency} onChange={e => setFilters({ ...filters, competency: e.target.value })}>
             <option value="">All competencies</option>{Object.keys(COMPETENCY_NAMES).map(c => <option key={c} value={c}>{c} - {COMPETENCY_NAMES[c]}</option>)}</select>
+          <select aria-label="Topic filter" className={inputClass} value={filters.topic} onChange={e => setFilters({ ...filters, topic: e.target.value })}>
+            <option value="">All topics</option>{topicNames.map(t => <option key={t} value={t}>{t}</option>)}<option value="__none">No topic yet</option></select>
           <select aria-label="Source filter" className={inputClass} value={filters.source} onChange={e => setFilters({ ...filters, source: e.target.value })}>
             <option value="">Teacher and AI</option><option value="teacher">Teacher-written</option><option value="ai">AI-generated</option></select>
           <div className="relative">
@@ -854,6 +913,7 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
             <button aria-label={q.text} className={'w-full rounded-xl border px-3 py-2.5 text-left transition hover:border-teal-300 ' + (selected?.id === q.id ? 'border-teal-400 bg-teal-50' : 'border-surface-border bg-white')} onClick={() => open(q)}>
               <p className="text-sm"><MathText text={q.text} /></p>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-content-secondary"><CompetencyTag code={q.competency} /><span>{q.bloomLevel}</span><span>·</span><span>{typeLabel(q.type)}</span><span>·</span><span>{q.marks} marks</span>
+                {q.topic ? <Badge variant="outline" size="sm">{q.topic}</Badge> : <span className="italic">no topic</span>}
                 {q.isAiGenerated && <Badge variant="warning" size="sm">AI-generated</Badge>}</p>
             </button></li>)}</ul>}
       </Section>
@@ -864,6 +924,10 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
             <textarea aria-label="Question" rows={3} className={inputClass} value={edit.text} onChange={e => setEdit({ ...edit, text: e.target.value })} /></label>
           <MathPreview text={edit.text} />
           <p className="text-[11px] text-content-secondary">{MATH_HINT}</p>
+          <label className="block"><span className={labelClass}>Topic / chapter</span>
+            <input aria-label="Topic" list="bank-topics" className={inputClass} placeholder="e.g. Mensuration" value={edit.topic}
+              onChange={e => setEdit({ ...edit, topic: e.target.value })} />
+            <datalist id="bank-topics">{topicNames.map(t => <option key={t} value={t} />)}</datalist></label>
           <div className="grid grid-cols-2 gap-2">
             <label><span className={labelClass}>Type</span><select aria-label="Question type" className={inputClass} value={edit.type}
               onChange={e => setEdit({ ...edit, type: e.target.value, ...(e.target.value === 'mcq' && edit.options.length < 2 ? { options: ['', '', '', ''] } : {}) })}>

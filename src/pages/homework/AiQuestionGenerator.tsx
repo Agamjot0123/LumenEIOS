@@ -128,9 +128,9 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
       <Button variant="primary" disabled={busy || approved.length === 0} onClick={() => run(async () => {
         const unkeyed = approved.findIndex(d => d.q.question_type === 'mcq' && !d.q.options.includes(d.q.correct_answer));
         if (unkeyed >= 0) throw new Error(`Question ${drafts.indexOf(approved[unkeyed]) + 1}: choose its correct option before saving.`);
-        const res = await apiClient.assessments.aiSaveQuestions(subject, approved.map(d => d.q), meta?.model);
+        const res = await apiClient.assessments.aiSaveQuestions(subject, approved.map(d => d.q), meta?.model, params.topic.trim());
         setDrafts(ds => ds.filter(d => !d.approved)); await onSaved();
-        return `${res.saved_count} approved question(s) saved to the ${subjectName(subject)} question bank.`;
+        return `${res.saved_count} approved question(s) saved to the ${subjectName(subject)} question bank under topic "${params.topic.trim()}".`;
       })}>Save {approved.length} approved to question bank</Button>
       <span className="text-xs text-content-secondary">Unapproved questions stay here and are not saved.</span>
     </div>}

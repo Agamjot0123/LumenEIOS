@@ -11,15 +11,16 @@ Rows whose stored values have the wrong type (SQLite doesn't enforce column type
 skipped and their IDs reported, so one bad row can't block selection for everyone.
 
 Known data limits (as of this version):
-- No topic, difficulty or review/approval field exists, so none is used.
+- `topic` is optional free text; an optional topic filter matches it case-insensitively.
+- No difficulty or review/approval field exists, so none is used.
 - `competency` is free text; the selector normalises it and reports unsupported values.
 - `subject_id` is not a foreign key, so an unknown subject simply matches nothing.
 """
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional, Sequence
 
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.entities import QuestionBankItem
@@ -32,9 +33,12 @@ from backend.app.modules.differentiated_homework.schemas import (
 logger = logging.getLogger(__name__)
 
 
-async def load_candidate_questions(db: AsyncSession, school_id: str, subject_id: str) -> QuestionBankLoad:
-    """Return the school's questions for one subject, ordered by question ID."""
-    result = await db.execute(
+async def load_candidate_questions(
+    db: AsyncSession, school_id: str, subject_id: str, topics: Optional[Sequence[str]] = None
+) -> QuestionBankLoad:
+    """Return the school's questions for one subject (optionally only the given topics), ordered by ID."""
+    wanted = sorted({t.strip().casefold() for t in (topics or []) if t and t.strip()})
+    query = (
         select(
             QuestionBankItem.id,
             QuestionBankItem.school_id,
@@ -49,6 +53,9 @@ async def load_candidate_questions(db: AsyncSession, school_id: str, subject_id:
         .filter(QuestionBankItem.school_id == school_id, QuestionBankItem.subject_id == subject_id)
         .order_by(QuestionBankItem.id)
     )
+    if wanted:
+        query = query.filter(func.lower(func.trim(QuestionBankItem.topic)).in_(wanted))
+    result = await db.execute(query)
 
     candidates, malformed = [], []
     for row in result.all():

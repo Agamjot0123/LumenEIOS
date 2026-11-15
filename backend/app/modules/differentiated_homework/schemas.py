@@ -1,6 +1,6 @@
 """Data shapes for the Differentiated Homework module."""
 from datetime import datetime
-from typing import Annotated, Dict, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional, Tuple
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
@@ -194,6 +194,8 @@ class HomeworkPreviewRequest(BaseModel):
     max_questions: StrictInt = Field(ge=1)
     max_total_marks: Optional[StrictInt] = Field(default=None, ge=1)
     include_ai_generated: StrictBool  # required and must be a real true/false
+    # Optional chapter/topic filter. Empty = every topic in the subject (previous behaviour).
+    topics: Tuple[str, ...] = Field(default=(), max_length=20)
 
 
 # --- Saved homework drafts ------------------------------------------------------------

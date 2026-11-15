@@ -205,6 +205,7 @@ function mapQuestionOut(q: any) {
     marks: q.marks,
     competency: q.competency,
     bloomLevel: q.bloom_level || q.bloomLevel,
+    topic: q.topic ?? null,
     sourceDocumentIds: q.source_document_ids || q.sourceDocumentIds || [],
     sourceDocumentNames: q.source_document_names || q.sourceDocumentNames || [],
     isAiGenerated: q.is_ai_generated ?? q.isAiGenerated ?? false,
@@ -881,6 +882,7 @@ export const apiClient = {
       marks: number;
       competency: string;
       bloomLevel: string;
+      topic: string;
     }>) {
       const res = await request<any>(`/assessments/questions/${questionId}`, {
         method: 'PUT',
@@ -893,9 +895,15 @@ export const apiClient = {
           marks: data.marks,
           competency: data.competency,
           bloom_level: data.bloomLevel,
+          topic: data.topic,
         }),
       });
       return mapQuestionOut(res);
+    },
+    /** Topics used in the school's bank for one subject, with counts per competency. */
+    bankTopics(subjectId: string) {
+      return request<{ subject_id: string; untagged: number; topics: { topic: string; count: number; by_competency: Record<string, number> }[] }>(
+        `/assessments/question-bank/topics?subject_id=${encodeURIComponent(subjectId)}`);
     },
     /** A teacher-written bank question (no AI). MCQs need a key equal to exactly one option. */
     async createQuestion(data: {
@@ -908,6 +916,7 @@ export const apiClient = {
       marks: number;
       competency: string;
       bloomLevel: string;
+      topic?: string;
     }) {
       const res = await request<any>('/assessments/question-bank', {
         method: 'POST',
@@ -921,6 +930,7 @@ export const apiClient = {
           marks: data.marks,
           competency: data.competency,
           bloom_level: data.bloomLevel,
+          topic: data.topic || undefined,
         }),
       });
       return mapQuestionOut(res);
@@ -930,10 +940,10 @@ export const apiClient = {
       return request<any>('/assessments/ai/generate-questions', { method: 'POST', body: JSON.stringify(params) });
     },
     /** Saves educator-approved (possibly edited) AI questions to the bank. */
-    async aiSaveQuestions(subjectId: string, questions: unknown[], model?: string) {
+    async aiSaveQuestions(subjectId: string, questions: unknown[], model?: string, topic?: string) {
       return request<any>('/assessments/ai/questions', {
         method: 'POST',
-        body: JSON.stringify({ subject_id: subjectId, questions, model }),
+        body: JSON.stringify({ subject_id: subjectId, questions, model, topic: topic || undefined }),
       });
     },
     async deleteQuestion(questionId: string) {

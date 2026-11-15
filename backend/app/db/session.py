@@ -54,6 +54,14 @@ async def init_db():
             if name not in existing:
                 await conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {definition}"))
 
+        # Question-bank topics (nullable; older questions stay untagged).
+        qb_cols = await conn.run_sync(lambda sync: {
+            column["name"] for column in inspect(sync).get_columns("question_bank_items")
+        }) if await conn.run_sync(lambda sync: inspect(sync).has_table("question_bank_items")) else set()
+        if qb_cols and "topic" not in qb_cols:
+            await conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN topic VARCHAR(255)"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_question_bank_items_topic ON question_bank_items (topic)"))
+
         # Subject-aware competency snapshots (nullable; historical rows remain global).
         snap_cols = await conn.run_sync(lambda sync: {
             column["name"] for column in inspect(sync).get_columns("student_competency_snapshots")

@@ -96,6 +96,7 @@ class AIGeneratedQuestion(BaseModel):
     competency: Competency
     bloom_level: Bloom
     explanation: Optional[str] = Field(default=None, max_length=3000)
+    topic: Optional[str] = Field(default=None, max_length=255)  # set from the request, not by the model
 
     @field_validator("text", "correct_answer", "marking_rubric", "explanation")
     @classmethod
@@ -324,7 +325,7 @@ async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest
         for item in items[:needed]:
             q, why = check_question(item, req, existing_texts, [a.text for a in accepted] + list(req.avoid_texts))
             if q:
-                accepted.append(shuffle_options(q))
+                accepted.append(shuffle_options(q).model_copy(update={"topic": req.topic}))
             else:
                 counts[why[0]] += 1
                 if why[0] == "invalid":
@@ -361,3 +362,4 @@ class AIQuestionSaveRequest(BaseModel):
     subject_id: str = Field(min_length=1, max_length=64)
     questions: List[AIGeneratedQuestion] = Field(min_length=1, max_length=20)
     model: Optional[str] = Field(default=None, max_length=100)
+    topic: Optional[str] = Field(default=None, max_length=255)

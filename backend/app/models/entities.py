@@ -471,6 +471,9 @@ class QuestionBankItem(Base):
     marks = Column(Integer, default=2, nullable=False)
     competency = Column(String(20), default="CU", nullable=False)  # LU, CU, AU, CT
     bloom_level = Column(String(50), default="Understand", nullable=False)
+    # Chapter / topic the question belongs to (free text, e.g. "Mensuration"). Lets Differentiated
+    # Homework limit selection to what the class is studying. Null for older, untagged questions.
+    topic = Column(String(255), nullable=True, index=True)
     source_document_ids_json = Column(JSON, default=list, nullable=False)
     source_document_names_json = Column(JSON, default=list, nullable=False)
     is_ai_generated = Column(Boolean, default=False, nullable=False)

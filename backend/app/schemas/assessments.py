@@ -53,6 +53,7 @@ class QuestionCreateRequest(BaseModel):
     marks: int = 1
     competency: str = "CU"
     bloom_level: str = "Understand"
+    topic: Optional[str] = None
 
 
 class QuestionUpdateRequest(BaseModel):
@@ -64,6 +65,7 @@ class QuestionUpdateRequest(BaseModel):
     marks: Optional[int] = None
     competency: Optional[str] = None
     bloom_level: Optional[str] = None
+    topic: Optional[str] = None  # "" clears it
 
 
 class AssessmentCreate(BaseModel):
