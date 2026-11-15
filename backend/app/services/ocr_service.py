@@ -111,6 +111,12 @@ class QwenOCRInferenceError(RuntimeError):
     pass
 
 
+def is_degenerate_output(text: str) -> bool:
+    """True when the model produced (almost) nothing but punctuation such as "!!!!!"."""
+    stripped = "".join(text.split())
+    return len(stripped) >= 8 and sum(ch.isalnum() for ch in stripped) / len(stripped) < 0.1
+
+
 class QwenVisionOCRProvider(BaseOCRProvider):
     """Server-side Qwen2.5-VL OCR; model and optional GPU dependencies load on first use."""
 
@@ -118,7 +124,8 @@ class QwenVisionOCRProvider(BaseOCRProvider):
         "You are an expert OCR model. Extract only the text and formulas visible in the image. "
         "Transcribe the original language directly without translating it. If text is unclear, "
         "write [unclear] instead of guessing. Format mathematical expressions in LaTeX. "
-        "Do not add an introduction, headings, summaries, or explanations."
+        "Transcribe every line completely, word for word, including whole sentences and the writer's "
+        "own explanations; never shorten an answer. Do not add an introduction, summary or commentary of your own."
     )
     _max_pdf_pages = 25
 
@@ -176,7 +183,9 @@ class QwenVisionOCRProvider(BaseOCRProvider):
             processor = AutoProcessor.from_pretrained(
                 model_id,
                 min_pixels=512 * 28 * 28,
-                max_pixels=2048 * 28 * 28,
+                # ~1 MP keeps handwriting legible; at the old ~1.6 MP cap a float16 3B model overflowed
+                # on full-page photos and produced only "!!!!" (NaN logits decode to token 0).
+                max_pixels=1280 * 28 * 28,
             )
             if windows_gpu:
                 from transformers import BitsAndBytesConfig
@@ -236,13 +245,24 @@ class QwenVisionOCRProvider(BaseOCRProvider):
             return self._generate_locked(messages, max_new_tokens)
 
     def _infer_image(self, image: Any) -> str:
-        return self._generate_locked([{
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image},
-                {"type": "text", "text": self._prompt},
-            ],
-        }], max_new_tokens=2048)
+        def run(img: Any) -> str:
+            return self._generate_locked([{
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": img},
+                    {"type": "text", "text": self._prompt},
+                ],
+            }], max_new_tokens=2048)
+
+        text = run(image)
+        # Numerical overflow shows up as a run of "!" (token 0). Retry once at a smaller size.
+        if is_degenerate_output(text) and hasattr(image, "resize") and getattr(image, "width", 0) > 700:
+            logger.warning("Qwen returned degenerate output; retrying at reduced resolution")
+            scale = 700 / image.width
+            text = run(image.resize((700, max(1, int(image.height * scale)))))
+            if is_degenerate_output(text):
+                return ""
+        return text
 
     def _generate_locked(self, messages: list[dict[str, Any]], max_new_tokens: int) -> str:
         try:

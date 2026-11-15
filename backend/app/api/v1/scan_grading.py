@@ -148,7 +148,7 @@ async def publish_grade(
     dims = dimension_scores_from_questions(graded)
     before = {d: getattr(student, {"LU": "lu_score", "CU": "cu_score", "AU": "au_score", "CT": "ct_score"}[d])
               for d in DIMENSIONS} | {"overall": student.overall_score}
-    per_question = "; ".join(f"Q{i}: {given[i].feedback}" for i in sorted(given) if given[i].feedback)
+    per_question = " ".join(f"Q{i}: {given[i].feedback.strip().rstrip('.;')}." for i in sorted(given) if given[i].feedback and given[i].feedback.strip())
     feedback = " ".join(x for x in [req.overall_feedback, per_question] if x) or None
 
     existing = (await db.execute(select(AssessmentSubmission).filter_by(

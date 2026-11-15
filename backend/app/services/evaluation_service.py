@@ -492,10 +492,14 @@ def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]
             if overlap is not None:
                 by_key = round(min(1.0, overlap / 0.8) * top * 2) / 2  # 80% of the key's content earns full marks
                 if abs(by_key - item.awarded_marks) > top / 2:
+                    model_was_generous = item.awarded_marks > by_key
                     item.awarded_marks = round((by_key + item.awarded_marks), 1) / 2
                     item.awarded_marks = round(item.awarded_marks * 2) / 2
                     item.flag_for_review = True
                     item.flag_reason = "AI mark and answer-key match disagree; marks set between them."
+                    if model_was_generous and item.awarded_marks < top:
+                        # The model's praise no longer matches the reduced mark; say what is missing instead.
+                        item.feedback = f"Partly correct, but the answer is incomplete. A full answer includes: {key}"
                 item.competency_score = round(100 * item.awarded_marks / top, 1) if top else 0
         if any(p in (item.feedback or "").lower() for p in _TEMPLATE_PHRASES):
             item.feedback = ""

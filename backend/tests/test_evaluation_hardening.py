@@ -54,3 +54,12 @@ def test_blank_answers_are_unattempted_and_template_text_is_removed():
     assert result.scoring_summary.overall_feedback == ""
     assert all("liter conversion" not in i.feedback for i in result.question_evaluations)
     assert result.scoring_summary.total_marks_obtained == 3
+
+
+def test_praise_is_replaced_when_the_key_check_lowers_a_generous_mark():
+    questions = [*QUESTIONS[:2], {"id": "3", "max_marks": 2, "competency": "AU", "options": [],
+                                  "correct_answer": "Chemical: the egg white changes permanently and cannot be reversed."}]
+    result = harden_evaluation(model_output(), questions, "Q1. burning of paper\nQ2. no new substance forms\nQ3. Chemical")
+    q3 = result.question_evaluations[2]
+    assert q3.awarded_marks < 2 and q3.flag_for_review
+    assert q3.feedback.startswith("Partly correct") and "cannot be reversed" in q3.feedback
