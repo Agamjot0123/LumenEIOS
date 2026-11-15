@@ -134,12 +134,15 @@ def normalize_mcq_answer(answer: Any, options: List[str]) -> Optional[str]:
     if letter.isdigit() and 1 <= int(letter) <= 4:
         return options[int(letter) - 1]
 
-    # Prefer an option that contains the answer text, or vice versa.
+    # Fall back to containment only when it identifies exactly one option; otherwise a short key
+    # such as "2" would silently match "12" or "2x" and mark the wrong option as correct.
     folded = text.casefold().rstrip(" .;:")
-    for option in options:
-        option_fold = option.casefold().rstrip(" .;:")
-        if folded and (folded in option_fold or option_fold in folded):
-            return option
+    contained = [
+        option for option in options
+        if folded and (folded in (fold := option.casefold().rstrip(" .;:")) or fold in folded)
+    ]
+    if len(contained) == 1:
+        return contained[0]
     return text
 
 

@@ -68,5 +68,5 @@ class ClassSectionOut(BaseSchema):
 
 class TeacherAssignmentRequest(BaseModel):
     teacher_id: str
-    teacher_name: str
+    teacher_name: Optional[str] = None  # ignored; the name is read from the teacher's account
 

@@ -1,5 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
+from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,17 +24,20 @@ async def get_student_competencies(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Enforce record-level authorization
-    if current_user.role == "student" and current_user.id != student_id:
-        raise HTTPException(status_code=403, detail="Access denied. Students can only view their own competency scores.")
+    # Enforce record-level authorization. Students reach only the record their account is linked to
+    # (never a record that merely shares their user id); parents only their linked children. Anything
+    # else is reported as missing so learners cannot probe which student ids exist.
+    if current_user.role == "student":
+        linked_student = await resolve_linked_student(db, current_user)
+        if not linked_student or linked_student.id != student_id:
+            raise HTTPException(status_code=404, detail="Student not found.")
     if current_user.role == "parent":
-        # Check linked child
         linked = await db.scalar(select(ParentStudentLink.id).where(
             ParentStudentLink.parent_user_id == current_user.id,
             ParentStudentLink.student_id == student_id,
         ))
         if not linked:
-            raise HTTPException(status_code=403, detail="Access denied. Parents can only view their linked children.")
+            raise HTTPException(status_code=404, detail="Student not found.")
 
     st_res = await db.execute(select(Student).filter(Student.id == student_id))
     st = st_res.scalars().first()

@@ -5,11 +5,11 @@ from pathlib import Path
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
-from backend.app.api.dependencies import get_current_user, require_roles
+from backend.app.api.dependencies import get_current_user, require_roles, user_school_ids
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.entities import (
@@ -334,12 +334,63 @@ async def stream_extract_ocr_preview(
     ))
 
 
+EDUCATOR_ROLES = ("admin", "principal", "teacher")
+
+
+def _require_simulation_allowed() -> None:
+    """The legacy batch engine and /process grade with simulated output; never present that as real."""
+    if not settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Simulated OCR grading is only available in demo mode. Use Scan Review for real OCR.",
+        )
+
+
+async def _educator_batch(db: AsyncSession, batch_id: str, user: User) -> GradingBatch:
+    """Load a batch the educator may see. Foreign-school or inconsistent batches are reported as missing."""
+    if user.role not in EDUCATOR_ROLES:
+        raise HTTPException(status_code=403, detail="Only educators can open grading batches.")
+    batch = (await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))).scalars().first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Grading batch not found.")
+    if user.role != "admin" and batch.school_id not in await user_school_ids(db, user):
+        raise HTTPException(status_code=404, detail="Grading batch not found.")
+    assessment = (
+        await db.execute(select(Assessment).filter(Assessment.id == batch.assessment_id))
+    ).scalars().first()
+    if (
+        not assessment
+        or assessment.school_id != batch.school_id
+        or (assessment.class_id and assessment.class_id != batch.class_id)
+    ):
+        # Fail closed: a batch whose assessment is missing or belongs elsewhere is not shown to anyone.
+        raise HTTPException(status_code=404, detail="Grading batch not found.")
+    return batch
+
+
+async def _educator_batch_item(
+    db: AsyncSession, batch_id: str, item_id: str, user: User
+) -> tuple[GradingBatch, GradingBatchItem]:
+    batch = await _educator_batch(db, batch_id, user)
+    item = (
+        await db.execute(
+            select(GradingBatchItem).filter(
+                GradingBatchItem.id == item_id, GradingBatchItem.batch_id == batch_id
+            )
+        )
+    ).scalars().first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Batch item not found.")
+    return batch, item
+
+
 @router.post("/process", response_model=OCRRunOut)
 async def process_ocr(
     req: ProcessOCRRequest,
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
+    _require_simulation_allowed()
     if req.provider in {"qwen", "gemini"}:
         raise HTTPException(
             status_code=400,
@@ -378,7 +429,7 @@ async def process_ocr(
     )
 
 
-@router.post("/review/verify", response_model=HumanReviewOut)
+@router.post("/review/verify", response_model=HumanReviewOut, dependencies=[Depends(_require_simulation_allowed)])
 async def verify_human_review(
     req: HumanReviewRequest,
     db: AsyncSession = Depends(get_db),
@@ -731,11 +782,11 @@ async def list_grading_batches(
     assessment_id: Optional[str] = Query(None),
     class_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(*EDUCATOR_ROLES)),
 ):
     query = select(GradingBatch)
-    if current_user.role != "admin" and current_user.school_id:
-        query = query.filter(GradingBatch.school_id == current_user.school_id)
+    if current_user.role != "admin":
+        query = query.filter(GradingBatch.school_id.in_(await user_school_ids(db, current_user)))
     if assessment_id:
         query = query.filter(GradingBatch.assessment_id == assessment_id)
     if class_id:
@@ -751,11 +802,7 @@ async def get_grading_batch(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    res = await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))
-    batch = res.scalars().first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Grading batch not found.")
-    return await _serialize_batch(db, batch)
+    return await _serialize_batch(db, await _educator_batch(db, batch_id, current_user))
 
 
 @router.post("/batches/{batch_id}/start", response_model=GradingBatchOut)
@@ -768,10 +815,8 @@ async def start_grading_batch(
     """
     Confirms and starts asynchronous background processing for all valid uploaded papers in the batch.
     """
-    res = await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))
-    batch = res.scalars().first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Grading batch not found.")
+    _require_simulation_allowed()
+    batch = await _educator_batch(db, batch_id, educator)
 
     if batch.valid_files == 0:
         raise HTTPException(status_code=400, detail="No valid answer sheets in this batch to process.")
@@ -795,10 +840,7 @@ async def cancel_grading_batch(
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    res = await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))
-    batch = res.scalars().first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Grading batch not found.")
+    batch = await _educator_batch(db, batch_id, educator)
 
     cancel_batch_job(batch_id)
 
@@ -824,15 +866,7 @@ async def remove_batch_item(
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    res = await db.execute(
-        select(GradingBatchItem).filter(
-            GradingBatchItem.id == item_id,
-            GradingBatchItem.batch_id == batch_id,
-        )
-    )
-    item = res.scalars().first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Batch item not found.")
+    _, item = await _educator_batch_item(db, batch_id, item_id, educator)
 
     await db.delete(item)
     await db.commit()
@@ -852,15 +886,8 @@ async def retry_batch_item(
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    res = await db.execute(
-        select(GradingBatchItem).filter(
-            GradingBatchItem.id == item_id,
-            GradingBatchItem.batch_id == batch_id,
-        )
-    )
-    item = res.scalars().first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Batch item not found.")
+    _require_simulation_allowed()
+    _, item = await _educator_batch_item(db, batch_id, item_id, educator)
 
     item.retry_count = (item.retry_count or 0) + 1
     item.status = "queued"
@@ -892,20 +919,13 @@ async def update_batch_item_review(
     Allows teacher to manually confirm/assign student identity and correct question marks/feedback
     before final approval.
     """
-    res = await db.execute(
-        select(GradingBatchItem).filter(
-            GradingBatchItem.id == item_id,
-            GradingBatchItem.batch_id == batch_id,
-        )
-    )
-    item = res.scalars().first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Batch item not found.")
+    _, item = await _educator_batch_item(db, batch_id, item_id, educator)
 
     if req.student_id is not None:
         st_res = await db.execute(select(Student).filter(Student.id == req.student_id))
         st = st_res.scalars().first()
-        if not st:
+        batch = await _educator_batch(db, batch_id, educator)
+        if not st or st.school_id != batch.school_id:
             raise HTTPException(status_code=404, detail="Selected student not found.")
         item.student_id = st.id
         item.student_name = st.name
@@ -913,7 +933,7 @@ async def update_batch_item_review(
 
     if req.question_evaluations is not None:
         item.question_evaluations_json = req.question_evaluations
-        item.marks_obtained = sum(int(q.get("awarded_marks", 0)) for q in req.question_evaluations)
+        item.marks_obtained = sum(int(q.get("awarded_marks") or 0) for q in req.question_evaluations)
 
     if req.marks_obtained is not None:
         item.marks_obtained = max(0, min(item.max_marks, req.marks_obtained))
@@ -1014,22 +1034,22 @@ async def approve_batch_item(
     db: AsyncSession = Depends(get_db),
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
 ):
-    batch_res = await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))
-    batch = batch_res.scalars().first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found.")
-
-    item_res = await db.execute(
-        select(GradingBatchItem).filter(
-            GradingBatchItem.id == item_id,
-            GradingBatchItem.batch_id == batch_id,
-        )
-    )
-    item = item_res.scalars().first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Batch item not found.")
-
+    batch, item = await _educator_batch_item(db, batch_id, item_id, educator)
     if item.is_approved:
+        return BatchItemOut.model_validate(item)
+
+    # Claim the item atomically so two concurrent approvals publish exactly one submission.
+    await db.commit()
+    claimed = await db.execute(
+        update(GradingBatchItem)
+        .where(GradingBatchItem.id == item_id, GradingBatchItem.is_approved == False)  # noqa: E712
+        .values(is_approved=True)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount == 0:
+        await db.rollback()
+        db.expire_all()
+        item = (await db.execute(select(GradingBatchItem).filter(GradingBatchItem.id == item_id))).scalars().first()
         return BatchItemOut.model_validate(item)
 
     await _publish_item_submission(db, batch, item, educator)
@@ -1060,10 +1080,7 @@ async def approve_all_verified_batch_items(
     Approves and publishes all completed, high-confidence items that do not require manual review.
     Uncertain items remain flagged for individual teacher verification.
     """
-    batch_res = await db.execute(select(GradingBatch).filter(GradingBatch.id == batch_id))
-    batch = batch_res.scalars().first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found.")
+    batch = await _educator_batch(db, batch_id, educator)
 
     items_res = await db.execute(
         select(GradingBatchItem).filter(
