@@ -4,6 +4,9 @@ import { useAuth } from '../../context/AuthContext';
 import { Question, CompetencyKey, BloomLevel, SourceDocument } from '../../types';
 import { apiClient, AssignmentTarget, ProcessStep } from '../../lib/apiClient';
 import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
+import { renderMathHtml, sameAnswer } from '../../lib/mathText';
+import { MathText } from '../../components/common/MathText';
+import katexStylesHref from 'katex/dist/katex.min.css?url';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -362,7 +365,7 @@ export const AssessmentBuilder: React.FC = () => {
       .map((q, i) => {
         const optionsHtml =
           q.options && q.options.length > 0
-            ? `<div class="options">${q.options.map((opt) => `<div>${escapeHtml(opt)}</div>`).join('')}</div>`
+            ? `<div class="options">${q.options.map((opt) => `<div>${renderMathHtml(opt)}</div>`).join('')}</div>`
             : '';
         const sources =
           q.sourceDocumentNames && q.sourceDocumentNames.length > 0
@@ -373,11 +376,11 @@ export const AssessmentBuilder: React.FC = () => {
             <div class="q-header">
               Q${i + 1}. [${escapeHtml(q.type.toUpperCase())} • ${escapeHtml(q.marks)} Marks • Competency: ${escapeHtml(q.competency)} • Bloom: ${escapeHtml(q.bloomLevel)}]
             </div>
-            <p>${escapeHtml(q.text)}</p>
+            <p>${renderMathHtml(q.text)}</p>
             ${optionsHtml}
             <div class="rubric">
-              <strong>Official Answer Key:</strong> ${escapeHtml(q.correctAnswer || 'See rubric')}<br/>
-              <strong>Marking Rubric:</strong> ${escapeHtml(q.markingRubric || 'Standard competency rubric applies.')}<br/>
+              <strong>Official Answer Key:</strong> ${renderMathHtml(q.correctAnswer || 'See rubric')}<br/>
+              <strong>Marking Rubric:</strong> ${renderMathHtml(q.markingRubric || 'Standard competency rubric applies.')}<br/>
               ${sources}
             </div>
           </div>`;
@@ -391,6 +394,7 @@ export const AssessmentBuilder: React.FC = () => {
       <head>
         <meta charset="utf-8" />
         <title>${escapeHtml(paperTitle)}</title>
+        <link rel="stylesheet" href="${new URL(katexStylesHref, window.location.origin).href}" />
         <style>
           body { font-family: Calibri, Arial, sans-serif; color: #182230; line-height: 1.5; padding: 24px; }
           h1 { color: #142A43; font-size: 20pt; margin-bottom: 4px; }
@@ -445,18 +449,18 @@ export const AssessmentBuilder: React.FC = () => {
       .map((q, i) => {
         const optionsHtml =
           q.options && q.options.length > 0
-            ? `<div class="opts">${q.options.map((o) => `<div>${escapeHtml(o)}</div>`).join('')}</div>`
+            ? `<div class="opts">${q.options.map((o) => `<div>${renderMathHtml(o)}</div>`).join('')}</div>`
             : '';
         return `
             <div class="q-card">
               <div class="q-meta">
                 QUESTION ${i + 1} &bull; ${escapeHtml(q.type.toUpperCase())} &bull; ${escapeHtml(q.marks)} MARKS &bull; COMPETENCY: ${escapeHtml(q.competency)} &bull; BLOOM: ${escapeHtml(q.bloomLevel)}
               </div>
-              <div class="q-text">${escapeHtml(q.text)}</div>
+              <div class="q-text">${renderMathHtml(q.text)}</div>
               ${optionsHtml}
               <div class="key">
-                <div><strong>Answer Key:</strong> ${escapeHtml(q.correctAnswer || 'Refer to rubric')}</div>
-                <div><strong>Marking Rubric:</strong> ${escapeHtml(q.markingRubric || 'Standard NEP 2020 competency rubric')}</div>
+                <div><strong>Answer Key:</strong> ${renderMathHtml(q.correctAnswer || 'Refer to rubric')}</div>
+                <div><strong>Marking Rubric:</strong> ${renderMathHtml(q.markingRubric || 'Standard NEP 2020 competency rubric')}</div>
               </div>
             </div>`;
       })
@@ -465,6 +469,7 @@ export const AssessmentBuilder: React.FC = () => {
       <html>
         <head>
           <title>${escapeHtml(paperTitle)} — LumenEIOS</title>
+          <link rel="stylesheet" href="${new URL(katexStylesHref, window.location.origin).href}" />
           <style>
             body { font-family: Inter, Arial, sans-serif; color: #182230; padding: 32px; line-height: 1.5; }
             h1 { font-size: 20px; color: #142A43; margin: 0 0 4px 0; }
@@ -1104,17 +1109,14 @@ export const AssessmentBuilder: React.FC = () => {
                       ) : (
                         <>
                           <p className="text-sm font-medium text-navy-900 leading-relaxed">
-                            {q.text}
+                            <MathText text={q.text} />
                           </p>
 
                           {/* MCQ Options */}
                           {q.options && q.options.length > 0 && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                               {q.options.map((opt, oIdx) => {
-                                const isCorrect =
-                                  q.correctAnswer &&
-                                  (opt === q.correctAnswer ||
-                                    opt.startsWith(q.correctAnswer.slice(0, 4)));
+                                const isCorrect = sameAnswer(opt, q.correctAnswer);
                                 return (
                                   <div
                                     key={oIdx}
@@ -1124,7 +1126,7 @@ export const AssessmentBuilder: React.FC = () => {
                                         : 'bg-surface-bg/60 border-surface-border text-content-secondary'
                                     }`}
                                   >
-                                    <span>{opt}</span>
+                                    <MathText text={opt} />
                                     {isCorrect && (
                                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                                     )}
@@ -1141,13 +1143,13 @@ export const AssessmentBuilder: React.FC = () => {
                                 <strong className="text-teal-900">
                                   {q.type === 'mcq' ? 'Recommended answer:' : 'Recommended answer:'}
                                 </strong>{' '}
-                                {q.correctAnswer}
+                                <MathText text={q.correctAnswer} />
                               </div>
                             )}
                             {q.markingRubric && (
                               <div className="text-content-secondary">
                                 <strong className="text-navy-900">Marking Rubric:</strong>{' '}
-                                {q.markingRubric}
+                                <MathText text={q.markingRubric} />
                               </div>
                             )}
                           </div>

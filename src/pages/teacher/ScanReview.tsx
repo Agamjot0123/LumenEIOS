@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, FileText, Loader2, Printer, ScanLine, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ProcessProgress } from '../../components/common/ProcessProgress';
+import { MathText } from '../../components/common/MathText';
 import { ApiError, apiClient, ProcessStep, UploadAssignment } from '../../lib/apiClient';
 import { DEMO_MODE, escapeHtml } from '../../lib/runtime';
 import { UnauthorizedPage } from '../shared/UnauthorizedPage';
@@ -256,10 +257,10 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           <ol className="mt-3 space-y-3">
             {assignment.questions.map((question, index) => (
               <li key={index} className="text-sm text-navy-900">
-                <p><strong>Q{index + 1}.</strong> {question.text} ({question.marks} marks)</p>
+                <p><strong>Q{index + 1}.</strong> <MathText text={question.text} /> ({question.marks} marks)</p>
                 {!!question.options?.length && (
                   <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
-                    {question.options.map((option, optionIndex) => <li key={optionIndex}>{option}</li>)}
+                    {question.options.map((option, optionIndex) => <li key={optionIndex}><MathText text={option} /></li>)}
                   </ul>
                 )}
               </li>

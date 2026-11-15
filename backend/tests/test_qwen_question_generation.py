@@ -109,6 +109,35 @@ def test_studio_parser_normalizes_common_qwen_option_shapes():
     assert questions[0]["correct_answer"] == "Y"
 
 
+def test_studio_parser_repairs_malformed_qwen_json():
+    trailing = """Here is the question:
+    {"mcqs":[{"type":"mcq","text":"Which is half?","options":["1","2","3","4"],"correct_answer":"1","marking_rubric":"Half of two.","competency":"CU",}],"theory":[],}
+    Hope that helps."""
+    assert parse_studio_questions(trailing, mcq_count=1, theory_count=0)[0]["text"] == "Which is half?"
+
+    latex = json.dumps({"mcqs": [{
+        "type": "mcq", "text": "placeholder",
+        "options": ["1", "2", "3", "4"], "correct_answer": "1",
+        "marking_rubric": "half", "competency": "CU",
+    }], "theory": []}).replace("placeholder", r"What is \frac{1}{2}?")
+    assert r"\frac{1}{2}" in parse_studio_questions(latex, mcq_count=1, theory_count=0)[0]["text"]
+
+    broken_line = (
+        '{"mcqs":[{"type":"mcq","text":"Line one\nLine two","options":["A","B","C","D"],'
+        '"correct_answer":"A","marking_rubric":"A","competency":"LU"}]'
+    )
+    assert "Line one" in parse_studio_questions(broken_line, mcq_count=1, theory_count=0)[0]["text"]
+
+    bare = json.dumps({
+        "type": "short", "text": "Why?", "correct_answer": "Because.",
+        "marking_rubric": "Reason", "competency": "CT",
+    })
+    assert parse_studio_questions(bare, mcq_count=0, theory_count=1)[0]["type"] == "short"
+
+    with pytest.raises(ValueError, match="invalid question JSON"):
+        parse_studio_questions("no json here", mcq_count=1, theory_count=0)
+
+
 def test_studio_prompt_assigns_each_competency_and_the_recommended_answer():
     prompt = build_studio_prompt("Science", 2, 2, "Analyze", "friction", "chapter context")
     for phrase in (

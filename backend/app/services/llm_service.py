@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import threading
 import uuid
@@ -9,8 +10,11 @@ from typing import Dict, Any, List, Optional
 from backend.app.services.web_source import WebSource
 from PIL import Image
 
+from backend.app.services.evaluation_service import repair_json_latex
 from backend.app.services.ocr_service import QwenOCRInferenceError, QwenOCRUnavailableError, qwen_model
 from backend.app.services.progress import report_progress
+
+logger = logging.getLogger(__name__)
 
 
 class QwenQuestionStudioUnavailable(RuntimeError):
@@ -155,23 +159,120 @@ def coerce_mcq_answer_and_options(answer: Any, options: List[str]) -> tuple[str,
     return text, repaired
 
 
-def parse_studio_questions(raw: str, mcq_count: int, theory_count: int) -> List[Dict[str, Any]]:
+def _escape_controls_and_close(text: str) -> str:
+    """Turn raw line breaks inside strings into JSON escapes and close a cut-off object."""
+    result: List[str] = []
+    stack: List[str] = []
+    in_string = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            if char == "\\":
+                result.append(char)
+                if index + 1 < len(text):
+                    result.append(text[index + 1])
+                    index += 2
+                    continue
+            elif char == '"':
+                in_string = False
+                result.append(char)
+            elif char == "\n":
+                result.append("\\n")
+            elif char == "\r":
+                pass
+            elif char == "\t":
+                result.append("\\t")
+            elif ord(char) < 32:
+                result.append(" ")
+            else:
+                result.append(char)
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            stack.append("}")
+        elif char == "[":
+            stack.append("]")
+        elif char in "}]" and stack and stack[-1] == char:
+            stack.pop()
+        result.append(char)
+        index += 1
+    if in_string:
+        result.append('"')
+    closed = re.sub(r",\s*$", "", "".join(result).rstrip())
+    while stack:
+        closed += stack.pop()
+    return re.sub(r",\s*([}\]])", r"\1", closed)
+
+
+def _load_question_payload(raw: str) -> Any:
     response = raw.strip()
     if response.startswith("```"):
         response = re.sub(r"^```(?:json)?\s*|\s*```$", "", response, flags=re.IGNORECASE)
-    if not response.startswith("{"):
-        start, end = response.find("{"), response.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("Qwen returned invalid JSON.")
-        response = response[start : end + 1]
+    start_object = response.find("{")
+    start_array = response.find("[")
+    starts = [index for index in (start_object, start_array) if index >= 0]
+    if not starts:
+        raise ValueError("Qwen returned invalid question JSON.")
+    snippet = response[min(starts) :]
+    candidates = [snippet, repair_json_latex(snippet), _escape_controls_and_close(snippet)]
+    repaired = repair_json_latex(snippet)
+    candidates.append(_escape_controls_and_close(repaired))
+    seen = set()
+    parsed = []
+    last_error: Optional[json.JSONDecodeError] = None
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            value, _ = json.JSONDecoder().raw_decode(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+        else:
+            parsed.append(value)
+    if parsed:
+        # A later repair wins when the first decode accepts LaTeX such as \frac as a JSON escape.
+        return parsed[-1]
+    logger.warning("Qwen question JSON could not be parsed: %s", snippet[:500])
+    raise ValueError("Qwen returned invalid question JSON.") from last_error
 
-    try:
-        parsed = json.loads(response)
-        # Ignore sections the caller did not request; small models often echo empty extras.
-        mcqs = parsed.get("mcqs", []) if mcq_count else []
-        theory = parsed.get("theory", []) if theory_count else []
-    except (json.JSONDecodeError, AttributeError) as exc:
-        raise ValueError("Qwen returned invalid question JSON.") from exc
+
+def _question_sections(parsed: Any, mcq_count: int, theory_count: int) -> tuple[List[Any], List[Any]]:
+    if isinstance(parsed, list):
+        items = [item for item in parsed if isinstance(item, dict)]
+        if mcq_count and not theory_count:
+            return items, []
+        if theory_count and not mcq_count:
+            return [], items
+        mcqs = [item for item in items if item.get("type") == "mcq"]
+        theory = [item for item in items if item.get("type") != "mcq"]
+        return mcqs, theory
+    if not isinstance(parsed, dict):
+        raise ValueError("Qwen returned invalid question JSON.")
+    if "mcqs" not in parsed and "theory" not in parsed:
+        nested = next(
+            (parsed[key] for key in ("questions", "items", "data") if isinstance(parsed.get(key), list)),
+            None,
+        )
+        if nested is not None:
+            return _question_sections(nested, mcq_count, theory_count)
+        if isinstance(parsed.get("text"), str):
+            item = parsed
+            bucket = "theory" if item.get("type") in {"short", "descriptive", "practical"} else "mcqs"
+            parsed = {"mcqs": [], "theory": []}
+            parsed[bucket] = [item]
+    mcqs = parsed.get("mcqs", []) if mcq_count else []
+    theory = parsed.get("theory", []) if theory_count else []
+    return mcqs, theory
+
+
+def parse_studio_questions(raw: str, mcq_count: int, theory_count: int) -> List[Dict[str, Any]]:
+    parsed = _load_question_payload(raw)
+    # Ignore sections the caller did not request; small models often echo empty extras.
+    mcqs, theory = _question_sections(parsed, mcq_count, theory_count)
 
     if not isinstance(mcqs, list) or not isinstance(theory, list):
         raise ValueError("Qwen returned an unexpected number of questions.")

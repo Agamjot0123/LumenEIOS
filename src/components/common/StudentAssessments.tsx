@@ -5,6 +5,7 @@ import { assessmentResults } from '../../lib/assessmentResults';
 import type { AssessmentResult, AssessmentAnswer } from '../../types/assessmentResults';
 import { Card, CardBody, CardHeader } from './Card';
 import { Button } from './Button';
+import { MathText } from './MathText';
 import {PanchapadiEvaluation} from '../learnsphere/PanchapadiEvaluation';
 import {AssessmentPerformanceSummary} from '../learnsphere/AssessmentPerformanceSummary';
 
@@ -16,8 +17,8 @@ function AnswerForm({assessment,onSaved}: {assessment: UploadAssignment; onSaved
   const update=(position:number,answer:AssessmentAnswer)=>{setAnswers(current=>({...current,[position]:answer}));setKey(crypto.randomUUID());};
   return <form className="space-y-4" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{onSaved(await assessmentResults.submit(assessment.id,Object.values(answers),key));}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>
     <p>Submit your own answers. Responses lock after submission. Automatic marking is provisional until teacher confirmation.</p>
-    {assessment.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-xl p-3"><legend>{i+1}. {q.text} ({q.marks} marks · {q.competency})</legend>
-      {q.type==='mcq' ? (q.options||[]).map((option,j)=><label key={j} className="block py-1"><input required type="radio" name={`answer-${assessment.id}-${i}`} checked={answers[i]?.selected_option_index===j} onChange={()=>update(i,{position:i,selected_option_index:j})} /> {option}</label>):<label>Your answer<textarea required maxLength={16000} className="block w-full border rounded-lg p-2" value={answers[i]?.answer_text||''} onChange={e=>update(i,{position:i,answer_text:e.target.value})} /></label>}
+    {assessment.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-xl p-3"><legend>{i+1}. <MathText text={q.text} /> ({q.marks} marks · {q.competency})</legend>
+      {q.type==='mcq' ? (q.options||[]).map((option,j)=><label key={j} className="block py-1"><input required type="radio" name={`answer-${assessment.id}-${i}`} checked={answers[i]?.selected_option_index===j} onChange={()=>update(i,{position:i,selected_option_index:j})} /> <MathText text={option} /></label>):<label>Your answer<textarea required maxLength={16000} className="block w-full border rounded-lg p-2" value={answers[i]?.answer_text||''} onChange={e=>update(i,{position:i,answer_text:e.target.value})} /></label>}
     </fieldset>)}
     {error&&<p role="alert" className="text-rose-700">{error}</p>}<Button type="submit" loading={busy}>Submit assessment answers</Button>
   </form>;
@@ -36,7 +37,7 @@ function Panel() {
     {assigned?.filter(a=>!results.some(r=>r.assessment_id===a.id)).map(a=><details key={a.id} className="border rounded-xl p-4"><summary className="font-semibold cursor-pointer">{a.title} · {a.subject_name}</summary><AnswerForm assessment={a} onSaved={r=>setResults(current=>[...current,r])}/></details>)}
     {results.map(r=><details key={r.id} className="border rounded-xl p-4"><summary className="font-semibold">{r.assessment_title} · {r.status.replace(/_/g,' ')}</summary>
       <p>{r.marks_obtained==null?'Overall marks await teacher review':`${r.marks_obtained}/${r.total_marks} marks`}{r.status!=='teacher_reviewed'&&' — not confirmed learning evidence'}</p>
-      {r.questions.map(q=><div key={q.position} className="py-2 border-b"><p>{q.text}</p><p>{r.answers.find(a=>a.position===q.position)?.answer_text ?? q.options[r.answers.find(a=>a.position===q.position)?.selected_option_index??-1]}</p><p>{r.outcomes.find(o=>o.position===q.position)?.score??'Pending'}/{q.marks} · {r.outcomes.find(o=>o.position===q.position)?.provenance}</p></div>)}
+      {r.questions.map(q=><div key={q.position} className="py-2 border-b"><p><MathText text={q.text} /></p><p><MathText text={r.answers.find(a=>a.position===q.position)?.answer_text ?? q.options[r.answers.find(a=>a.position===q.position)?.selected_option_index??-1]} /></p><p>{r.outcomes.find(o=>o.position===q.position)?.score??'Pending'}/{q.marks} · {r.outcomes.find(o=>o.position===q.position)?.provenance}</p></div>)}
       {r.reviews.map(review=><p key={review.revision_id}>Teacher feedback: {review.feedback}</p>)}
       <PanchapadiEvaluation evaluation={r.reviews[r.reviews.length-1]?.panchapadi||r.panchapadi}/>
       <AssessmentPerformanceSummary outcomes={r.outcomes} verified={r.status==='teacher_reviewed'}/>
