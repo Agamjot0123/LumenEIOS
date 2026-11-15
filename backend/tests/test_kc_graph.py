@@ -162,6 +162,18 @@ async def test_evaluation_updates_only_the_linked_student_graph(client, db_sessi
         "source_id": created["Limits"], "target_id": created["Chain Rule"], "relationship": "PREREQUISITE_OF",
     })
     assert edge.status_code == 201, edge.text
+    listed = await client.get(
+        "/api/v1/knowledge-components/relationships", headers=teacher, params={"subject_id": "sub-math"},
+    )
+    assert listed.status_code == 200, listed.text
+    assert any(
+        item["source_id"] == created["Limits"] and item["relationship"] == "PREREQUISITE_OF"
+        for item in listed.json()
+    )
+    assert (await client.get(
+        "/api/v1/knowledge-components/relationships",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )).status_code == 403
     cycle = await client.post("/api/v1/knowledge-components/relationships", headers=teacher, json={
         "source_id": created["Chain Rule"], "target_id": created["Limits"], "relationship": "PREREQUISITE_OF",
     })

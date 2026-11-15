@@ -17,6 +17,7 @@ import { MyClasses } from './pages/teacher/MyClasses';
 import { AssessmentBuilder } from './pages/teacher/AssessmentBuilder';
 import { CurriculumPlanner180 } from './pages/teacher/CurriculumPlanner180';
 import { ScanReview } from './pages/teacher/ScanReview';
+import { KnowledgeComponentsPage } from './pages/teacher/KnowledgeComponents';
 import { TimeAwareEngine } from './pages/time-aware/TimeAwareEngine';
 import { StudentDashboard } from './pages/student/StudentDashboard';
 import { StudentRecords } from './pages/student/StudentRecords';
@@ -125,6 +126,7 @@ const MainApp: React.FC = () => (
       <Route path="/teacher/assessments-beta" element={<AssessmentBuilder key="studio-beta" />} />
       <Route path="/teacher/curriculum-180" element={<CurriculumPlanner180 />} />
       <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
+      <Route path="/teacher/knowledge-components" element={<KnowledgeComponentsPage />} />
       <Route path="/upload" element={<ScanReview />} />
       <Route path="/upload-beta" element={<ScanReview beta />} />
       <Route path="/teacher/scan-review" element={<Navigate to="/upload" replace />} />

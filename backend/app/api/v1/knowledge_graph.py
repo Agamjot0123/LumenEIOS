@@ -49,6 +49,15 @@ async def create_knowledge_component(
         raise HTTPException(status_code=422, detail="Name and topic are required.") from None
 
 
+@router.get("/knowledge-components/relationships", response_model=list[RelationshipOut])
+async def list_knowledge_relationships(
+    subject_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    return await kc_graph_service.list_relationships(db, subject_id)
+
+
 @router.post("/knowledge-components/relationships", response_model=RelationshipOut, status_code=201)
 async def create_knowledge_relationship(
     body: RelationshipCreate,

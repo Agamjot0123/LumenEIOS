@@ -443,6 +443,42 @@ export const apiClient = {
   },
 
   knowledgeGraph: {
+    list(subjectId: string) {
+      return request<Array<{
+        id: string;
+        name: string;
+        description: string;
+        subject_id: string;
+        subject_name: string;
+        topic: string;
+      }>>(`/knowledge-components?subject_id=${encodeURIComponent(subjectId)}`);
+    },
+    create(body: { name: string; description: string; subject_id: string; topic: string }) {
+      return request<{
+        id: string;
+        name: string;
+        description: string;
+        subject_id: string;
+        subject_name: string;
+        topic: string;
+      }>('/knowledge-components', { method: 'POST', body: JSON.stringify(body) });
+    },
+    relationships(subjectId: string) {
+      return request<Array<{
+        id: string;
+        source_id: string;
+        target_id: string;
+        relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF';
+      }>>(`/knowledge-components/relationships?subject_id=${encodeURIComponent(subjectId)}`);
+    },
+    link(body: { source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF' }) {
+      return request<{
+        id: string;
+        source_id: string;
+        target_id: string;
+        relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF';
+      }>('/knowledge-components/relationships', { method: 'POST', body: JSON.stringify(body) });
+    },
     mine() {
       return request<{
         nodes: Array<{

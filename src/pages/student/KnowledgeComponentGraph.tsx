@@ -51,7 +51,11 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraph }) {
   const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
 
   if (graph.nodes.length === 0) {
-    return <p className="text-sm text-content-secondary">No concept has been assessed from your evaluated work yet.</p>;
+    return (
+      <p className="text-sm text-content-secondary">
+        No concept has been assessed from your evaluated work yet. Your teacher adds the concepts for the subject, then evaluates a scan of your work.
+      </p>
+    );
   }
 
   return (

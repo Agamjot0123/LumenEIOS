@@ -568,6 +568,17 @@ async def list_components(db: AsyncSession, subject_id: Optional[str]) -> list[K
     return list((await db.execute(statement)).scalars().all())
 
 
+async def list_relationships(db: AsyncSession, subject_id: Optional[str]) -> list[KnowledgeComponentRelationship]:
+    statement = select(KnowledgeComponentRelationship).order_by(KnowledgeComponentRelationship.relationship)
+    if subject_id:
+        ids = select(KnowledgeComponent.id).where(KnowledgeComponent.subject_id == subject_id)
+        statement = statement.where(
+            KnowledgeComponentRelationship.source_id.in_(ids),
+            KnowledgeComponentRelationship.target_id.in_(ids),
+        )
+    return list((await db.execute(statement)).scalars().all())
+
+
 async def build_student_graph(db: AsyncSession, student_id: str) -> dict:
     mastery_rows = list((await db.execute(
         select(StudentKcMastery).where(StudentKcMastery.student_id == student_id)
