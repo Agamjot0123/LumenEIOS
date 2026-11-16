@@ -136,3 +136,14 @@ def test_recovery_respects_running_lease_and_backoff():
     assert not worker._retry_due(record)
     attempt['heartbeat_at']=(utc_now()-timedelta(minutes=2)).isoformat()
     assert worker._retry_due(record)
+
+
+def test_recovery_stops_after_the_automatic_attempt_limit():
+    questions,mapping=questions_and_mapping();outcomes=scored(questions)
+    old=(utc_now()-timedelta(hours=2)).isoformat()
+    failed=lambda:{'status':'failed','date':old,'heartbeat_at':old,'review_revision_id':None,'mapping':mapping,'outcomes':outcomes}
+    record=SimpleNamespace(questions_json=questions,automatic_json=outcomes,reviews_json=[],
+                           panchapadi_json={'attempts':[failed() for _ in range(worker.GUIDANCE_MAX_AUTOMATIC_ATTEMPTS-1)]})
+    assert worker._retry_due(record)
+    record.panchapadi_json['attempts'].append(failed())
+    assert not worker._retry_due(record)  # a persistently failing model no longer loops forever

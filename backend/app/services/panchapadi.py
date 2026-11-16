@@ -17,6 +17,9 @@ from backend.app.schemas.panchapadi import STAGES, StageClassification
 logger = logging.getLogger(__name__)
 GUIDANCE_RETRY_DELAYS = (5, 20)
 GUIDANCE_RECOVERY_INTERVAL = 30
+# Automatic background attempts per review revision. Beyond this the recovery sweep stops (a model that keeps
+# failing would otherwise occupy the GPU and database indefinitely); "Refresh assessment guidance" still works.
+GUIDANCE_MAX_AUTOMATIC_ATTEMPTS = 6
 EVIDENCE_NEEDED = {
     "Adheeti": "Add an explicit prerequisite/readiness question before the new learning task.",
     "Bodh": "Ask for a conceptual explanation or a relationship and assess the response.",
@@ -221,6 +224,7 @@ def _retry_due(record):
     latest=attempts[-1]
     revision=record.reviews_json[-1]["revision_id"] if record.reviews_json else None
     if latest.get("review_revision_id")!=revision:return True
+    if sum(1 for a in attempts if a.get("review_revision_id")==revision)>=GUIDANCE_MAX_AUTOMATIC_ATTEMPTS:return False
     stamp=datetime.fromisoformat(latest.get("heartbeat_at",latest["date"]))
     if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=timezone.utc)
     delay=1800 if latest["status"]=="running" else min(900,30*2**min(len(attempts)-1,5))

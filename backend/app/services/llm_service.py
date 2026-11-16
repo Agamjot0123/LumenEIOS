@@ -837,6 +837,17 @@ def json_object_text(raw: str) -> str:
     return text[start:end + 1] if start != -1 and end > start else text
 
 
+def json_payload(raw: str, title: Optional[str] = None) -> Any:
+    """The JSON object in a model reply, unwrapped when the model nests it under the schema's title
+    (e.g. {"StageClassification": {"questions": [...]}}), which made correct answers fail validation."""
+    data = json.loads(json_object_text(raw))
+    if isinstance(data, dict) and len(data) == 1:
+        (key, inner), = data.items()
+        if isinstance(inner, dict) and (key == title or (title is None and key[:1].isupper())):
+            return inner
+    return data
+
+
 def _content_words(text: str) -> set:
     stop = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "is", "are", "it", "its", "their", "they", "student",
             "states", "stated", "incorrectly", "correctly", "mentions", "explains", "says",
@@ -975,7 +986,7 @@ class QwenQuestionStudioService:
                 for attempt in range(2):
                     raw = self._generate_text(prompt, max_new_tokens=2000, output_schema=schema.model_json_schema())
                     try:
-                        parsed = schema.model_validate_json(json_object_text(raw))
+                        parsed = schema.model_validate(json_payload(raw, schema.__name__))
                         if validator:
                             validator(parsed)
                         return parsed
@@ -1073,7 +1084,7 @@ class QwenQuestionStudioService:
                     for attempt in range(2):
                         raw = self._generate_text(prompt, max_new_tokens=4096, output_schema=StageClassification.model_json_schema())
                         try:
-                            parsed = StageClassification.model_validate_json(json_object_text(raw))
+                            parsed = StageClassification.model_validate(json_payload(raw, "StageClassification"))
                             validate_mapping(parsed.model_dump()["questions"], [r["question"] for r in batch])
                             combined.extend(parsed.questions)
                             break
@@ -1129,7 +1140,7 @@ class QwenQuestionStudioService:
                 for attempt in range(2):
                     raw = self._generate_text(prompt, max_new_tokens=900, output_schema=schema)
                     try:
-                        data = json.loads(json_object_text(raw))
+                        data = json_payload(raw)
                         covered = [bool(x) for x in data.get("covered", [])]
                         if len(covered) != len(points):
                             raise ValueError("one judgement per rubric point is required")

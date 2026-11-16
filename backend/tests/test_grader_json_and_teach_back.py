@@ -49,3 +49,11 @@ def test_teach_back_lists_come_from_per_point_judgements_and_cannot_contradict()
     assert fb.missing_concepts == [] and len(fb.correctly_understood) == 4
     assert fb.misconceptions == []   # restates the rubric / was never written by the student
     assert not set(fb.correctly_understood) & set(fb.missing_concepts)
+
+
+def test_reply_nested_under_the_schema_title_is_unwrapped():
+    from backend.app.services.llm_service import json_payload
+    raw = '```json\n{"StageClassification": {"questions": [{"position": 0, "mappings": []}]}}\n```'
+    assert json_payload(raw, "StageClassification") == {"questions": [{"position": 0, "mappings": []}]}
+    assert json_payload('{"covered": [true]}') == {"covered": [True]}
+    assert json_payload('{"answer": {"x": 1}}', "Other") == {"answer": {"x": 1}}  # a real field is never unwrapped
