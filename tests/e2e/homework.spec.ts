@@ -1,15 +1,16 @@
 import { test, expect } from './fixtures';
 
 // Full live workflow against the isolated synthetic browser server (see playwright.config.ts).
-// Roster: IIT Mandi seed — teacher@ = Garima (Science, school-1), student@ = Gurleen (Class 6).
+// Roster: demonstration seed — Ms. Garima Sharma (Science, Sunrise Public School), Gurleen Kaur (Class 7-A), parent Harpreet Kaur.
 test('teacher creates, reviews, assigns and marks; student saves and submits; parent sees released result', async ({page,request}) => {
   const api='http://127.0.0.1:18080/api/v1';
+  const TEACHER='garima.sharma@sps.lumeneios.demo', STUDENT='gurleen.kaur@sps.lumeneios.demo', PARENT='harpreet.kaur@sps.lumeneios.demo';
   page.on('dialog',dialog=>dialog.accept());
-  const admin=await request.post(api+'/auth/login',{data:{email:'admin@lumeneios.demo',password:'browser-test-password'}});
+  const admin=await request.post(api+'/auth/login',{data:{email:'ananya.rao@trust.lumeneios.demo',password:'browser-test-password'}});
   expect(admin.ok()).toBeTruthy();
   // Seed already creates StudentAccountLink for roster students; create is idempotent for e2e.
   const link=await request.post(api+'/student-account-links',{headers:{Authorization:'Bearer '+(await admin.json()).access_token},
-    data:{user_id:'student-gurleen',student_id:'student-gurleen'}});
+    data:{user_id:'stu-sps25047',student_id:'stu-sps25047'}});
   expect([201,409]).toContain(link.status());
   const openHomework=async()=>{
     await page.getByRole('link',{name:'Differentiated Homework',exact:true}).click();
@@ -36,7 +37,7 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   const tab=(name:string)=>page.getByRole('tab',{name}).click();
 
   // Teacher: question bank authoring (template generation, edit, delete) — no Gemini required.
-  await login('teacher@lumeneios.demo');
+  await login(TEACHER);
   await tab('Question bank');
   await page.getByLabel('Bank subject',{exact:true}).selectOption('sub-sci');
   // Seed two deterministic (non-AI) bank questions so preview/assign works without Gemini.
@@ -58,8 +59,8 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
 
   // Teacher: pick class/student/subject, see gap analysis, preview, save, edit, approve, assign.
   await tab('1. Create homework');
-  await page.getByLabel('Class',{exact:true}).selectOption('class-jnv-6');
-  await page.getByLabel('Student',{exact:true}).selectOption('student-gurleen');
+  await page.getByLabel('Class',{exact:true}).selectOption('class-sps-7a');
+  await page.getByLabel('Student',{exact:true}).selectOption('stu-sps25047');
   await expect(page.getByText('Competency gap analysis')).toBeVisible();
   await page.getByLabel('Subject',{exact:true}).selectOption('sub-sci');
   await page.getByLabel('Question count',{exact:true}).fill('2');
@@ -73,7 +74,7 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   await expect(page.getByText('Marking opens after the student submits.')).toBeVisible();
 
   // Student: partial save, edit, final submit locks answers.
-  await login('student@lumeneios.demo');
+  await login(STUDENT);
   await expect(page.getByText('BROWSER-PRIVATE-KEY',{exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:/1 questions/}).click();
   const radios=page.getByRole('radiogroup',{name:'Answer for question 1'});
@@ -94,12 +95,12 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   await expect(page.getByText('Your teacher has not released the evaluation yet.')).toBeVisible();
 
   // Parent: linked child and assignment visible, result not yet released.
-  await login('parent@lumeneios.demo');
+  await login(PARENT);
   await page.getByRole('button',{name:/Gurleen/}).click();
   await expect(page.getByText('Result not released yet.')).toBeVisible();
 
   // Teacher: manual marking, finalize, release.
-  await login('teacher@lumeneios.demo');
+  await login(TEACHER);
   await tab('3. Submissions & marking');
   await page.getByRole('button',{name:/Gurleen.*Science/}).click();
   await page.getByRole('button',{name:'Start marking',exact:true}).click();
@@ -111,14 +112,14 @@ test('teacher creates, reviews, assigns and marks; student saves and submits; pa
   await expect(page.getByRole('status')).toContainText('Results released.');
 
   // Parent and student see the released result, never keys or rubrics.
-  await login('parent@lumeneios.demo');
+  await login(PARENT);
   await page.getByRole('button',{name:/Gurleen/}).click();
   await page.getByRole('button',{name:'View result',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Released teacher evaluation'})).toBeVisible();
   await expect(page.getByText(/BROWSER-TEACHER-FEEDBACK/)).toBeVisible();
   await expect(page.getByText(/Answer key|Rubric/)).toHaveCount(0);
 
-  await login('student@lumeneios.demo');
+  await login(STUDENT);
   await page.getByRole('button',{name:/1 questions/}).click();
   await expect(page.getByRole('heading',{name:'Released teacher evaluation'})).toBeVisible();
   await expect(page.getByText(/BROWSER-TEACHER-FEEDBACK/)).toBeVisible();
@@ -140,7 +141,7 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
       questions:Array.from({length:body.count},(_,i)=>fake(requests*10+i))}});
   });
   await page.goto('/login');
-  await page.getByLabel('Email',{exact:true}).fill('teacher@lumeneios.demo');
+  await page.getByLabel('Email',{exact:true}).fill('garima.sharma@sps.lumeneios.demo');
   await page.getByLabel('Password',{exact:true}).fill('browser-test-password');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('link',{name:'Differentiated Homework',exact:true}).click();

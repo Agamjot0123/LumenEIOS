@@ -11,7 +11,7 @@ let nextKey = 1;
 
 /** Gemini question generation: parameters -> preview -> edit -> approve & save. Nothing is saved
  * until the teacher clicks "Save approved". Saved questions are flagged AI-generated in the bank. */
-export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject: string; onSaved: () => Promise<void>; subjectName?: (id: string) => string }> =
+export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject: string; onSaved: (savedSubject?: string) => Promise<void>; subjectName?: (id: string) => string }> =
   ({ subjects, defaultSubject, onSaved, subjectName = id => id }) => {
   const { busy, error, notice, run } = useRunner();
   const [params, setParams] = useState({
@@ -20,6 +20,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
   });
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [meta, setMeta] = useState<any>(null);  // provenance summary of the last AI response
+  const [savedCount, setSavedCount] = useState(0);  // questions from this AI response already saved
   const [regenerating, setRegenerating] = useState<number | null>(null);
   const subject = params.subject_id || defaultSubject;
   const set = (patch: Partial<typeof params>) => setParams(p => ({ ...p, ...patch }));
@@ -27,7 +28,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
     ({ ...params, subject_id: subject, count, instructions: params.instructions.trim() || undefined, avoid_texts: avoid });
 
   const generate = () => run(async () => {
-    setDrafts([]); setMeta(null);  // never leave earlier results on screen if this request fails
+    setDrafts([]); setMeta(null); setSavedCount(0);  // never leave earlier results on screen if this request fails
     const res = await apiClient.assessments.aiGenerateQuestions(body());
     if (res.source !== 'ai_generated') throw new Error('Unexpected response: these are not AI-generated questions.');
     setDrafts(res.questions.map((q: any) => ({ key: nextKey++, approved: true, q })));
@@ -90,7 +91,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
         {meta.discarded > 0 && ` Rejected: ${meta.rejected_duplicates} bank duplicate(s), ${meta.rejected_repeats} repeat(s), ${meta.rejected_invalid} invalid.`}</p>
       {meta.warnings.length > 0 && <ul className="ml-4 list-disc">{meta.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>}
     </div>}
-    {meta && drafts.length === 0 && <Empty>All generated questions were rejected. Generate again to get new ones.</Empty>}
+    {meta && drafts.length === 0 && <Empty>{savedCount > 0 ? `All approved questions were saved to the question bank below. Generate again for more.` : 'All generated questions were rejected. Generate again to get new ones.'}</Empty>}
     <ol className="space-y-3">{drafts.map((d, index) => <li key={d.key}
       className={'rounded-lg border p-3 ' + (d.approved ? 'border-teal-400 bg-teal-50/30' : 'border-surface-border')}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -129,7 +130,7 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
         const unkeyed = approved.findIndex(d => d.q.question_type === 'mcq' && !d.q.options.includes(d.q.correct_answer));
         if (unkeyed >= 0) throw new Error(`Question ${drafts.indexOf(approved[unkeyed]) + 1}: choose its correct option before saving.`);
         const res = await apiClient.assessments.aiSaveQuestions(subject, approved.map(d => d.q), meta?.model, params.topic.trim());
-        setDrafts(ds => ds.filter(d => !d.approved)); await onSaved();
+        setDrafts(ds => ds.filter(d => !d.approved)); setSavedCount(c => c + res.saved_count); await onSaved(subject);
         return `${res.saved_count} approved question(s) saved to the ${subjectName(subject)} question bank under topic "${params.topic.trim()}".`;
       })}>Save {approved.length} approved to question bank</Button>
       <span className="text-xs text-content-secondary">Unapproved questions stay here and are not saved.</span>

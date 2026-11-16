@@ -825,7 +825,7 @@ function formProblem(f: BankForm): string | null {
 }
 
 function QuestionBank({ subjectName }: { subjectName: NameFn }) {
-  const { currentSchoolId } = useAuth();
+  const { currentSchoolId, currentUser } = useAuth();
   const { busy, error, notice, run } = useRunner();
   const [subjects, setSubjects] = useState<string[]>([]);
   const [subject, setSubject] = useState('');
@@ -839,7 +839,9 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
     hw.call<any[]>(`/schools/${enc(currentSchoolId)}/classes`).then(rows => {
       if (!active) return;
       const ids = Array.from(new Set(rows.flatMap(c => c.subject_ids_json ?? []))) as string[];
-      setSubjects(ids); setSubject(s => s || ids[0] || '');
+      // Open on the teacher's own subject (a Science teacher should not land in the Mathematics bank).
+      const own = (currentUser?.assignedSubjectIds ?? []).find(id => ids.includes(id));
+      setSubjects(ids); setSubject(s => s || own || ids[0] || '');
     }).catch(() => undefined);
     return () => { active = false; }; }, [currentSchoolId]);
   const reload = async () => setQuestions(await apiClient.assessments.getQuestionBank(subject || undefined));
@@ -887,7 +889,10 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
       })}>Add template question (no AI)</Button>
     </div>
 
-    {showAi && <AiQuestionGenerator subjects={subjects} subjectName={subjectName} defaultSubject={subject} onSaved={async () => { await reload(); }} />}
+    {showAi && <AiQuestionGenerator subjects={subjects} subjectName={subjectName} defaultSubject={subject} onSaved={async (savedSubject) => {
+      // Show the bank the questions were saved to, so the teacher sees them straight away.
+      if (savedSubject && savedSubject !== subject) { setSubject(savedSubject); setSelected(null); } else await reload();
+    }} />}
 
     <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <Section title="Question bank" subtitle={`Answer keys and rubrics are visible to educators only.`}>
