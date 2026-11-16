@@ -826,6 +826,47 @@ class LLMService:
 
 
 
+def json_object_text(raw: str) -> str:
+    """The JSON object inside a model reply. Qwen often wraps it in ```json fences, which strict
+    validation rejected - throwing away correct marks and feedback."""
+    text = (raw or "").strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1] if start != -1 and end > start else text
+
+
+def _content_words(text: str) -> set:
+    stop = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "is", "are", "it", "its", "their", "they",
+            "that", "this", "with", "from", "for", "by", "as", "make", "makes", "use", "uses", "own"}
+    return {w.rstrip("s") for w in re.findall(r"[a-z]+", (text or "").casefold()) if len(w) > 2 and w not in stop}
+
+
+def sanity_check_teach_back(feedback, rubric: str, response: str):
+    """Small models label true statements as misconceptions and list concepts the student did write as
+    missing. A 'misconception' whose words are mostly in the rubric is reclassified as understood; a
+    'missing' concept whose words all appear in the response is dropped."""
+    rubric_words, response_words = _content_words(rubric), _content_words(response)
+    kept = []
+    for item in feedback.misconceptions:
+        words = _content_words(item)
+        if words and len(words & rubric_words) / len(words) >= 0.6:
+            feedback.correctly_understood.append(item)
+        else:
+            kept.append(item)
+    feedback.misconceptions = kept
+    feedback.missing_concepts = [item for item in feedback.missing_concepts
+                                 if not (_content_words(item) and _content_words(item) <= response_words)]
+    if not feedback.missing_concepts:
+        # The model listed nothing missing: name the rubric points the response does not cover.
+        for clause in re.split(r"[;,]|\band\b", rubric or ""):
+            words = _content_words(clause)
+            if words and len(words & response_words) / len(words) < 0.5:
+                feedback.missing_concepts.append(clause.strip(" .()"))
+    return feedback
+
+
 def source_facts(context: str) -> List[str]:
     """Distinct content sentences of the source (headings, labels and very short lines dropped)."""
     text = re.sub(r"\[[^\]]{1,80}\]", " ", context or "")
@@ -895,7 +936,7 @@ class QwenQuestionStudioService:
                 for attempt in range(2):
                     raw = self._generate_text(prompt, max_new_tokens=2000, output_schema=schema.model_json_schema())
                     try:
-                        parsed = schema.model_validate_json(raw)
+                        parsed = schema.model_validate_json(json_object_text(raw))
                         if validator:
                             validator(parsed)
                         return parsed
@@ -993,7 +1034,7 @@ class QwenQuestionStudioService:
                     for attempt in range(2):
                         raw = self._generate_text(prompt, max_new_tokens=4096, output_schema=StageClassification.model_json_schema())
                         try:
-                            parsed = StageClassification.model_validate_json(raw)
+                            parsed = StageClassification.model_validate_json(json_object_text(raw))
                             validate_mapping(parsed.model_dump()["questions"], [r["question"] for r in batch])
                             combined.extend(parsed.questions)
                             break
@@ -1028,7 +1069,8 @@ class QwenQuestionStudioService:
                     raw = self._generate_text(prompt, max_new_tokens=1800,
                                               output_schema=TeachBackFeedback.model_json_schema())
                     try:
-                        return TeachBackFeedback.model_validate_json(raw)
+                        return sanity_check_teach_back(
+                            TeachBackFeedback.model_validate_json(json_object_text(raw)), rubric, response)
                     except ValueError as exc:
                         if attempt:
                             raise QwenQuestionStudioInferenceError("Qwen returned malformed teach-back feedback.") from exc
