@@ -475,6 +475,13 @@ def key_overlap(answer: str, key: str) -> Optional[float]:
 _NO_ANSWER = re.compile(r"\b(did not|didn't|does not|has not|no) (attempt|answer|response|write)|not attempted|unattempted|left (it )?blank", re.IGNORECASE)
 
 
+_ALL_CORRECT = re.compile(r"\b(all|every|each)\b[^.]{0,40}\b(correct|right|accurate)|\bfull marks\b|\bperfect\b", re.IGNORECASE)
+
+
+def _claims_all_correct(text: Optional[str]) -> bool:
+    return bool(text and _ALL_CORRECT.search(text))
+
+
 def _claims_no_answer(text: Optional[str]) -> bool:
     return bool(text and _NO_ANSWER.search(text))
 
@@ -544,7 +551,9 @@ def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]
     if any(p in (summary.overall_feedback or "").lower() for p in _TEMPLATE_PHRASES):
         summary.overall_feedback = ""
     attempted = [i for i in result.question_evaluations if i.status != "unattempted"]
-    if attempted and _claims_no_answer(summary.overall_feedback):
+    lost_marks = any(i.max_marks and i.awarded_marks < i.max_marks for i in result.question_evaluations)
+    if attempted and (_claims_no_answer(summary.overall_feedback)
+                      or (lost_marks and _claims_all_correct(summary.overall_feedback))):
         # The overall comment contradicts the transcript; replace it with one built from the marks.
         best = max(attempted, key=lambda i: i.awarded_marks / i.max_marks if i.max_marks else 0)
         weak = [i for i in result.question_evaluations if i.max_marks and i.awarded_marks < i.max_marks]

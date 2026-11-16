@@ -109,3 +109,16 @@ def test_prompt_lists_each_answer_next_to_its_question():
     assert 'Q4 (question_id 4): "Physical: the same substance' in user
     _system, user = build_evaluation_messages("Science", "Worksheet", "7", WORKSHEET, "Q1. burning of paper")
     assert "Q3 (question_id 3): [no answer written]" in user
+
+
+def test_overall_comment_claiming_everything_correct_is_rebuilt_when_marks_were_lost():
+    item = lambda n, m, a: {"question_index": n, "question_id": str(n), "question_text": f"q{n}", "competency": "CU",
+                            "max_marks": m, "awarded_marks": a, "competency_score": 100 * a / m, "feedback": "ok"}
+    raw = EvaluationResult.model_validate({
+        "question_evaluations": [item(1, 1, 1), item(2, 2, 2), item(3, 2, 1), item(4, 2, 1)],
+        "scoring_summary": {"total_marks_obtained": 5, "max_possible_marks": 7, "percentage": 71,
+                            "overall_feedback": "Strong understanding. Each question was answered correctly with clear explanations."},
+    })
+    result = harden_evaluation(raw, WORKSHEET, ANIKA_TEXT.replace("dissolving sugar", "burning of paper"))
+    fb = result.scoring_summary.overall_feedback
+    assert "answered correctly" not in fb and "Revise Q" in fb
