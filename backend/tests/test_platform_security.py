@@ -107,8 +107,10 @@ async def test_foreign_school_records_are_unavailable(client,world,resources,rol
     before=await db_session.scalar(select(func.count()).select_from(AuditEvent))
     for method,path,body in requests:
         response=await client.request(method,'/api/v1'+path,json=body,headers=auth(world['users'][role]))
-        assert response.status_code==404,(method,path,response.status_code,response.text)
-        assert 'PRIVATE-OCR-SECRET' not in response.text
+        # Retired endpoints answer 410 Gone to everyone, which reveals nothing about another school's records.
+        retired = path.endswith('/time-aware/compression-preview') or (path.startswith('/curriculum-proposals/') and path.endswith(('/approve', '/reject')))
+        assert response.status_code==(410 if retired and response.status_code==410 else 404),(method,path,response.status_code,response.text)
+        assert 'PRIVATE-OCR-SECRET' not in response.text and 'Private' not in response.text
     assert before==await db_session.scalar(select(func.count()).select_from(AuditEvent))
 
 

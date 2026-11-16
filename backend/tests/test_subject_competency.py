@@ -305,7 +305,7 @@ async def test_subject_separation_and_duplicate_collapse(client, teacher_token, 
 
 @pytest.mark.asyncio
 async def test_overview_embeds_subject_competencies_and_preserves_global(
-    client, teacher_token, competency_world
+    client, teacher_token, competency_world, db_session
 ):
     w = competency_world
     headers = {"Authorization": f"Bearer {teacher_token}", "X-School-Id": "school-1"}
@@ -318,7 +318,11 @@ async def test_overview_embeds_subject_competencies_and_preserves_global(
     assert w["sci_subject"] in by_id
     # Global competencies still come from the live student record.
     assert body["competencies"]["source"] == "students.live_scores"
-    assert body["competencies"]["current"]["LU"] == 78  # seeded Aarav live score
+    # Other tests may legitimately move Aarav's live scores (released homework updates them), so compare
+    # with the student's current record rather than the seed value.
+    aarav = await db_session.get(Student, w["alice"])
+    await db_session.refresh(aarav)
+    assert body["competencies"]["current"]["LU"] == aarav.lu_score
 
     comps = await client.get(
         f"{API}/students/{w['alice']}/progress/competencies",
@@ -326,7 +330,7 @@ async def test_overview_embeds_subject_competencies_and_preserves_global(
     )
     assert comps.status_code == 200
     hist = comps.json()
-    assert hist["current"]["LU"] == 78
+    assert hist["current"]["LU"] == aarav.lu_score
     assert any(h["source_id"] == w["snap"] for h in hist["history"])
     assert hist["subject_competencies"]
 

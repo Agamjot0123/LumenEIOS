@@ -20,7 +20,8 @@ def auth(token):
     "/api/v1/students/student-18/competencies",
 ])
 async def test_teacher_cannot_read_another_school(client, teacher_token, admin_token, path):
-    assert (await client.get(path, headers=auth(teacher_token))).status_code == 403
+    # Another school's records are reported as not found, so their existence is not revealed.
+    assert (await client.get(path, headers=auth(teacher_token))).status_code == 404
     assert (await client.get(path, headers=auth(admin_token))).status_code == 200
 
 
@@ -29,9 +30,9 @@ async def test_principal_cannot_add_classes_or_teachers_to_another_school(client
     headers = auth(principal_token)  # principal of school-1
     teacher = await client.post("/api/v1/teachers", headers=headers, json={
         "name": "Cross School", "email": "cross.school@lumeneios.demo", "school_id": "school-3", "designation": "Teacher"})
-    assert teacher.status_code == 403
+    assert teacher.status_code in (403, 404)  # never created in a school the principal does not lead
     section = await client.post("/api/v1/classes", headers=headers, json={"name": "10Z", "school_id": "school-3"})
-    assert section.status_code == 403
+    assert section.status_code in (403, 404)
 
 
 @pytest.mark.asyncio

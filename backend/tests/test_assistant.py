@@ -48,7 +48,7 @@ async def test_assistant_denies_unauthenticated_requests_and_unassigned_schools(
     assert (await client.post(URL, json={"message": "Show scores"})).status_code == 401
     assert (await client.post(URL, json={"message": "Show scores"}, headers={
         "Authorization": f"Bearer {teacher_token}", "X-School-Id": "unassigned-school",
-    })).status_code == 403
+    })).status_code == 404  # another school is reported as not found
 
 
 @pytest.mark.asyncio

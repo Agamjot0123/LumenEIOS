@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
-from backend.app.api.dependencies import get_current_user, require_roles, user_school_ids
+from backend.app.api.dependencies import require_school_access, get_current_user, require_roles, user_school_ids
 from backend.app.core.config import settings
 from backend.app.db.session import get_db
 from backend.app.models.entities import (
@@ -402,6 +402,8 @@ async def process_ocr(
     doc = doc_res.scalars().first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    # A document from another school is reported exactly like a missing one.
+    await require_school_access(db, educator, doc.school_id)
 
     provider = get_ocr_provider(req.provider)
     extraction = await provider.extract_document(doc.storage_path)

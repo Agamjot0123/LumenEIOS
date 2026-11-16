@@ -151,7 +151,7 @@ async def assistant_context(db: AsyncSession, user: User, school_id: str | None)
     else:
         allowed_schools = await user_school_ids(db, user)
         if school_id and school_id not in allowed_schools:
-            raise HTTPException(403, "You don't have access to this school.")
+            raise HTTPException(404, "Not found.")
         school_ids = {school_id} if school_id else allowed_schools
         classes_query = select(ClassSection).where(ClassSection.school_id.in_(school_ids))
         if user.role == "teacher":

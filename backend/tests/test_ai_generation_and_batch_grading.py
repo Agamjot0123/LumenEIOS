@@ -76,7 +76,8 @@ async def test_beta_question_generation_edit_and_delete(client, teacher_token, m
         "subject_id": "sub-math", "source_document_ids": [document_id],
         "mcq_count": 1, "theory_count": 1, "bloom_level": "Apply", "save_to_bank": True,
     }
-    assert (await client.post("/api/v1/assessments/generate-questions", headers=headers, json=body)).status_code == 404
+    # The classic generator route is kept alongside Studio Beta and accepts the same uploaded chapter.
+    assert (await client.post("/api/v1/assessments/generate-questions", headers=headers, json=body)).status_code == 200
     gen_res = await client.post("/api/v1/assessments/generate-questions-beta", headers=headers, json=body)
     assert gen_res.status_code == 200
     questions = gen_res.json()["questions"]

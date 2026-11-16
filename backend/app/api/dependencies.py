@@ -108,10 +108,8 @@ async def require_school_access(db: AsyncSession, user: User, school_id: str) ->
     """Admins reach every school; everyone else only the schools they belong to."""
     if user.role == "admin" or school_id in await user_school_ids(db, user):
         return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You don't have access to this school.",
-    )
+    # 404, not 403: another school's records must not even be confirmed to exist.
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
 
 
 async def get_current_school_context(
