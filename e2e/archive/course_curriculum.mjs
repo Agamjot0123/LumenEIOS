@@ -4,7 +4,7 @@
 // Prerequisites: `bash e2e/reset_env.sh`, and NCERT_IMPORT=<path to the JSON from scripts/build_planning_import.py>.
 // Expected values are computed here from the import file and from first principles, never read back from the app.
 import fs from 'node:fs';
-import { API, WEB, api, assert, consoleIssues, launch, loginUi, report, shot, step, token, workspace } from './lib.mjs';
+import { API, WEB, api, assert, consoleIssues, launch, loginUi, report, shot, step, token, workspace } from '../lib.mjs';
 
 const IMPORT = JSON.parse(fs.readFileSync(process.env.NCERT_IMPORT, 'utf8'));
 const { browser, page, version } = await launch();

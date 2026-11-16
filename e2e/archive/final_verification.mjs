@@ -3,7 +3,7 @@
 //   WEB_URL=http://127.0.0.1:5182 API_URL=http://127.0.0.1:8012/api/v1 DB=<path to the disposable .db> SHOTS=./e2e-shots/final node e2e/final_verification.mjs
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
-import { API, WEB, api, assert, launch, shot } from './lib.mjs';
+import { API, WEB, api, assert, launch, shot } from '../lib.mjs';
 
 const DB = process.env.DB;
 const { page, browser, version } = await launch();

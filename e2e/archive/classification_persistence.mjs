@@ -3,7 +3,7 @@
 // verify, remove holidays, verify again. Auto-derived defaults are the control: THEY recalculate. Runs on a DISPOSABLE copy of the demo database.
 //   GRADE=7 SUBJECT=Mathematics WEB_URL=http://127.0.0.1:5183 API_URL=http://127.0.0.1:8013/api/v1 SHOTS=./e2e-shots/persist node e2e/classification_persistence.mjs
 import fs from 'node:fs';
-import { WEB, api, assert, launch, shot } from './lib.mjs';
+import { WEB, api, assert, launch, shot } from '../lib.mjs';
 const GR = Number(process.env.GRADE || 7), SUB = process.env.SUBJECT || 'Mathematics', SUBL = SUB.toLowerCase();
 const { page, browser, version } = await launch();
 const results = [];

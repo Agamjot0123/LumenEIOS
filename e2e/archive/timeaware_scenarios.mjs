@@ -3,7 +3,7 @@
 //   WEB_URL=http://127.0.0.1:5183 API_URL=http://127.0.0.1:8013/api/v1 SHOTS=./e2e-shots/scenarios node e2e/timeaware_scenarios.mjs
 // UI actions in Edge (Playwright); every outcome is read back from the API; capacity arithmetic is recomputed here independently.
 import fs from 'node:fs';
-import { API, WEB, api, assert, launch, shot } from './lib.mjs';
+import { API, WEB, api, assert, launch, shot } from '../lib.mjs';
 
 const GR = Number(process.env.GRADE || 7), SUB = process.env.SUBJECT || 'Mathematics', SUBL = SUB.toLowerCase();
 const { page, browser, version } = await launch();

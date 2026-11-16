@@ -1,5 +1,5 @@
 // Companion run: Time-Aware Engine, Planning Oversight, Coverage Oversight and Central Logs read the same persisted plan.
-import { WEB, assert, launch, shot } from './lib.mjs';
+import { WEB, assert, launch, shot } from '../lib.mjs';
 const { page, browser } = await launch(); const out = [];
 const run = async (id, fn) => { try { const n = await fn(); out.push(1); console.log('PASS', id, n ?? ''); } catch (e) { out.push(0); console.log('FAIL', id, String(e.message).split('\n')[0]); await shot(page, id + '_FAIL'); } };
 const login = async (email) => { await page.goto(`${WEB}/login`); await page.evaluate(() => localStorage.clear()); await page.goto(`${WEB}/login`);

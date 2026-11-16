@@ -1,7 +1,7 @@
 // Real-browser (Edge via Playwright) acceptance of the inline Core/Non-Core + coverage controls on the existing Curriculum
 // Catalogue screen. Run against a FRESH isolated database: see docs/CURRICULUM_SETUP.md.
 //   WEB_URL=http://127.0.0.1:5180 API_URL=http://127.0.0.1:8010/api/v1 SHOTS=./e2e-shots/config node e2e/teacher_config_acceptance.mjs
-import { API, WEB, assert, launch, shot } from './lib.mjs';
+import { API, WEB, assert, launch, shot } from '../lib.mjs';
 const { page, browser, version } = await launch();
 const E = process.env;  // defaults = fresh-database roster; override for another roster
 const T1 = { email: E.T1_EMAIL || 'teacher@lumeneios.demo', id: E.T1_ID || 'user-teacher-garima', name: E.T1_NAME || 'Garima' };

@@ -1,7 +1,7 @@
 // The "Recalculate with current configuration" action, driven in Edge (Playwright) with API/DB read-back. Disposable demo-DB copy only.
 //   MODE=before|after GRADE=7 SUBJECT=Mathematics WEB_URL=... API_URL=... SHOTS=... node e2e/recalc_button.mjs
 import fs from 'node:fs';
-import { WEB, api, assert, launch, shot } from './lib.mjs';
+import { WEB, api, assert, launch, shot } from '../lib.mjs';
 const MODE = process.env.MODE || 'after', GR = Number(process.env.GRADE || 7), SUB = process.env.SUBJECT || 'Mathematics';
 const { page, browser, version } = await launch();
 const results = [];

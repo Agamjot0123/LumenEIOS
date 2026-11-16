@@ -11,8 +11,7 @@
     "test:contracts": "node --test tests/frontend-contracts.test.mjs",
     "test:e2e": "playwright test",
     "build:curriculum-fixtures": "node scripts/build-curriculum-fixtures.mjs",
-    "e2e": "node e2e/acceptance.mjs",
-    "e2e:course": "node e2e/course_curriculum.mjs"
+    "e2e": "playwright test"
   },
   "dependencies": {
     "clsx": "^2.1.1",

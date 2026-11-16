@@ -1,7 +1,7 @@
 // Real-browser acceptance: Playwright + installed Microsoft Edge against the running app (frontend :3000, backend :8000,
 // isolated database). Run `bash e2e/reset_env.sh` first for a clean environment. Writes e2e-results.json.
 import fs from 'node:fs';
-import { API, WEB, api, assert, consoleIssues, launch, loginUi, report, shot, step, storeReady, token, workspace } from './lib.mjs';
+import { API, WEB, api, assert, consoleIssues, launch, loginUi, report, shot, step, storeReady, token, workspace } from '../lib.mjs';
 
 const { browser, context, page, version } = await launch();
 const S = (id, role, wf, exp, fn) => step(id, role, wf, exp, fn, page);

@@ -34,6 +34,10 @@ def main():
         await init_db()
         async with AsyncSessionLocal() as session:
             await seed_database_if_empty(session)
+            # Same full syllabus and default topic requirements a real installation initialises at startup
+            # (skipped by the app because this server runs with DEMO_MODE off).
+            from backend.app.services.syllabus_seed import initialise_curriculum
+            await initialise_curriculum(session)
             hashed=get_password_hash('browser-test-password')
             for user in (await session.execute(select(User))).scalars():user.hashed_password=hashed
             await session.commit()

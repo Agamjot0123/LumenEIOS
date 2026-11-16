@@ -133,3 +133,22 @@ principal approves it. That is a step you can do live during the demo.
 * Qwen OCR needs the GPU build (`backend/requirements-ocr.txt`). Images are read at up to about 1 megapixel. If the
   model ever returns unreadable output, it retries once at a lower resolution, and Gemini is available as a fallback.
 * The AI evaluation is a draft for the teacher. Nothing reaches a student or parent until the teacher publishes it.
+
+## 8. Tests
+
+From `apps/lumeneios`:
+
+```bash
+.venv/bin/python -m pytest backend/tests          # backend (1160 tests)
+npx vitest run                                    # frontend unit tests (280)
+npx tsc --noEmit -p tsconfig.json                 # type check
+PLAYWRIGHT_CHANNEL=chromium npm run e2e           # browser tests on an isolated, freshly seeded server
+```
+
+The browser tests cover sign-in and the main pages for every role, Differentiated Homework end to end, and the
+Time-Aware Engine (schedule → approval → lost Core periods → recovery → version 2). On Windows with Edge
+installed, `npm run e2e` works without `PLAYWRIGHT_CHANNEL`. Older one-off acceptance scripts are kept, not run,
+in `e2e/archive/` (see its README).
+
+Before presenting, restart LumenEIOS (`stop-lumeneios.bat`, then `start-lumeneios.bat`) so no background AI work
+from earlier sessions is still queued.

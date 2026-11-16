@@ -48,11 +48,20 @@ export async function shot(page, name) {
   await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true }).catch(() => {});
 }
 
+/** Demonstration accounts (see docs/LOGIN_CREDENTIALS.md). The admin persona is labelled "management" on the sign-in page. */
+export const ACCOUNTS = {
+  admin: { email: 'ananya.rao@trust.lumeneios.demo', password: 'Admin@123', button: 'management' },
+  principal: { email: 'lakshmi.narayanan@sps.lumeneios.demo', password: 'Principal@123', button: 'principal' },
+  teacher: { email: 'garima.sharma@sps.lumeneios.demo', password: 'Teacher@123', button: 'teacher' },
+  student: { email: 'gurleen.kaur@sps.lumeneios.demo', password: '14022013', button: 'student' },
+  parent: { email: 'harpreet.kaur@sps.lumeneios.demo', password: 'Parent@123', button: 'parent' },
+};
+
 export async function loginUi(page, role) {
   await page.goto(`${WEB}/login`);
   await page.evaluate(() => localStorage.clear());
   await page.goto(`${WEB}/login`);
-  await page.getByRole('button', { name: `Login as ${role}` }).click();
+  await page.getByRole('button', { name: `Login as ${ACCOUNTS[role]?.button ?? role}` }).click();
   await page.waitForURL(new RegExp(`/${role}/`), { timeout: 15000 });
 }
 
@@ -62,7 +71,7 @@ export async function storeReady(page) {
 }
 
 export async function token(role) {
-  const r = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: `${role}@lumeneios.demo`, password: 'demo123' }) });
+  const r = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ACCOUNTS[role].email, password: ACCOUNTS[role].password }) });
   assert(r.ok, `API login for ${role} failed: ${r.status}`);
   return (await r.json()).access_token;
 }
