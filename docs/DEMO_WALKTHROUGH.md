@@ -21,6 +21,13 @@ cd apps/lumeneios
 
 This also rewrites [`LOGIN_CREDENTIALS.md`](LOGIN_CREDENTIALS.md), which lists every account.
 
+Then, with the app running, add the LearnSphere content: Teach-Backs evaluated by Qwen, Missions, a support intervention, and two
+online quizzes with teacher-confirmed Panchapadi stages. This takes about 15 minutes because every Teach-Back is evaluated live.
+
+```bash
+.venv/bin/python -m backend.scripts.demo_learnsphere --api http://127.0.0.1:8000/api/v1
+```
+
 ## 2. The data
 
 * **Shiksha Bharati Education Society** runs two schools, each with Classes 6, 7 and 8 (sections A and B, 20 students each):
@@ -44,7 +51,36 @@ The sign-in page has one-click buttons for the five featured accounts. Under *De
 | Student, 7-A | Gurleen Kaur | `SPS25047` | `14022013` (date of birth) |
 | Parent | Harpreet Kaur | `9701577369` | `Parent@123` |
 
-## 3. Live demo: from a handwritten sheet to every dashboard
+## 3. Live demo: the Time-Aware Engine (flagship)
+
+The session is on day 146 of 242. Class VII Science has 96 teaching days left, 43 of 78 topics are already taught, and the
+remaining work needs 119 Core and 53 Non-Core periods.
+
+1. **Teacher plans.** Sign in as Ms. Garima, open **Time-Aware Engine**, and choose Class VII and Science. It shows the capacity
+   (periods left, the reserve, Core and Non-Core still to teach) and each topic's Core or Non-Core requirement. Click
+   **Generate draft schedule for approval**; the engine places every period on the calendar up to March.
+2. **Principal approves.** Sign in as Dr. Lakshmi, open **Planning Oversight**, find *Draft schedules awaiting approval*, and click
+   **Approve teaching schedule**. The schedule becomes Ms. Garima's **Daily Curriculum**.
+3. **A day is lost.** As Ms. Garima, scroll to the bottom of the Time-Aware Engine and click **Record a Lost Day**. In *Find period*,
+   type `2026-11-24`, tick periods #305 and #306 (both Core), choose **Extreme Weather**, add a note and record them. The engine
+   immediately proposes a recovery: both Core periods are taught in the following days, and Non-Core work moves to guided
+   independent learning. See the **Day tracker** tab.
+4. **Principal approves the recovery.** On **Planning Oversight**, the recovery proposal lists every changed period. Click
+   **Approve recovery schedule**; the plan becomes version 2 with no Core period lost.
+
+Choose a day whose following days include Non-Core periods (24 Nov does). If a day is followed only by Core periods, the engine
+reports the Core period it cannot fit, rather than dropping it silently.
+
+## 4. Live demo: LearnSphere
+
+Open **LearnSphere** as Ms. Garima and choose Class 7-A and a student:
+* **Teach-Back Challenge:** Qwen's feedback (points understood, points missing, misconceptions) appears beside the teacher's verified
+  feedback. As Gurleen (`SPS25047`), submit a new explanation of the sea breeze to see Qwen evaluate it live.
+* **Learning Journey:** the Panchapadi stages (Adheeti, Bodh, Abhyas, Prayog, Prasar) from the two teacher-confirmed online quizzes.
+* **Real-Life Missions:** for example Divya Desai's kitchen change hunt and turmeric indicator, with rubric scores.
+* **Learning Support:** evidence-based recommendations, for example for Mahika Sharma.
+
+## 5. Live demo: from a handwritten sheet to every dashboard
 
 Sample photographed answer sheets for 7-A are in [`demo/answer-sheets/`](../demo/answer-sheets/). Regenerate them with
 `python -m backend.scripts.make_sample_answer_sheets`.
@@ -78,7 +114,7 @@ updates the parameters and notifies the parent (screenshots 17, 32 and 41).
 Upload a chapter PDF or pick a question-bank topic, set the Bloom's levels, generate questions, then assign the paper
 to a class (screenshot 16).
 
-## 4. Other screens
+## 6. Other screens
 
 | Screen | Screenshot |
 |---|---|
@@ -92,7 +128,7 @@ to a class (screenshot 16).
 **Daily Curriculum** (12) stays empty until a teacher generates a teaching schedule in the Time-Aware Engine and a
 principal approves it. That is a step you can do live during the demo.
 
-## 5. Notes
+## 7. Notes
 
 * Qwen OCR needs the GPU build (`backend/requirements-ocr.txt`). Images are read at up to about 1 megapixel. If the
   model ever returns unreadable output, it retries once at a lower resolution, and Gemini is available as a fallback.

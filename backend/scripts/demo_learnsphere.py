@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -119,12 +120,19 @@ class Api:
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = "Bearer " + token
-        req = urllib.request.Request(self.base + path, json.dumps(body).encode() if body is not None else None, headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=900) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"{method} {path} -> {e.code} {e.read().decode()[:300]}") from None
+        data = json.dumps(body).encode() if body is not None else None
+        for attempt in range(12):
+            req = urllib.request.Request(self.base + path, data, headers, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=900) as r:
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode()[:300]
+                # SQLite is briefly locked while background Qwen jobs save their results: wait and retry.
+                if e.code == 500 and "Database operation failed" in detail and attempt < 11:
+                    time.sleep(5)
+                    continue
+                raise RuntimeError(f"{method} {path} -> {e.code} {detail}") from None
 
     def login(self, user, password):
         return self.call("POST", "/auth/login", {"email": user, "password": password})["access_token"]
@@ -206,10 +214,130 @@ def main(api_base: str) -> None:
         db.execute("UPDATE learning_assignments SET assigned_at = ? WHERE id = ?",
                    ((base + timedelta(days=order[key] * 7 - 2)).isoformat(), aid))
     db.commit()
-    print(f"LearnSphere demo: {len(acts)} activities, {len(attempts)} reviewed attempts.")
+    quizzes = panchapadi(api, db, teacher, students)
+    print(f"LearnSphere demo: {len(acts)} activities, {len(attempts)} reviewed attempts, {quizzes} teacher-confirmed quiz results.")
+
+
+QUIZZES = [  # (id, title, bank topic, date, submitted_at)
+    ("asm-sps-7a-sci-quiz-acids", "Online Quiz: Exploring Substances - Science", "Exploring Substances: Acidic, Basic, and Neutral",
+     "2026-10-14", datetime(2026, 10, 14, 11, 0, tzinfo=timezone.utc)),
+    ("asm-sps-7a-sci-quiz-metals", "Online Quiz: Metals and Non-metals - Science", "The World of Metals and Non-metals",
+     "2026-11-11", datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc)),
+]
+QUIZ_STUDENTS = {"Gurleen Kaur": (0.55, 0.75), "Mahika Sharma": (0.3, 0.5), "Divya Desai": (0.85, 0.9), "Pranay Iyer": (0.9, 0.95)}
+# Teacher-confirmed marks per question (recall /1, explain /2, apply /2, reason /2) in the October and November quizzes.
+QUIZ_MARKS = {"Gurleen Kaur": ([1, 1, 1, 0], [1, 2, 1, 1]), "Mahika Sharma": ([0, 1, 0, 0], [1, 1, 1, 0]),
+              "Divya Desai": ([1, 2, 1, 1], [1, 2, 2, 1]), "Pranay Iyer": ([1, 2, 2, 1], [1, 2, 2, 2])}
+
+
+def confirm_review(api: "Api", teacher: str, rid: str, marks: list) -> None:
+    """Teacher review: confirmed marks per question plus the confirmed Panchapadi stage mapping."""
+    r = api.call("GET", f"/assessments/results/{rid}", token=teacher)
+    questions = [{"position": q["position"], "score": min(q["marks"], marks[q["position"]]), "verify_key": q["type"] == "mcq",
+                  "feedback": "Correct." if marks[q["position"]] >= q["marks"] else "Partly correct - compare with the model answer."}
+                 for q in r["questions"]]
+    api.call("POST", f"/assessments/results/{rid}/review", {
+        "expected_version": r["version"], "feedback": "Reviewed and confirmed by the class teacher.", "questions": questions,
+        "confirm_panchapadi": True, "panchapadi_mappings": teacher_stage_mapping(r["questions"])}, teacher)
+
+
+def teacher_stage_mapping(questions: list) -> list:
+    """The class teacher's Panchapadi mapping for a 4-question quiz (recall, explain, apply, reason)."""
+    def m(stage, why, **flags):
+        return {"stage": stage, "reasoning": why, **flags}
+    by_comp = {
+        "LU": [m("Adheeti", "Recalls a prerequisite fact needed for the chapter.", prerequisite_test=True),
+               m("Abhyas", "Routine recognition practised in class.", procedural_practice=True)],
+        "CU": [m("Bodh", "Asks the student to explain the concept in their own words.")],
+        "AU": [m("Prayog", "Applies the idea to an everyday situation."),
+               m("Abhyas", "Uses the learned test procedure.", procedural_practice=True)],
+        "CT": [m("Prasar", "Extends the idea to a new problem and justifies a choice.", independent_extension=True),
+               m("Prayog", "Applies the concept to a real-life decision.")],
+    }
+    return [{"position": q["position"], "mappings": by_comp.get(q["competency"], [])} for q in questions]
+
+
+def panchapadi(api: Api, db: sqlite3.Connection, teacher: str, students: dict) -> int:
+    """Two online quizzes answered by six students; Qwen classifies each question into Panchapadi stages in the
+    background, then the teacher confirms marks and stage mappings so the Learning Journey has verified points."""
+    import random
+    rng = random.Random(7)
+    template = db.execute("SELECT * FROM assessments WHERE id = 'asm-sps-7a-sci-open1'").fetchone()
+    reviewed = 0
+    for qi, (aid, title, topic, day, when) in enumerate(QUIZZES):
+        bank = db.execute("SELECT * FROM question_bank_items WHERE school_id='school-1' AND subject_id='sub-sci' AND grade=7 "
+                          "AND topic=? ORDER BY CASE competency WHEN 'LU' THEN 0 WHEN 'CU' THEN 1 WHEN 'AU' THEN 2 ELSE 3 END", (topic,)).fetchall()
+        questions = [{"id": q["id"], "text": q["text"], "type": q["type"], "options": json.loads(q["options_json"] or "[]"),
+                      "correct_answer": q["correct_answer"], "marking_rubric": q["marking_rubric"], "marks": q["marks"],
+                      "competency": q["competency"], "bloom_level": q["bloom_level"], "topic": topic, "grade": 7} for q in bank]
+        db.execute("DELETE FROM assessments WHERE id = ?", (aid,))
+        db.execute("INSERT INTO assessments (id, school_id, class_id, subject_id, title, cycle_number, date, duration_minutes, total_marks, "
+                   "status, competency_focus_json, questions_json, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (aid, "school-1", CLASS, SUBJECT, title, template["cycle_number"], day, 30, sum(q["marks"] for q in questions),
+                    "scheduled", template["competency_focus_json"], json.dumps(questions), when.isoformat()))
+        db.commit()
+        for name, quality in QUIZ_STUDENTS.items():
+            s = students[name]
+            tok = api.login(s["admission_no"], datetime.strptime(s["date_of_birth"], "%Y-%m-%d").strftime("%d%m%Y"))
+            good = quality[qi]
+            marks = QUIZ_MARKS[name][qi]
+            answers = []  # written to match the mark the teacher will confirm
+            for pos, q in enumerate(questions):
+                if q["type"] == "mcq":
+                    right = q["options"].index(q["correct_answer"]) if q["correct_answer"] in q["options"] else 0
+                    pick = right if marks[pos] >= q["marks"] else (right + 1) % max(1, len(q["options"]))
+                    answers.append({"position": pos, "selected_option_index": pick})
+                else:
+                    key = (q["correct_answer"] or "").strip()
+                    if marks[pos] >= q["marks"]:
+                        text = key
+                    elif marks[pos] > 0:
+                        text = re.split(r"[;,.]", key)[0].strip() or key[: len(key) // 2]
+                    else:
+                        text = "I do not remember."
+                    answers.append({"position": pos, "answer_text": text})
+            res = api.call("POST", f"/assessments/{aid}/answers", {"request_key": uuid.uuid4().hex, "answers": answers}, tok)
+            rid = res["id"]
+            # Let the background Qwen work for this sheet (stage suggestion, written marking, guidance) finish first:
+            # on SQLite it holds the write lock while it runs, so a review sent meanwhile fails.
+            for _ in range(24):  # the stage suggestion; slower optional guidance is not waited for
+                r = api.call("GET", f"/assessments/results/{rid}", token=teacher)
+                if r["panchapadi"]["status"] in ("complete", "failed"):
+                    break
+                time.sleep(5)
+            time.sleep(3)
+            r = api.call("GET", f"/assessments/results/{rid}", token=teacher)
+            # Qwen suggests stages; the teacher confirms the mapping (teacher_stage_mapping), which is the documented
+            # path whenever the automatic classification is unavailable or needs correcting.
+            questions_review = []
+            for q, auto in zip(r["questions"], r["automatic_outcomes"]):
+                score = min(q["marks"], QUIZ_MARKS[name][qi][q["position"]])  # the teacher's confirmed mark
+                questions_review.append({"position": q["position"], "score": int(score), "verify_key": q["type"] == "mcq",
+                                         "feedback": "Correct." if score >= q["marks"] else "Partly correct - compare with the model answer."})
+            body = {"expected_version": r["version"], "feedback": "Reviewed and confirmed by the class teacher.",
+                    "questions": questions_review}
+            body.update(confirm_panchapadi=True, panchapadi_mappings=teacher_stage_mapping(r["questions"]))
+            api.call("POST", f"/assessments/results/{rid}/review", body, teacher)
+            db.execute("UPDATE learning_assessment_results SET submitted_at = ? WHERE id = ?", (when.isoformat(), rid))
+            db.commit()  # never hold a write transaction open while the API is writing
+            reviewed += 1
+            print(f"  {title[:40]:40s} result {rid[:8]} confirmed")
+        db.execute("UPDATE assessments SET status = 'graded' WHERE id = ?", (aid,))
+        db.commit()
+    return reviewed
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default="http://127.0.0.1:8000/api/v1")
-    main(ap.parse_args().api)
+    ap.add_argument("--quizzes-only", action="store_true", help="only (re)create the Panchapadi quizzes")
+    args = ap.parse_args()
+    if args.quizzes_only:
+        api = Api(args.api)
+        con = sqlite3.connect(APP_DIR / "lumeneios.db")
+        con.row_factory = sqlite3.Row
+        studs = {r["name"]: r for r in con.execute(
+            "SELECT id, name, admission_no, date_of_birth FROM students WHERE class_id = ?", (CLASS,))}
+        print(panchapadi(api, con, api.login(*TEACHER), studs), "quiz results confirmed")
+    else:
+        main(args.api)
