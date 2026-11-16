@@ -826,6 +826,28 @@ class LLMService:
 
 
 
+def source_facts(context: str) -> List[str]:
+    """Distinct content sentences of the source (headings, labels and very short lines dropped)."""
+    text = re.sub(r"\[[^\]]{1,80}\]", " ", context or "")
+    sentences = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text))
+    seen, facts = set(), []
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if 40 <= len(sentence) <= 400 and sentence.casefold() not in seen:
+            seen.add(sentence.casefold())
+            facts.append(sentence)
+    return facts
+
+
+def is_near_duplicate(a: str, b: str, threshold: float = 0.7) -> bool:
+    """True when two question texts share most of their words (same question, light rewording)."""
+    words = lambda t: set(re.findall(r"[a-z0-9]+", (t or "").casefold())) - {"the", "a", "an", "of", "is", "what", "which", "in", "to"}  # noqa: E731
+    x, y = words(a), words(b)
+    if not x or not y:
+        return False
+    return len(x & y) / min(len(x), len(y)) >= threshold
+
+
 def chunk_text(text: str, size: int = 1500) -> list[str]:
     cleaned = " ".join(text.split())
     if not cleaned:
@@ -1150,15 +1172,12 @@ class QwenQuestionStudioService:
             # Generate one question per model call. Batching makes Qwen2.5-VL-3B drop the
             # options array and return only letter answers like "a"/"b".
             questions: List[Dict[str, Any]] = []
+            self._used_facts = set()
             total = mcq_count + theory_count
             for index in range(mcq_count):
                 report_progress("write", f"Writing MCQ {index + 1} of {mcq_count}", index, total)
-                questions.extend(
-                    self._generate_question_batch(
-                        subject_name, 1, 0, bloom_level, focus_topic, context,
-                        start_slot=index,
-                    )
-                )
+                questions.extend(self._generate_checked(
+                    subject_name, 1, 0, bloom_level, focus_topic, context, index, questions))
             for index in range(theory_count):
                 report_progress(
                     "write",
@@ -1166,12 +1185,8 @@ class QwenQuestionStudioService:
                     mcq_count + index,
                     total,
                 )
-                questions.extend(
-                    self._generate_question_batch(
-                        subject_name, 0, 1, bloom_level, focus_topic, context,
-                        start_slot=mcq_count + index,
-                    )
-                )
+                questions.extend(self._generate_checked(
+                    subject_name, 0, 1, bloom_level, focus_topic, context, mcq_count + index, questions))
             report_progress(
                 "prepare",
                 f"Prepared {len(questions)} questions",
@@ -1227,6 +1242,82 @@ class QwenQuestionStudioService:
             "additionalProperties": False,
         }
 
+    _MAX_ATTEMPTS = 3
+
+    def _generate_checked(
+        self, subject_name: str, mcq_count: int, theory_count: int, bloom_level: str,
+        focus_topic: Optional[str], context: str, slot: int, existing: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """One question that is not a near-copy of an earlier one and, for an MCQ, whose answer key an
+        independent re-read of the source agrees with. Small models repeat themselves and sometimes key
+        the opposite of the chapter (e.g. 'a chemical change forms no new substance')."""
+        avoid = [q.get("text", "") for q in existing]
+        fallback: Optional[List[Dict[str, Any]]] = None
+        batch: List[Dict[str, Any]] = []
+        last_error: Optional[Exception] = None
+        facts = source_facts(context)
+        used = self.__dict__.setdefault("_used_facts", set())
+        for _attempt in range(self._MAX_ATTEMPTS):
+            fact = next((f for f in facts[slot % len(facts):] + facts[: slot % len(facts)] if f not in used), None) if facts else None
+            if fact:
+                used.add(fact)
+            try:
+                batch = self._generate_question_batch(
+                    subject_name, mcq_count, theory_count, bloom_level, focus_topic, context,
+                    start_slot=slot, focus_fact=fact)
+            except ValueError as exc:
+                # Malformed output (e.g. an MCQ without four options): try the next part of the source.
+                last_error = exc
+                continue
+            if not batch:
+                continue
+            question = batch[0]
+            text = (question.get("text") or "").strip()
+            if fact and is_near_duplicate(text, fact, 0.85) and not text.endswith("?"):
+                continue  # the model pasted the source sentence instead of asking about it
+            if any(is_near_duplicate(question.get("text", ""), text) for text in avoid):
+                avoid.append(question.get("text", ""))
+                continue
+            if question.get("type") != "mcq":
+                return batch
+            verdict = self._key_supported(question, context)
+            if verdict is not False:
+                return batch
+            fallback = fallback or batch
+            avoid.append(question.get("text", ""))
+        if fallback is None:
+            if not batch and last_error is not None:
+                raise last_error
+            # Every attempt repeated an earlier question: return fewer questions rather than a duplicate.
+            if batch and any(is_near_duplicate(batch[0].get("text", ""), text) for text in avoid):
+                return []
+            return batch
+        question = fallback[0]
+        question["marking_rubric"] = ("Check the answer key: an automatic re-read of the source did not agree with it. "
+                                      + (question.get("marking_rubric") or "")).strip()
+        return fallback
+
+    def _key_supported(self, question: Dict[str, Any], context: str) -> Optional[bool]:
+        """Ask the model, in a separate short call, which option the source supports. None if unclear."""
+        options = question.get("options") or []
+        if len(options) < 2 or question.get("correct_answer") not in options:
+            return None
+        letters = "ABCDEFGH"[: len(options)]
+        prompt = (
+            "Read the source text and answer the multiple-choice question using ONLY the source.\n\n"
+            f"SOURCE:\n{context[:6000]}\n\nQUESTION: {question.get('text', '')}\n"
+            + "\n".join(f"{letters[i]}. {opt}" for i, opt in enumerate(options))
+            + "\n\nReply with the single letter of the correct option and nothing else."
+        )
+        try:
+            reply = self._generate_text(prompt, max_new_tokens=8)
+        except Exception:  # noqa: BLE001 - the check is advisory; never fail generation because of it
+            return None
+        match = re.search(rf"\b([{letters}])\b", reply.strip().upper())
+        if not match:
+            return None
+        return options[letters.index(match.group(1))] == question["correct_answer"]
+
     def _generate_question_batch(
         self,
         subject_name: str,
@@ -1236,6 +1327,7 @@ class QwenQuestionStudioService:
         focus_topic: Optional[str],
         context: str,
         start_slot: int = 0,
+        focus_fact: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         prompt = build_studio_prompt(
             subject_name,
@@ -1259,6 +1351,12 @@ class QwenQuestionStudioService:
         prompt = (
             f"{prompt}\nExample of valid JSON shape (do not copy the content):\n{example}"
         )
+        if focus_fact:
+            # Each question gets its own part of the source: greedy decoding otherwise writes the same question
+            # every time, and listing earlier questions makes a small model copy them.
+            prompt += ("\nIMPORTANT: the question must test THIS sentence from the source, and its correct answer must "
+                       f"come from it:\n\"{focus_fact}\"\nDo not copy the sentence as the question text: ask a real question "
+                       "(ending with '?') or give a task (Explain/Describe/Why ...) whose answer is in the sentence.")
         raw = self._generate_text(
             prompt, max_new_tokens=1536, output_schema=output_schema, report_step="write"
         )
