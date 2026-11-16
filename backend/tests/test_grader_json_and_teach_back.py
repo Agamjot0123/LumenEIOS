@@ -31,3 +31,21 @@ def test_partial_explanation_gets_the_uncovered_rubric_points_as_missing():
     text = " ".join(fb.missing_concepts)
     assert "water" in text and "oxygen" in text and "chlorophyll" in text
     assert not any("sunlight" == m for m in fb.missing_concepts)
+
+
+def test_teach_back_lists_come_from_per_point_judgements_and_cannot_contradict():
+    from backend.app.services.llm_service import rubric_points, teach_back_feedback
+    rubric = ("Land heats up faster than water; warm air over the land rises; cooler air from over the sea moves in "
+              "to take its place; at night the direction reverses (land breeze).")
+    response = ("In the day the land gets hot faster than the sea water. The hot air over the land rises. Cooler air "
+                "from the sea comes in. At night the wind blows from land to sea.")
+    points = rubric_points(rubric)
+    assert len(points) == 4
+    data = {"covered": [True, True, True, True],
+            "misconceptions": ["The student incorrectly stated that the wind blows from land to sea at night.",
+                               "Plants eat soil"],
+            "strengths": [], "next_step": ""}
+    fb = teach_back_feedback(points, data["covered"], data, response, rubric, TeachBackFeedback)
+    assert fb.missing_concepts == [] and len(fb.correctly_understood) == 4
+    assert fb.misconceptions == []   # restates the rubric / was never written by the student
+    assert not set(fb.correctly_understood) & set(fb.missing_concepts)
