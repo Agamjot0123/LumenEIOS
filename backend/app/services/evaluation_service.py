@@ -374,7 +374,21 @@ def build_evaluation_messages(
         "Return one evaluation per official question, including skipped questions. "
         "Omit student identity and use only the official question IDs."
     )
-    return system, user_part.removesuffix("\n<|im_end|>\n<|im_start|>assistant")
+    user_part = user_part.removesuffix("\n<|im_end|>\n<|im_start|>assistant")
+    # Small models lose track of which answer belongs to which question in one long OCR string.
+    # When the sheet is numbered, also give each answer next to its question number.
+    answers = split_numbered_answers(extracted_ocr_text)
+    if answers:
+        lines = []
+        for q in questions:
+            n = int(q.get("question_index") or questions.index(q) + 1)
+            given = answers.get(n, "").strip()
+            lines.append(f"Q{n} (question_id {q.get('id', n)}): " + (json.dumps(given, ensure_ascii=False) if given else "[no answer written]"))
+        user_part += (
+            "\n\nThe student's answers, already separated by question number (use these; a question with an answer "
+            "here was attempted):\n" + "\n".join(lines)
+        )
+    return system, user_part
 
 
 def build_answer_key_prompt(
@@ -458,6 +472,13 @@ def key_overlap(answer: str, key: str) -> Optional[float]:
     return len(key_words & words(answer)) / len(key_words)
 
 
+_NO_ANSWER = re.compile(r"\b(did not|didn't|does not|has not|no) (attempt|answer|response|write)|not attempted|unattempted|left (it )?blank", re.IGNORECASE)
+
+
+def _claims_no_answer(text: Optional[str]) -> bool:
+    return bool(text and _NO_ANSWER.search(text))
+
+
 def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]], extracted_text: str) -> "EvaluationResult":
     answers = split_numbered_answers(extracted_text)
     numbered = bool(answers)
@@ -489,7 +510,18 @@ def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]
             # Written answer: cross-check the model's mark with how much of the key the answer contains.
             overlap = key_overlap(answer, key)
             top = float(question.get("max_marks") or item.max_marks)
-            if overlap is not None:
+            model_missed_answer = item.status == "unattempted" or _claims_no_answer(item.feedback)
+            if overlap is not None and model_missed_answer:
+                # The model said nothing was written, but the transcript has an answer: its mark is not evidence.
+                by_key = round(min(1.0, overlap / 0.8) * top * 2) / 2
+                item.status, item.awarded_marks = "attempted", by_key
+                item.flag_for_review = True
+                item.flag_reason = "AI missed this answer; marked from the answer key."
+                item.feedback = ("Matches the answer key." if by_key >= top else
+                                 f"Partly correct. A full answer includes: {key}" if by_key > 0 else
+                                 f"Does not match the answer key. Expected: {key}")
+                item.competency_score = round(100 * by_key / top, 1) if top else 0
+            elif overlap is not None:
                 by_key = round(min(1.0, overlap / 0.8) * top * 2) / 2  # 80% of the key's content earns full marks
                 if abs(by_key - item.awarded_marks) > top / 2:
                     model_was_generous = item.awarded_marks > by_key
@@ -511,6 +543,15 @@ def harden_evaluation(result: "EvaluationResult", questions: List[Dict[str, Any]
     summary.percentage = round(100 * summary.total_marks_obtained / summary.max_possible_marks, 1) if summary.max_possible_marks else 0
     if any(p in (summary.overall_feedback or "").lower() for p in _TEMPLATE_PHRASES):
         summary.overall_feedback = ""
+    attempted = [i for i in result.question_evaluations if i.status != "unattempted"]
+    if attempted and _claims_no_answer(summary.overall_feedback):
+        # The overall comment contradicts the transcript; replace it with one built from the marks.
+        best = max(attempted, key=lambda i: i.awarded_marks / i.max_marks if i.max_marks else 0)
+        weak = [i for i in result.question_evaluations if i.max_marks and i.awarded_marks < i.max_marks]
+        summary.overall_feedback = (f"Answered {len(attempted)} of {len(result.question_evaluations)} questions; "
+                                    f"strongest on Q{best.question_index}."
+                                    + (f" Revise Q{', Q'.join(str(i.question_index) for i in weak)} against the answer key."
+                                       if weak else " All answers match the key."))
     for dim in ("LU", "CU", "AU", "CT"):
         rows = [(i.awarded_marks, i.max_marks) for i in result.question_evaluations if i.competency == dim]
         setattr(summary.competency_scores, dim, round(100 * sum(a for a, _ in rows) / sum(m for _, m in rows), 1) if rows and sum(m for _, m in rows) else None)
