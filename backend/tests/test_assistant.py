@@ -38,7 +38,7 @@ async def test_assistant_scopes_parent_records_and_navigation(client, parent_tok
     prompt = captured["messages"][0]["content"][0]["text"]
     marker = "Authorized data: "
     payload = json.loads(prompt[prompt.index(marker) + len(marker):].split("\n", 1)[0])
-    assert payload["pages"] == ["Child progress", "Unified progress"]
+    assert payload["pages"] == ["Child progress", "Unified progress", "Homework results"]
     assert payload["records"]["student_count"] == 2
     assert payload["records"]["classes"] == []
 

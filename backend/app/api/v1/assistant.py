@@ -7,12 +7,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import select, func
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import require_roles, user_school_ids
 from backend.app.db.session import get_db
-from backend.app.models.entities import ClassSection, CurriculumDay, ParentStudentLink, School, Student, User
+from backend.app.models.entities import ClassSection, CurriculumDay, ParentStudentLink, School, Student, TeacherAssignment, User
 from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
 from backend.app.services.competency_service import aggregate_student_competencies
 from backend.app.services.ocr_service import QwenOCRInferenceError, QwenOCRUnavailableError, qwen_model
@@ -28,13 +28,14 @@ PAGES = {
     },
     "student": {
         "My progress": "/student/dashboard", "Unified progress": "/student/progress",
-        "My profile": "/student/profile",
-        "OCR history": "/student/history", "Answer sheets": "/student/answer-sheets",
+        "Differentiated homework": "/student/homework", "Upload answers": "/upload-beta",
+        "My profile": "/student/profile", "OCR history": "/student/history",
     },
     "teacher": {
         "Dashboard": "/teacher/dashboard", "My classes": "/teacher/classes",
-        "Assessment studio": "/teacher/assessments-beta", "Curriculum": "/teacher/curriculum-180",
-        "Pacing": "/teacher/time-aware", "Remediation": "/teacher/remediation", "Upload": "/upload",
+        "Differentiated homework": "/teacher/homework", "Upload Beta (grade handwritten work)": "/upload-beta",
+        "AI Question Studio Beta": "/teacher/assessments-beta", "Curriculum": "/teacher/curriculum-180",
+        "Pacing": "/teacher/time-aware", "Upload": "/upload",
     },
     "principal": {
         "Dashboard": "/principal/dashboard", "Students": "/principal/students",
@@ -44,8 +45,41 @@ PAGES = {
     "parent": {
         "Child progress": "/parent/dashboard",
         "Unified progress": "/parent/progress",
+        "Homework results": "/parent/homework",
     },
 }
+
+# How the main features are used, so "how do I ...?" gets the app's steps rather than generic advice.
+HOW_TO = {
+    "teacher": [
+        "Differentiated homework: open Differentiated homework, choose class, subject and student (or whole class), "
+        "click Preview homework (questions are picked from the question bank for the student's weakest parameter), "
+        "Save draft, Approve, Assign. After students submit, open Submissions & marking, mark, finalize and Release results; "
+        "releasing updates the student's parameters and notifies parents.",
+        "Grade handwritten work: open Upload Beta, choose the assignment, pick a student who uploaded, check the OCR text, "
+        "click Evaluate with AI (or Mark manually), adjust marks and Publish grade.",
+        "Create questions: AI Question Studio Beta - upload a chapter PDF or paste a link, choose MCQ/theory counts and "
+        "Bloom level, Generate, review and assign the paper to a class.",
+        "Students needing support are listed on the Dashboard and in My classes (heatmap).",
+    ],
+    "student": ["Upload answers: open Upload answers, choose the worksheet, upload a photo and click Run OCR.",
+                "Differentiated homework: open it, answer, Save progress, then Submit homework."],
+    "parent": ["Homework results shows each homework and the released marks and feedback.",
+               "Child progress shows parameters, the report card and teacher feedback."],
+}
+DIMENSIONS = {"LU": "Language Understanding", "CU": "Concept Understanding",
+              "AU": "Application Understanding", "CT": "Critical Thinking"}
+
+
+def student_fact(s) -> dict:
+    """Scores plus the comparisons small models get wrong (weakest/strongest), computed here."""
+    scores = {"LU": s.lu_score, "CU": s.cu_score, "AU": s.au_score, "CT": s.ct_score}
+    weakest = min(scores, key=scores.get)
+    strongest = max(scores, key=scores.get)
+    return {"name": s.name, "class": s.class_name, "overall": s.overall_score, **scores,
+            "weakest": f"{weakest} ({DIMENSIONS[weakest]}) {scores[weakest]}",
+            "strongest": f"{strongest} ({DIMENSIONS[strongest]}) {scores[strongest]}",
+            "needs_support": s.needs_support}
 
 
 class Turn(BaseModel):
@@ -121,12 +155,15 @@ async def assistant_context(db: AsyncSession, user: User, school_id: str | None)
         school_ids = {school_id} if school_id else allowed_schools
         classes_query = select(ClassSection).where(ClassSection.school_id.in_(school_ids))
         if user.role == "teacher":
-            classes_query = classes_query.where(ClassSection.class_teacher_id == user.id)
+            # Every section the teacher teaches, not only the one they are class teacher of.
+            taught = select(TeacherAssignment.class_id).where(TeacherAssignment.teacher_id == user.id)
+            classes_query = classes_query.where(or_(ClassSection.class_teacher_id == user.id, ClassSection.id.in_(taught)))
         classes = list((await db.scalars(classes_query.order_by(ClassSection.name))).all())
         students_query = students_query.where(
             Student.school_id.in_(school_ids), Student.class_id.in_([item.id for item in classes])
         )
-    students = list((await db.scalars(students_query)).all())
+    # Weakest first, so "who needs the most support" is at the top of the records.
+    students = sorted((await db.scalars(students_query)).all(), key=lambda s: (s.overall_score, s.name))
     # Limit individual records sent to the model while keeping aggregates over the full authorized set.
     context = {
         "role": user.role,
@@ -134,12 +171,8 @@ async def assistant_context(db: AsyncSession, user: User, school_id: str | None)
         "averages": aggregate_student_competencies(students) if students else None,
         "needs_support_count": sum(bool(s.needs_support) for s in students),
         "student_records_truncated": len(students) > 60,
-        "students": [
-            {"name": s.name, "class": s.class_name, "overall": s.overall_score,
-             "LU": s.lu_score, "CU": s.cu_score, "AU": s.au_score, "CT": s.ct_score,
-             "needs_support": s.needs_support}
-            for s in students[:60]
-        ],
+        "students_sorted_by": "overall, lowest first",
+        "students": [student_fact(s) for s in students[:60]],
         "classes": [],
     }
     counts = (await db.execute(
@@ -160,6 +193,8 @@ async def assistant_context(db: AsyncSession, user: User, school_id: str | None)
             "student_count": len(roster),
             "averages": aggregate_student_competencies(roster) if roster else None,
             "needs_support_count": sum(bool(student.needs_support) for student in roster),
+            "needing_most_support": [f"{st.name} (overall {st.overall_score}, weakest {student_fact(st)['weakest']})"
+                                     for st in roster[:5]],
             "lesson_status_counts": lesson_counts[item.id],
         })
     return context
@@ -189,10 +224,14 @@ async def chat(
         "completion, but do not establish whether a class is behind schedule. Say when evidence is missing. "
         "Suggest practical learning activities as suggestions. Never invent results, causes or trends. "
         "Use history only to understand follow-up questions. You cannot modify records. "
+        "Each student record already states their weakest and strongest parameter, and each class lists the students "
+        "needing the most support: quote these, do not recompute them. If a question names a student who is not in "
+        "the records, say you can only discuss students you are authorised to see. For 'how do I' questions use the "
+        "how-to guide and name the page. "
         "For navigation choose exactly one page label from the provided pages, or null. "
         "For data answers choose the closest supporting page. "
         "Never reply with a bare JSON array or a page list alone.\n"
-        f"Authorized data: {json.dumps({'pages': list(pages), 'records': context})}\n"
+        f"Authorized data: {json.dumps({'pages': list(pages), 'how_to': HOW_TO.get(user.role, []), 'records': context})}\n"
         f"Conversation: {json.dumps([turn.model_dump() for turn in body.history])}\n"
         f"Question: {body.message}\n"
         "Return only one JSON object matching this schema:\n"
@@ -210,6 +249,9 @@ async def chat(
             links=[Link(label=label, path=path) for label, path in pages.items()],
             model_available=False,
         )
+    if answer.answer.strip().strip('"').lower() in {"null", "none", "n/a", ""}:
+        answer.answer = ("I can't find that in the records you're allowed to see. "
+                         "I can only discuss your own classes, your own work, or your linked child.")
     links = []
     if answer.page in pages:
         links.append(Link(label=answer.page, path=pages[answer.page]))
