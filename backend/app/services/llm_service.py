@@ -866,7 +866,10 @@ def teach_back_feedback(points, covered, data, response, rubric, model_cls):
                               for p in understood)
         if said and not restates_rubric and not matches_covered:
             misconceptions.append(str(item).strip())
-    strengths = [str(x).strip() for x in data.get("strengths") or [] if str(x).strip()][:6]
+    # A strength must correspond to a rubric point the response actually covers.
+    strengths = [str(x).strip() for x in data.get("strengths") or []
+                 if str(x).strip() and any(_content_words(p) and len(_content_words(p) & _content_words(str(x))) / len(_content_words(p)) >= 0.5
+                                           for p in understood)][:6]
     # The next step follows from the judgements, so it can never point at a gap that is not there.
     if missing:
         next_step = f"Next, add this to your explanation: {missing[0][0].lower() + missing[0][1:]}."
