@@ -28,10 +28,25 @@ if errorlevel 1 (
 )
 
 rem Prefer the copy of the project this file sits in; otherwise use the fallback path.
-set "APP_DIR=%FALLBACK_APP_DIR%"
-if exist "%~dp0scripts\start-all.sh" (
+rem Opened from Explorer at \\wsl.localhost\<distro>\... (or \\wsl$\<distro>\...) the folder is already inside
+rem WSL: translate it directly - wslpath turns such UNC paths into a non-existent /mnt/c/... folder.
+set "APP_DIR="
+set "HERE=%~dp0"
+if /i "%HERE:~0,16%"=="\\wsl.localhost\" set "UNC_REST=%HERE:~16%"
+if /i "%HERE:~0,7%"=="\\wsl$\" set "UNC_REST=%HERE:~7%"
+if defined UNC_REST (
+    for /f "tokens=1,* delims=\" %%A in ("%UNC_REST%") do set "APP_DIR=/%%B"
+) else if exist "%~dp0scripts\start-all.sh" (
     for /f "usebackq delims=" %%P in (`wsl.exe %DISTRO_ARG% -- wslpath -a "%~dp0."`) do set "APP_DIR=%%P"
 )
+if defined APP_DIR set "APP_DIR=%APP_DIR:\=/%"
+if defined APP_DIR if "%APP_DIR:~-1%"=="/" set "APP_DIR=%APP_DIR:~0,-1%"
+rem Use it only if it really is the project; otherwise fall back.
+if defined APP_DIR (
+    wsl.exe %DISTRO_ARG% -- test -f "%APP_DIR%/scripts/start-all.sh"
+    if errorlevel 1 set "APP_DIR="
+)
+if not defined APP_DIR set "APP_DIR=%FALLBACK_APP_DIR%"
 
 echo Starting LumenEIOS from %APP_DIR% ...
 echo.
