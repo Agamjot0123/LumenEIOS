@@ -36,12 +36,8 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db)
 ) -> User:
     if not token:
-        # Fallback in demo mode if requested without token: return admin user
-        if settings.DEMO_MODE:
-            result = await db.execute(select(User).filter(User.role == "admin").limit(1))
-            admin = result.scalars().first()
-            if admin:
-                return admin
+        # Never treat an anonymous request as a user, not even in DEMO_MODE: an "anonymous = admin" shortcut let
+        # anyone on the network read and change every school's data without signing in.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication token required.",

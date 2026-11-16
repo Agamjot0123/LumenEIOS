@@ -7,12 +7,14 @@ import { Card, CardBody, CardHeader } from '../common/Card';
 import { Badge } from '../common/Badge';
 import { CompetencyRadarChart } from '../charts/CompetencyRadarChart';
 import { DIM_LABEL, examName, formatDay, grade } from '../../lib/dashboard';
+import { useChartInk } from '../../lib/themeColor';
 
-const DIM_COLOURS: Record<string, string> = { LU: '#2563EB', CU: '#7C3AED', AU: '#D97706', CT: '#059669', overall: '#0F172A' };
+const DIM_COLOURS: Record<string, string> = { LU: '#2563EB', CU: '#7C3AED', AU: '#D97706', CT: '#059669' };
 
 /** Everything a student (or their parent) needs about one learner, from the live workspace. */
 export const LearnerOverview: React.FC<{ studentId: string; audience: 'student' | 'parent' }> = ({ studentId, audience }) => {
   const navigate = useNavigate();
+  const ink = useChartInk();
   const { students, assessments, assessmentResults, subjects, workspace, snapshots } = useData();
   const student = students.find(s => s.id === studentId);
   const subjectName = (id: string) => subjects.find(s => s.id === id)?.name ?? id;
@@ -102,13 +104,13 @@ export const LearnerOverview: React.FC<{ studentId: string; audience: 'student' 
             <div style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer>
                 <LineChart data={timeline} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={ink.grid} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: ink.muted }} stroke={ink.grid} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: ink.muted }} stroke={ink.grid} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   {(['overall', 'LU', 'CU', 'AU', 'CT'] as const).map(k => (
-                    <Line key={k} type="monotone" dataKey={k} name={k === 'overall' ? 'Overall' : k} stroke={DIM_COLOURS[k]} strokeWidth={k === 'overall' ? 3 : 1.5} dot={k === 'overall'} />
+                    <Line key={k} type="monotone" dataKey={k} name={k === 'overall' ? 'Overall' : k} stroke={k === 'overall' ? ink.text : DIM_COLOURS[k]} strokeWidth={k === 'overall' ? 3 : 1.5} dot={k === 'overall'} />
                   ))}
                 </LineChart>
               </ResponsiveContainer>

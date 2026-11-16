@@ -41,6 +41,25 @@ async def resources(world, db_session, tmp_path):
     await db_session.commit()
 
 
+DEV_BYPASS_PATHS = {'/api/v1/auth/dev/accounts', '/api/v1/auth/dev/login'}
+
+
+async def test_developer_bypass_is_closed_outside_development(client, monkeypatch, db_session):
+    for env, bypass in [('production', True), ('staging', True), ('development', False)]:
+        monkeypatch.setattr(settings, 'APP_ENV', env)
+        monkeypatch.setattr(settings, 'DEV_LOGIN_BYPASS', bypass)
+        assert (await client.get('/api/v1/auth/dev/accounts')).status_code == 404
+        assert (await client.post('/api/v1/auth/dev/login', json={'user_id': 'user-admin'})).status_code == 404
+    # In development every bypass sign-in is written to the audit trail.
+    monkeypatch.setattr(settings, 'APP_ENV', 'development')
+    monkeypatch.setattr(settings, 'DEV_LOGIN_BYPASS', True)
+    before = await db_session.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.action == 'Developer bypass login'))
+    user_id = (await client.get('/api/v1/auth/dev/accounts')).json()['accounts'][0]['id']
+    assert (await client.post('/api/v1/auth/dev/login', json={'user_id': user_id})).status_code == 200
+    after = await db_session.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.action == 'Developer bypass login'))
+    assert after == before + 1
+
+
 async def test_every_protected_operation_requires_a_real_token(client, monkeypatch, db_session):
     monkeypatch.setattr(settings,'DEMO_MODE',True)
     before=await db_session.scalar(select(func.count()).select_from(AuditEvent))
@@ -48,6 +67,9 @@ async def test_every_protected_operation_requires_a_real_token(client, monkeypat
     operations=0
     for route_path, methods in app.openapi()['paths'].items():
         if route_path == '/api/v1/auth/login' or not route_path.startswith('/api/v1'): continue
+        # The developer sign-in bypass is used before signing in, so it cannot ask for a token; it exists only in
+        # development and is covered by test_developer_bypass_is_closed_outside_development below.
+        if route_path in DEV_BYPASS_PATHS: continue
         path=re.sub(r'{[^}]+}','missing',route_path)
         for method in set(methods)-{'parameters'}:
             response=await client.request(method.upper(),path,json={} if method.upper() not in {'GET','DELETE'} else None)
