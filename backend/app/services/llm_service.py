@@ -844,8 +844,28 @@ def json_payload(raw: str, title: Optional[str] = None) -> Any:
     if isinstance(data, dict) and len(data) == 1:
         (key, inner), = data.items()
         if isinstance(inner, dict) and (key == title or (title is None and key[:1].isupper())):
-            return inner
-    return data
+            data = inner
+    return _drop_schema_echoes(data)
+
+
+_SCHEMA_WORDS = {"anyOf", "oneOf", "type", "title", "default", "maxLength", "minLength", "maxItems", "minItems",
+                 "items", "properties", "required", "description", "enum", "format", "$ref"}
+
+
+def _drop_schema_echoes(value: Any) -> Any:
+    """Small models sometimes copy a field's JSON-schema definition (e.g. {"anyOf": [...], "title": ...}) instead of a
+    value; for optional fields that made every reply invalid. Such fragments become null (no value given)."""
+    if isinstance(value, dict):
+        out = {}
+        for key, inner in value.items():
+            if isinstance(inner, dict) and inner and set(inner) <= _SCHEMA_WORDS and ({"anyOf", "oneOf", "type"} & set(inner)):
+                out[key] = None
+            else:
+                out[key] = _drop_schema_echoes(inner)
+        return out
+    if isinstance(value, list):
+        return [_drop_schema_echoes(v) for v in value]
+    return value
 
 
 def _content_words(text: str) -> set:

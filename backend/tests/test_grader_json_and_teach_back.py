@@ -57,3 +57,16 @@ def test_reply_nested_under_the_schema_title_is_unwrapped():
     assert json_payload(raw, "StageClassification") == {"questions": [{"position": 0, "mappings": []}]}
     assert json_payload('{"covered": [true]}') == {"covered": [True]}
     assert json_payload('{"answer": {"x": 1}}', "Other") == {"answer": {"x": 1}}  # a real field is never unwrapped
+
+
+def test_echoed_schema_definitions_become_null():
+    from backend.app.schemas.assessment_learning import QuestionGuidance
+    from backend.app.services.llm_service import json_payload
+    raw = ('```json\n{"expected_concept": {"anyOf": [{"maxLength": 2000, "type": "string"}, {"type": "null"}], '
+           '"default": null, "title": "Expected Concept"}, "misunderstanding": {"anyOf": [{"type": "string"}, {"type": "null"}], '
+           '"title": "Misunderstanding"}, "explanation": "Acids turn blue litmus red.", "activity": "Test lemon juice with litmus."}\n```')
+    guidance = QuestionGuidance.model_validate(json_payload(raw, "QuestionGuidance"))
+    assert guidance.expected_concept is None and guidance.misunderstanding is None
+    assert guidance.explanation.startswith("Acids")
+    # genuine nested values are untouched
+    assert json_payload('{"mapping": {"stage": "Bodh", "reasoning": "explains"}}') == {"mapping": {"stage": "Bodh", "reasoning": "explains"}}

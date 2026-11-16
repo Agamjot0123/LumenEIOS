@@ -147,3 +147,6 @@ def test_recovery_stops_after_the_automatic_attempt_limit():
     assert worker._retry_due(record)
     record.panchapadi_json['attempts'].append(failed())
     assert not worker._retry_due(record)  # a persistently failing model no longer loops forever
+    # ...but a job stopped mid-run (expired running lease) is still recovered once
+    record.panchapadi_json['attempts'][-1]['status']='running'
+    assert worker._retry_due(record)

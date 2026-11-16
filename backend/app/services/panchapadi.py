@@ -224,7 +224,8 @@ def _retry_due(record):
     latest=attempts[-1]
     revision=record.reviews_json[-1]["revision_id"] if record.reviews_json else None
     if latest.get("review_revision_id")!=revision:return True
-    if sum(1 for a in attempts if a.get("review_revision_id")==revision)>=GUIDANCE_MAX_AUTOMATIC_ATTEMPTS:return False
+    # The cap applies to finished attempts; an expired "running" lease (a process stopped mid-job) is always recovered.
+    if latest["status"]!="running" and sum(1 for a in attempts if a.get("review_revision_id")==revision)>=GUIDANCE_MAX_AUTOMATIC_ATTEMPTS:return False
     stamp=datetime.fromisoformat(latest.get("heartbeat_at",latest["date"]))
     if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=timezone.utc)
     delay=1800 if latest["status"]=="running" else min(900,30*2**min(len(attempts)-1,5))
