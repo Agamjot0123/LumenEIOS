@@ -229,6 +229,8 @@ async def chat(
         "the records, say you can only discuss students you are authorised to see. For 'how do I' questions use the "
         "how-to guide and name the page. "
         "For navigation choose exactly one page label from the provided pages, or null. "
+        "Questions about scores, parameters, weak areas or progress link to the progress or dashboard page "
+        "(My progress, Child progress, My classes, Dashboard), never to a profile page. "
         "For data answers choose the closest supporting page. "
         "Never reply with a bare JSON array or a page list alone.\n"
         f"Authorized data: {json.dumps({'pages': list(pages), 'how_to': HOW_TO.get(user.role, []), 'records': context})}\n"
