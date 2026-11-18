@@ -7,6 +7,7 @@ import { apiClient } from '../../lib/apiClient';
 import { Card, CardBody, CardHeader } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { SchoolOverview } from '../../components/school/SchoolOverview';
+import { CalendarOverview } from '../../features/calendar/CalendarOverview';
 import { averageScores } from '../../lib/dashboard';
 
 export const AdminDashboard: React.FC = () => {
@@ -69,6 +70,7 @@ export const AdminDashboard: React.FC = () => {
 
       <SchoolOverview key={scope} schoolIds={ids} />
 
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <Card>
         <CardHeader title="Recent activity" subtitle="Audit trail across the network"
           action={<button onClick={() => navigate('/admin/audit-logs')} className="text-xs font-semibold text-teal-700 hover:underline">Full audit log</button>} />
@@ -82,6 +84,8 @@ export const AdminDashboard: React.FC = () => {
           ))}
         </CardBody>
       </Card>
+      <CalendarOverview />
+      </div>
     </div>
   );
 };

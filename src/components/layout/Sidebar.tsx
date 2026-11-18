@@ -10,6 +10,7 @@ import {
   Users,
   BookOpen,
   Calendar,
+  CalendarDays,
   Clock,
   ScanLine,
   FileSpreadsheet,
@@ -221,7 +222,10 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     }
   };
 
-  const navItems = getNavItems().concat({ label: 'LearnSphere', path: '/learnsphere', icon: <BookOpen className="w-4 h-4" /> }).filter((item) => {
+  // Everyone with a school login gets the same calendar, right after their dashboard.
+  const baseItems = getNavItems();
+  if (role !== 'developer' && baseItems.length) baseItems.splice(1, 0, { label: 'Calendar', path: '/calendar', icon: <CalendarDays className="w-4 h-4" /> });
+  const navItems = baseItems.concat({ label: 'LearnSphere', path: '/learnsphere', icon: <BookOpen className="w-4 h-4" /> }).filter((item) => {
     if (item.path === '/teacher/assessments-beta' && !flags.questionStudio) return false;
     if (item.path === '/upload-beta' && !flags.uploadBeta) return false;
     if (item.path === '/student/answer-sheets' && !flags.answerSheetOcr) return false;

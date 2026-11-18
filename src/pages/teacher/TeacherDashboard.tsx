@@ -10,6 +10,7 @@ import { CompetencyRadarChart } from '../../components/charts/CompetencyRadarCha
 import { ClassHeatmap } from '../../components/charts/ClassHeatmap';
 import { DIM_LABEL, averageScores, examName, formatDay, summariseExams } from '../../lib/dashboard';
 import { teacherClassIds } from '../../lib/workspace';
+import { CalendarOverview } from '../../features/calendar/CalendarOverview';
 import {
   Users, BookOpen, Sparkles, ScanLine, ArrowRight, TrendingUp, FileCheck, Clock, AlertTriangle, ClipboardList,
 } from 'lucide-react';
@@ -115,7 +116,9 @@ export const TeacherDashboard: React.FC = () => {
           </CardBody>
         </Card>
 
-        <div className="lg:col-span-2 space-y-6">
+        <CalendarOverview />
+
+        <div className="lg:col-span-2 lg:row-span-2 space-y-6">
           <Card>
             <CardHeader title={`Results · ${subjectsHere.map(subjectName).join(', ') || 'all subjects'}`} subtitle={`${selected?.name ?? ''} · 2026-27 session`}
               action={<Button variant="outline" size="sm" onClick={() => navigate('/teacher/classes')} icon={<ClipboardList className="w-3.5 h-3.5" />}>All results</Button>} />

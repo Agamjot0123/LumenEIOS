@@ -7,6 +7,7 @@ import { apiClient } from '../../lib/apiClient';
 import { Card, CardBody, CardHeader } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { LearnerOverview } from '../../components/learner/LearnerOverview';
+import { CalendarOverview } from '../../features/calendar/CalendarOverview';
 import { DIM_LABEL } from '../../lib/dashboard';
 
 // Everyday, low-cost activities families can do at home, by the competency that needs the most support.
@@ -88,7 +89,10 @@ export const ParentDashboard: React.FC = () => {
         </Card>
       )}
 
-      <LearnerOverview studentId={child.id} audience="parent" />
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
+        <LearnerOverview studentId={child.id} audience="parent" />
+        <div className="xl:sticky xl:top-4"><CalendarOverview /></div>
+      </div>
 
       <Card>
         <CardHeader title="How you can help at home" subtitle={`${child.name.split(' ')[0]}'s parameter that needs the most support right now: ${DIM_LABEL[weakest]} (${child.competencies[weakest]}%)`} />

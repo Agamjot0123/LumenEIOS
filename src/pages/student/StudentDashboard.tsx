@@ -10,6 +10,7 @@ import { UnauthorizedPage } from '../shared/UnauthorizedPage';
 import { Badge } from '../../components/common/Badge';
 import { LearnerOverview } from '../../components/learner/LearnerOverview';
 import { KnowledgeComponentGraph } from './KnowledgeComponentGraph';
+import { CalendarOverview } from '../../features/calendar/CalendarOverview';
 
 export const StudentDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -80,7 +81,10 @@ function StudentDashboardContent({ student }: { student: Student }) {
         )}
       </div>
 
-      {live ? <LearnerOverview studentId={student.id} audience="student" /> : <p role="status" className="text-sm text-content-secondary">Loading your results…</p>}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
+        {live ? <LearnerOverview studentId={student.id} audience="student" /> : <p role="status" className="text-sm text-content-secondary">Loading your results…</p>}
+        <div className="xl:sticky xl:top-4"><CalendarOverview /></div>
+      </div>
 
       <details className="rounded-2xl border border-surface-border bg-white p-4 shadow-subtle">
         <summary className="cursor-pointer text-sm font-semibold text-navy-900">Answer an assignment online instead of on paper</summary>

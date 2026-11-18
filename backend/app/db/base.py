@@ -77,3 +77,6 @@ from backend.app.models.knowledge_components import (  # noqa: E402,F401
 # LearnSphere / assessment-result tables, so init_db sees them regardless of router import order.
 from backend.app.modules.learnsphere import models as _learnsphere_models  # noqa: E402,F401
 from backend.app.modules.learnsphere import assessment_models as _learnsphere_assessment_models  # noqa: E402,F401
+
+# Personal calendar tasks and deadlines. New table only.
+from backend.app.models.calendar_events import PersonalCalendarEvent  # noqa: E402,F401

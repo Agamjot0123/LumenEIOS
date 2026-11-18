@@ -6,6 +6,7 @@ from backend.app.api.v1.users import router as users_router
 from backend.app.api.v1.teachers import router as teachers_router
 from backend.app.api.v1.classes import router as classes_router
 from backend.app.api.v1.calendar import router as calendar_router
+from backend.app.api.v1.calendar_hub import router as calendar_hub_router
 from backend.app.api.v1.assessments import router as assessments_router
 from backend.app.api.v1.scan_grading import router as scan_grading_router
 from backend.app.api.v1.workspace import router as workspace_router
@@ -43,6 +44,7 @@ api_router.include_router(users_router)
 api_router.include_router(teachers_router)
 api_router.include_router(classes_router)
 api_router.include_router(calendar_router)
+api_router.include_router(calendar_hub_router)
 api_router.include_router(scan_grading_router)
 api_router.include_router(workspace_router)
 api_router.include_router(assessments_router)

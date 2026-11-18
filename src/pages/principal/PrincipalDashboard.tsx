@@ -13,6 +13,7 @@ import { CompetencyBarChart } from '../../components/charts/CompetencyBarChart';
 import { ApiError, apiClient } from '../../lib/apiClient';
 import { CLASS_NAME_HELP } from '../../lib/className';
 import { SchoolOverview } from '../../components/school/SchoolOverview';
+import { CalendarOverview } from '../../features/calendar/CalendarOverview';
 import {
   School,
   Users,
@@ -143,8 +144,9 @@ export const PrincipalDashboard: React.FC = () => {
 
       <SchoolOverview schoolIds={[activeSchool.id]} />
 
-      {/* Quick Navigation to Principal Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Quick Navigation to Principal Actions, with the school calendar alongside */}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 gap-4">
         <div
           onClick={() => navigate('/principal/teachers')}
           className="p-4 bg-white rounded-xl border border-surface-border hover:border-teal-400 hover:shadow-card cursor-pointer transition-all"
@@ -174,6 +176,8 @@ export const PrincipalDashboard: React.FC = () => {
             Download and export school-wide competency progress summaries
           </p>
         </div>
+      </div>
+      <CalendarOverview />
       </div>
 
       <Modal
