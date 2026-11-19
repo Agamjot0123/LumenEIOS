@@ -37,6 +37,7 @@ from backend.app.schemas.assessments import (
     QuestionCreateRequest,
     QuestionUpdateRequest,
 )
+from backend.app.services import kc_graph_service
 from backend.app.services.llm_service import (
     QwenQuestionStudioInferenceError,
     QwenQuestionStudioInputError,
@@ -187,6 +188,15 @@ async def list_upload_assignments(
     ]
 
 
+def _question_payload(question) -> dict:
+    payload = question.model_dump()
+    if payload.get("kc_mappings") is None:
+        payload.pop("kc_mappings", None)
+    if payload.get("difficulty") is None:
+        payload.pop("difficulty", None)
+    return payload
+
+
 @router.post("/classes/{class_id}/assessments", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
 async def create_assessment(
     class_id: str,
@@ -215,9 +225,22 @@ async def create_assessment(
         total_marks=req.total_marks,
         status="scheduled",
         competency_focus_json=req.competency_focus,
-        questions_json=[q.model_dump() for q in req.questions]
+        questions_json=[_question_payload(q) for q in req.questions]
     )
     db.add(asm)
+    await db.flush()
+    try:
+        await kc_graph_service.freeze_published_mappings(db, asm)
+        await kc_graph_service.remember_bank_mappings(
+            db, school_id=section.school_id, questions=asm.questions_json,
+        )
+    except ValueError as exc:
+        if str(exc) == "unknown-kc":
+            raise HTTPException(
+                status_code=422,
+                detail="A question names a knowledge component that is not in this subject.",
+            ) from None
+        raise
 
     audit = AuditEvent(
         timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),

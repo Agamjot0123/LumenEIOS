@@ -180,6 +180,7 @@ export function KnowledgeGraphView({ graph }: { graph: KnowledgeGraph }) {
 
 export const KnowledgeComponentGraph: React.FC = () => {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+  const [recommendations, setRecommendations] = useState<Awaited<ReturnType<typeof apiClient.knowledgeGraph.myRecommendations>>>([]);
   const [subject, setSubject] = useState('all');
   const [error, setError] = useState('');
 
@@ -190,6 +191,11 @@ export const KnowledgeComponentGraph: React.FC = () => {
     }).catch((err) => {
       if (!active) return;
       setError(err instanceof ApiError ? err.message : 'Could not load your knowledge graph.');
+    });
+    apiClient.knowledgeGraph.myRecommendations().then((data) => {
+      if (active) setRecommendations(data);
+    }).catch(() => {
+      if (active) setRecommendations([]);
     });
     return () => { active = false; };
   }, []);
@@ -227,6 +233,27 @@ export const KnowledgeComponentGraph: React.FC = () => {
               {subjects.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
+        )}
+        {recommendations.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-navy-900">Questions matched to your results</h3>
+            <ul className="space-y-2">
+              {recommendations.map((item) => (
+                <li key={`${item.kc_id}-${item.kind}`} className="rounded-lg border border-surface-border bg-white px-3 py-2 text-xs">
+                  <p className="font-semibold text-navy-900">{item.kc_name} · {item.difficulty}</p>
+                  <p className="mt-1 text-content-secondary">{item.reason}</p>
+                  <p className="mt-1 text-content-secondary">
+                    Previous result {item.previous_performance}. {item.expected_outcome}
+                  </p>
+                  {item.question ? (
+                    <p className="mt-1 text-navy-900">{item.question.text}</p>
+                  ) : (
+                    <p className="mt-1 text-content-secondary">Your teacher does not have a saved question for this concept yet.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {visible && <KnowledgeGraphView graph={visible} />}
       </CardBody>

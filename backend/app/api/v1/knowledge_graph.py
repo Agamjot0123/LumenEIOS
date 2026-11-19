@@ -1,21 +1,30 @@
 """Catalogue maintenance for teachers, and the signed-in student's own graph."""
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import require_roles
 from backend.app.db.session import get_db
-from backend.app.models.entities import User
+from backend.app.models.entities import ClassSection, Student, Subject, User
 from backend.app.modules.differentiated_homework.student_access import require_linked_student
 from backend.app.schemas.knowledge_components import (
+    ClassBlueprintOut,
+    ClassBlueprintRequest,
     ClassEvidenceOut,
     DemoWalkthroughOut,
+    FractionSampleOut,
     KnowledgeComponentCreate,
+    StudentConceptAnalysisOut,
     KnowledgeComponentOut,
     KnowledgeGraphOut,
+    QuestionMapOut,
+    QuestionMapRequest,
     RelationshipCreate,
     RelationshipOut,
+    StudentRecommendationOut,
 )
-from backend.app.services import kc_demo_walkthrough, kc_graph_service
+from backend.app.services import kc_demo_walkthrough, kc_fractions_sample, kc_graph_service, kc_recommendation_service
+from backend.app.services.ai_gateway import AIGatewayError
 
 router = APIRouter(tags=["Knowledge Components"])
 
@@ -127,6 +136,140 @@ def _demo_error(exc: LookupError) -> HTTPException:
     if reason == "class":
         return HTTPException(status_code=404, detail="No class in this school studies that subject.")
     return HTTPException(status_code=404, detail="The student persona has no linked student record.")
+
+
+@router.post("/knowledge-components/map-questions", response_model=QuestionMapOut)
+async def map_questions_to_components(
+    body: QuestionMapRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    subject = await db.get(Subject, body.subject_id)
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found.")
+    try:
+        suggested = await kc_graph_service.suggest_question_mappings(
+            db,
+            subject_id=subject.id,
+            subject_name=subject.name,
+            questions=[question.model_dump() for question in body.questions],
+            ai_provider=body.provider,
+        )
+    except AIGatewayError as exc:
+        raise HTTPException(status_code=502, detail=exc.public_message) from exc
+    catalogue = {
+        row.id: row.name
+        for row in await kc_graph_service.list_components(db, subject.id)
+    }
+    return {
+        "questions": [
+            {
+                "question_id": question_id,
+                "components": [
+                    {"id": kc_id, "name": catalogue.get(kc_id, kc_id), "relevance": relevance}
+                    for kc_id, relevance in links
+                ],
+            }
+            for question_id, links in suggested.items()
+        ]
+    }
+
+
+@router.post("/knowledge-components/class-blueprint", response_model=ClassBlueprintOut)
+async def class_question_blueprint(
+    body: ClassBlueprintRequest,
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    try:
+        return await kc_recommendation_service.class_test_blueprint(
+            db,
+            school_id=teacher.school_id,
+            class_id=body.class_id,
+            subject_id=body.subject_id,
+            total_marks=body.total_marks,
+            question_count=body.question_count,
+            duration_minutes=body.duration_minutes,
+            topic=body.topic,
+            slots=[slot.model_dump() for slot in body.slots],
+        )
+    except LookupError as exc:
+        reason = str(exc)
+        if reason == "subject":
+            raise HTTPException(status_code=422, detail="The selected class does not study this subject.") from None
+        if reason == "component":
+            raise HTTPException(status_code=422, detail="Choose a concept from this subject.") from None
+        raise HTTPException(status_code=404, detail="Choose a class in your school.") from None
+
+
+@router.post("/knowledge-components/sample-fractions", response_model=FractionSampleOut)
+async def load_fraction_sample(
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    sections = list((await db.scalars(
+        select(ClassSection).where(ClassSection.school_id == teacher.school_id, ClassSection.grade == 6)
+    )).all())
+    section = next((row for row in sections if "sub-math" in (row.subject_ids_json or [])), None)
+    if section is None:
+        raise HTTPException(status_code=404, detail="No Class 6 in this school studies Mathematics.")
+    try:
+        return await kc_fractions_sample.ensure_fraction_sample(db, teacher.school_id, section)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Mathematics is not available for that class.") from None
+
+
+@router.get("/knowledge-components/student-analysis", response_model=StudentConceptAnalysisOut)
+async def student_concept_analysis(
+    student_id: str = Query(min_length=1),
+    subject_id: str = Query(min_length=1),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    try:
+        return await kc_graph_service.student_subject_analysis(
+            db, school_id=teacher.school_id, student_id=student_id, subject_id=subject_id,
+        )
+    except LookupError as exc:
+        if str(exc) == "subject":
+            raise HTTPException(status_code=404, detail="Subject not found.") from None
+        raise HTTPException(status_code=404, detail="Student not found in your school.") from None
+
+
+@router.get(
+    "/knowledge-components/student-recommendations",
+    response_model=list[StudentRecommendationOut],
+)
+async def student_question_recommendations(
+    student_id: str = Query(min_length=1),
+    subject_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
+):
+    student = await db.get(Student, student_id)
+    if student is None or student.school_id != teacher.school_id:
+        raise HTTPException(status_code=404, detail="Student not found in your school.")
+    try:
+        return await kc_recommendation_service.recommend_questions_for_student(
+            db, student_id=student.id, subject_id=subject_id, record=False,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Subject not found.") from None
+
+
+@router.get("/students/me/question-recommendations", response_model=list[StudentRecommendationOut])
+async def my_question_recommendations(
+    subject_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("student", authenticated=True)),
+):
+    student = await require_linked_student(db, current_user)
+    try:
+        return await kc_recommendation_service.recommend_questions_for_student(
+            db, student_id=student.id, subject_id=subject_id, record=True,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Subject not found.") from None
 
 
 @router.get("/students/me/knowledge-graph", response_model=KnowledgeGraphOut)

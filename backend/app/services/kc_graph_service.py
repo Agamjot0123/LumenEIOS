@@ -27,6 +27,7 @@ from backend.app.models.entities import (
     Assessment,
     AssignmentOcrUpload,
     ClassSection,
+    QuestionBankItem,
     Student,
     StudentOcrHistory,
     Subject,
@@ -35,6 +36,7 @@ from backend.app.models.entities import (
 from backend.app.models.knowledge_components import (
     KnowledgeComponent,
     KnowledgeComponentRelationship,
+    QuestionBankKcMapping,
     QuestionKcMapping,
     StudentKcAttempt,
     StudentKcMastery,
@@ -374,6 +376,62 @@ async def _stored_mappings(
     return list(rows.scalars().all())
 
 
+def _link_id(raw: object) -> str:
+    if isinstance(raw, dict):
+        return str(raw.get("kc_id") or raw.get("id") or "").strip()
+    return ""
+
+
+def _link_relevance(raw: object) -> float:
+    if not isinstance(raw, dict):
+        return 0.0
+    try:
+        value = float(raw.get("relevance", 1))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, max(0.0, value))
+
+
+def published_links(question: dict, allowed_ids: set[str]) -> Optional[list[tuple[str, float]]]:
+    """Teacher-confirmed ids stored on the question. None means the paper did not freeze a mapping."""
+    raw = question.get("kc_mappings", None)
+    if not isinstance(raw, list):
+        return None
+    best: dict[str, float] = {}
+    for item in raw:
+        kc_id = _link_id(item)
+        relevance = _link_relevance(item)
+        if kc_id not in allowed_ids or relevance <= 0:
+            continue
+        best[kc_id] = max(best.get(kc_id, 0.0), relevance)
+    return list(best.items())
+
+
+async def _write_mappings(
+    db: AsyncSession,
+    *,
+    assessment_id: str,
+    question_id: str,
+    text: str,
+    links: list[tuple[str, float]],
+) -> None:
+    await db.execute(
+        delete(QuestionKcMapping).where(
+            QuestionKcMapping.assessment_id == assessment_id,
+            QuestionKcMapping.question_id == question_id,
+        )
+    )
+    digest = question_text_hash(text)
+    for kc_id, relevance in links:
+        db.add(QuestionKcMapping(
+            assessment_id=assessment_id,
+            question_id=question_id,
+            question_text_hash=digest,
+            kc_id=kc_id,
+            relevance=relevance,
+        ))
+
+
 async def ensure_question_mappings(
     db: AsyncSession,
     *,
@@ -383,13 +441,24 @@ async def ensure_question_mappings(
     questions: list[dict],
     ai_provider: str = "gemini",
 ) -> dict[str, list[tuple[str, float]]]:
-    """Reuse a stored mapping when the question text is unchanged. Otherwise ask the existing model."""
+    """Use a confirmed mapping when the paper has one. Otherwise reuse or ask the model for catalogue ids only."""
     catalogue = await _catalogue(db, subject_id)
     allowed = {item.id: item for item in catalogue}
     resolved: dict[str, list[tuple[str, float]]] = {}
     pending: list[dict] = []
 
     for question in questions:
+        frozen = published_links(question, set(allowed))
+        if frozen is not None:
+            await _write_mappings(
+                db,
+                assessment_id=assessment_id,
+                question_id=question["id"],
+                text=question["text"],
+                links=frozen,
+            )
+            resolved[question["id"]] = frozen
+            continue
         digest = question_text_hash(question["text"])
         stored = await _stored_mappings(db, assessment_id, question["id"])
         if stored and all(row.question_text_hash == digest for row in stored):
@@ -399,6 +468,7 @@ async def ensure_question_mappings(
         resolved[question["id"]] = []
 
     if not pending or not allowed:
+        await db.flush()
         return resolved
 
     system, prompt = _mapping_prompt(subject_name, catalogue, pending)
@@ -407,25 +477,93 @@ async def ensure_question_mappings(
     parsed = KcMappingResponse.model_validate(json.loads(repair_json_latex(raw)))
     accepted = _accepted_links(parsed, set(allowed))
     for question in pending:
-        await db.execute(
-            delete(QuestionKcMapping).where(
-                QuestionKcMapping.assessment_id == assessment_id,
-                QuestionKcMapping.question_id == question["id"],
-            )
-        )
         links = accepted.get(question["id"], [])
-        digest = question_text_hash(question["text"])
-        for kc_id, relevance in links:
-            db.add(QuestionKcMapping(
-                assessment_id=assessment_id,
-                question_id=question["id"],
-                question_text_hash=digest,
-                kc_id=kc_id,
-                relevance=relevance,
-            ))
+        await _write_mappings(
+            db,
+            assessment_id=assessment_id,
+            question_id=question["id"],
+            text=question["text"],
+            links=links,
+        )
         resolved[question["id"]] = links
     await db.flush()
     return resolved
+
+
+async def freeze_published_mappings(db: AsyncSession, assessment: Assessment) -> None:
+    """Copy teacher-confirmed ids onto the paper using the same question numbers OCR will use."""
+    subject = await db.get(Subject, assessment.subject_id)
+    if subject is None:
+        return
+    allowed = {item.id for item in await _catalogue(db, subject.id)}
+    prepared: list[dict] = []
+    unknown: list[str] = []
+    for index, question in enumerate(assessment.questions_json or [], start=1):
+        if not isinstance(question, dict) or not isinstance(question.get("kc_mappings"), list):
+            continue
+        for item in question["kc_mappings"]:
+            kc_id = _link_id(item)
+            if kc_id and kc_id not in allowed:
+                unknown.append(kc_id)
+        prepared.append({
+            "id": str(index),
+            "text": question.get("text") or "",
+            "kc_mappings": question["kc_mappings"],
+        })
+    if unknown:
+        raise ValueError("unknown-kc")
+    if not prepared:
+        return
+    await ensure_question_mappings(
+        db,
+        assessment_id=assessment.id,
+        subject_id=subject.id,
+        subject_name=subject.name,
+        questions=prepared,
+    )
+
+
+async def remember_bank_mappings(
+    db: AsyncSession, *, school_id: str, questions: list[dict],
+) -> None:
+    """Keep the same confirmed ids on the bank item when that item is what was published."""
+    for question in questions:
+        if not isinstance(question, dict) or not isinstance(question.get("kc_mappings"), list):
+            continue
+        item = await db.get(QuestionBankItem, question.get("id"))
+        if item is None or item.school_id != school_id or item.subject_id is None:
+            continue
+        allowed = {row.id for row in await _catalogue(db, item.subject_id)}
+        links = published_links(question, allowed) or []
+        await db.execute(
+            delete(QuestionBankKcMapping).where(QuestionBankKcMapping.question_bank_item_id == item.id)
+        )
+        for kc_id, relevance in links:
+            db.add(QuestionBankKcMapping(
+                question_bank_item_id=item.id, kc_id=kc_id, relevance=relevance,
+            ))
+    await db.flush()
+
+
+async def suggest_question_mappings(
+    db: AsyncSession,
+    *,
+    subject_id: str,
+    subject_name: str,
+    questions: list[dict],
+    ai_provider: str = "gemini",
+) -> dict[str, list[tuple[str, float]]]:
+    """Suggest catalogue ids. Nothing is stored until the teacher publishes the paper."""
+    catalogue = await _catalogue(db, subject_id)
+    allowed = {item.id for item in catalogue}
+    if not questions or not allowed:
+        return {question["id"]: [] for question in questions}
+    system, prompt = _mapping_prompt(subject_name, catalogue, questions)
+    text_provider = QwenTextProvider() if ai_provider == "qwen" else get_ai_provider()
+    raw = await text_provider.generate_json(system=system, prompt=prompt, schema=KcMappingResponse)
+    parsed = KcMappingResponse.model_validate(json.loads(repair_json_latex(raw)))
+    accepted = _accepted_links(parsed, allowed)
+    return {question["id"]: accepted.get(question["id"], []) for question in questions}
 
 
 async def find_student_upload(
@@ -835,3 +973,50 @@ async def build_student_graph(db: AsyncSession, student_id: str) -> dict:
         if edge.source_id in components and edge.target_id in components
     ]
     return {"nodes": nodes, "edges": visible_edges, "insights": insights}
+
+
+_STATUS_ORDER = {"needs_improvement": 0, "developing": 1, "proficient": 2, "not_assessed": 3}
+
+
+async def student_subject_analysis(
+    db: AsyncSession, *, school_id: str, student_id: str, subject_id: str,
+) -> dict:
+    """One student's concept results for a subject. Unassessed concepts stay unassessed."""
+    student = await db.get(Student, student_id)
+    if student is None or student.school_id != school_id:
+        raise LookupError("student")
+    subject = await db.get(Subject, subject_id)
+    if subject is None:
+        raise LookupError("subject")
+    graph = await build_student_graph(db, student.id)
+    concepts = []
+    for node in graph["nodes"]:
+        if node["subject"] != subject.name:
+            continue
+        concepts.append({
+            "id": node["id"],
+            "name": node["name"],
+            "topic": node["topic"],
+            "learning_status": node["learning_status"],
+            "overall_mastery": node["overall_mastery"],
+            "attempt_count": node["attempt_count"],
+            "correct_count": node["correct_count"],
+            "incorrect_count": node["incorrect_count"],
+            "recommendations": node["recommendations"],
+        })
+    concepts.sort(key=lambda item: (
+        _STATUS_ORDER.get(item["learning_status"], 9),
+        item["overall_mastery"] is None,
+        item["overall_mastery"] if item["overall_mastery"] is not None else 0,
+        item["name"],
+    ))
+    assessed = [item for item in concepts if item["learning_status"] != "not_assessed"]
+    return {
+        "student_id": student.id,
+        "student_name": student.name,
+        "subject_id": subject.id,
+        "subject_name": subject.name,
+        "assessed_count": len(assessed),
+        "not_assessed_count": len(concepts) - len(assessed),
+        "concepts": concepts,
+    }

@@ -127,7 +127,7 @@ async def evaluate_scan(
                 status_code=422,
                 detail=f"Question {index} needs an answer key or rubric, positive marks, and a competency.",
             )
-        questions.append({
+        prepared = {
             "id": str(index),
             "text": question["text"],
             "options": question.get("options") or [],
@@ -135,7 +135,10 @@ async def evaluate_scan(
             "competency": competency,
             "correct_answer": answer,
             "marking_rubric": rubric,
-        })
+        }
+        if isinstance(question.get("kc_mappings"), list):
+            prepared["kc_mappings"] = question["kc_mappings"]
+        questions.append(prepared)
     if not questions:
         raise HTTPException(status_code=422, detail="This assignment has no questions to evaluate.")
 

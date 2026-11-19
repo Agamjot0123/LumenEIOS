@@ -30,6 +30,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { ClassWeaknessPanel } from './ClassWeaknessPanel';
+import { ClassBlueprintPanel } from './ClassBlueprintPanel';
 import { questionConceptLabels, sampleQuestionsFor, topicHintFor } from './studioSamples';
 
 const BLOOM_LEVELS: BloomLevel[] = [
@@ -95,6 +96,7 @@ export const AssessmentBuilder: React.FC = () => {
   const [targets, setTargets] = useState<AssignmentTarget[]>();
   const [targetError, setTargetError] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isMapping, setIsMapping] = useState(false);
   const [studioPdfFile, setStudioPdfFile] = useState<File | null>(null);
   const [savedBank, setSavedBank] = useState<Question[]>();
   const [bankError, setBankError] = useState('');
@@ -357,6 +359,38 @@ export const AssessmentBuilder: React.FC = () => {
       setBankRefresh(value => value + 1);
       showToast('Removed question from preview and Question Bank.');
     } catch (error) { setStudioError(error instanceof Error ? error.message : 'Question deletion failed.'); }
+  };
+
+  const handleMapConcepts = async () => {
+    if (!genSubjectId || generatedQuestions.length === 0 || isMapping) return;
+    setIsMapping(true);
+    setStudioError('');
+    try {
+      const result = await apiClient.knowledgeGraph.mapQuestions(
+        genSubjectId,
+        generatedQuestions.map((question) => ({
+          id: question.id,
+          text: question.text,
+          competency: question.competency,
+          correct_answer: question.correctAnswer || '',
+          marking_rubric: question.markingRubric || '',
+        })),
+      );
+      const byId = new Map(result.questions.map((item) => [item.question_id, item.components]));
+      setGeneratedQuestions((current) => current.map((question) => ({
+        ...question,
+        kcMappings: (byId.get(question.id) || []).map((component) => ({
+          kcId: component.id,
+          name: component.name,
+          relevance: component.relevance,
+        })),
+      })));
+      showToast('Matched questions to concepts already in the catalogue. Remove any that do not belong, then assign.');
+    } catch (error) {
+      setStudioError(error instanceof Error ? error.message : 'Could not match questions to concepts.');
+    } finally {
+      setIsMapping(false);
+    }
   };
 
   const handleAssignStudioAssignment = async () => {
@@ -842,6 +876,44 @@ export const AssessmentBuilder: React.FC = () => {
                 />
               )}
 
+              {targetClassId && genSubjectId && (
+                <ClassBlueprintPanel
+                  classId={targetClassId}
+                  subjectId={genSubjectId}
+                  onUseQuestions={(blueprint) => {
+                    const names = new Map(blueprint.concepts.map((concept) => [concept.id, concept.name]));
+                    const next: Question[] = blueprint.slots.flatMap((slot) => {
+                      if (!slot.question) return [];
+                      const competency = (['LU', 'CU', 'CT', 'AU'].includes(slot.question.competency)
+                        ? slot.question.competency
+                        : 'CU') as CompetencyKey;
+                      return [{
+                        id: slot.question.id,
+                        subjectId: genSubjectId,
+                        text: slot.question.text,
+                        type: (slot.question.type === 'mcq' ? 'mcq' : 'short') as Question['type'],
+                        correctAnswer: slot.question.correct_answer || '',
+                        markingRubric: slot.question.marking_rubric || '',
+                        marks: slot.marks,
+                        competency,
+                        bloomLevel: (slot.question.bloom_level || 'Apply') as BloomLevel,
+                        kcMappings: slot.question.kc_mappings.map((item) => ({
+                          kcId: item.kc_id,
+                          name: names.get(item.kc_id) || slot.kc_name,
+                          relevance: item.relevance,
+                        })),
+                      }];
+                    });
+                    if (next.length === 0) {
+                      showToast('That paper has no saved question to preview yet.', 'warning');
+                      return;
+                    }
+                    setGeneratedQuestions(next);
+                    showToast('The class paper is in the preview. Check the concepts, then assign it.');
+                  }}
+                />
+              )}
+
               {/* Optional Topic / Concept Focus */}
               <div>
                 <label className="block font-semibold text-navy-900 mb-1">
@@ -1251,6 +1323,29 @@ export const AssessmentBuilder: React.FC = () => {
                             </div>
                           )}
 
+                          {q.kcMappings && (
+                            <div className="flex flex-wrap gap-1">
+                              {q.kcMappings.length === 0 && (
+                                <span className="text-[11px] text-content-secondary">No catalogue concept matched. Assigning will not update mastery for this question.</span>
+                              )}
+                              {q.kcMappings.map((mapping) => (
+                                <button
+                                  key={mapping.kcId}
+                                  type="button"
+                                  className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800"
+                                  onClick={() => setGeneratedQuestions((current) => current.map((item) => (
+                                    item.id === q.id
+                                      ? { ...item, kcMappings: (item.kcMappings || []).filter((entry) => entry.kcId !== mapping.kcId) }
+                                      : item
+                                  )))}
+                                  title="Remove this concept from the question"
+                                >
+                                  {mapping.name} · remove
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
                           {/* Official Answer Key & Rubric Box */}
                           <div className="p-3 rounded-xl bg-teal-50/50 border border-teal-200/70 space-y-1 text-[11px]">
                             {q.correctAnswer && (
@@ -1280,16 +1375,27 @@ export const AssessmentBuilder: React.FC = () => {
             <span className="font-medium text-content-secondary">
               Assign to {targetClass?.name || 'target class'} · {targetSubject?.name || 'target subject'}
             </span>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={!targetClass || !targetSubject || isGenerating || !!regeneratingId || generatedQuestions.length === 0}
-              loading={isAssigning}
-              onClick={handleAssignStudioAssignment}
-              icon={<FileCheck2 className="w-3.5 h-3.5" />}
-            >
-              Assign the Assignment
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!targetSubject || isGenerating || !!regeneratingId || generatedQuestions.length === 0}
+                loading={isMapping}
+                onClick={handleMapConcepts}
+              >
+                Match concepts
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!targetClass || !targetSubject || isGenerating || !!regeneratingId || generatedQuestions.length === 0}
+                loading={isAssigning}
+                onClick={handleAssignStudioAssignment}
+                icon={<FileCheck2 className="w-3.5 h-3.5" />}
+              >
+                Assign the Assignment
+              </Button>
+            </div>
           </div>
         </div>
       </div>

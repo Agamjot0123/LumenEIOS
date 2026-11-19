@@ -10,6 +10,7 @@ import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { MathText } from '../../components/common/MathText';
 import { AiQuestionGenerator } from './AiQuestionGenerator';
+import { KcHomeworkAnalysis } from './KcHomeworkAnalysis';
 import {
   BLOOM, COMPETENCY_NAMES, CompetencyTag, Empty, MATH_HINT, MathPreview, Messages, OptionList, OptionsEditor, QUESTION_TYPES,
   ReleasedResult, Section, Segmented, StatCard, StatusBadge, Tabs, answerText, enc, errorText, formatDate, inputClass,
@@ -205,8 +206,9 @@ function CreateHomework({ onSaved, onGoToBank, subjectName }: { onSaved: (draftI
 
     {mode === 'class'
       ? <ClassBatch settings={settings} classId={classId} className={selectedClass?.name} students={students} subjectId={subjectId}
-          subjectName={subjectName} request={request} onDone={onSaved} busyOuter={busy} error={error} notice={notice} />
-      : <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          studentId={studentId} subjectName={subjectName} request={request} onDone={onSaved} busyOuter={busy} error={error} notice={notice} />
+      : <div className="space-y-5">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           <Section title={<span className="flex items-center gap-2"><UserRound className="h-4 w-4 text-teal-600" />Student and settings</span>}
             subtitle="Questions come from the school question bank, aimed at this student’s weakest competencies.">
             <Messages error={error} notice={notice} />
@@ -241,13 +243,17 @@ function CreateHomework({ onSaved, onGoToBank, subjectName }: { onSaved: (draftI
               })}>Save draft for review</Button>
             </>}
           </Section>
-        </div>}
+        </div>
+        {classId && subjectId && (
+          <KcHomeworkAnalysis classId={classId} subjectId={subjectId} studentId={studentId} />
+        )}
+      </div>}
   </div>;
 }
 
 /** Whole-class mode: one personalised draft per selected student, saved in one go. */
-function ClassBatch({ settings, classId, className, students, subjectId, subjectName, request, onDone, busyOuter, error, notice }: {
-  settings: React.ReactNode; classId: string; className?: string; students: any[]; subjectId: string; subjectName: NameFn;
+function ClassBatch({ settings, classId, className, students, subjectId, studentId, subjectName, request, onDone, busyOuter, error, notice }: {
+  settings: React.ReactNode; classId: string; className?: string; students: any[]; subjectId: string; studentId: string; subjectName: NameFn;
   request: () => any; onDone: (draftId: string) => void; busyOuter: boolean; error: string; notice: string;
 }) {
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -272,7 +278,8 @@ function ClassBatch({ settings, classId, className, students, subjectId, subject
   const okCount = Object.values(results).filter(r => r.ok).length;
   const firstDraft = Object.values(results).find(r => r.draftId)?.draftId;
 
-  return <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+  return <div className="space-y-5">
+  <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
     <Section title={<span className="flex items-center gap-2"><Users className="h-4 w-4 text-teal-600" />Class and settings</span>}
       subtitle="Every student gets their own set of questions, picked for their own weakest competencies.">
       <Messages error={error} notice={notice} />
@@ -319,6 +326,10 @@ function ClassBatch({ settings, classId, className, students, subjectId, subject
           <p className="text-xs text-content-secondary">Drafts are saved for your review - nothing is sent to students until you approve and assign.</p>
         </>}
     </Section>
+  </div>
+  {classId && subjectId && (
+    <KcHomeworkAnalysis classId={classId} subjectId={subjectId} studentId={studentId} />
+  )}
   </div>;
 }
 

@@ -108,6 +108,7 @@ export interface Question {
   sourceDocumentIds?: string[];
   sourceDocumentNames?: string[];
   isAiGenerated?: boolean;
+  kcMappings?: Array<{ kcId: string; name: string; relevance: number }>;
 }
 
 export interface SourceDocument {

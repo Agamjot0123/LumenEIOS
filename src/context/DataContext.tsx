@@ -523,6 +523,10 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         source_document_ids: question.sourceDocumentIds,
         source_document_names: question.sourceDocumentNames,
         is_ai_generated: question.isAiGenerated,
+        kc_mappings: question.kcMappings?.map((item) => ({
+          kc_id: item.kcId,
+          relevance: item.relevance,
+        })),
       })),
     });
     const newAsm: Assessment = {

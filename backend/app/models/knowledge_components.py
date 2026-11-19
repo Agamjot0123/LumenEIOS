@@ -103,6 +103,58 @@ class StudentKcMastery(Base):
     updated_at = Column(DateTime, default=utc_now, nullable=False)
 
 
+class KnowledgeComponentDetail(Base):
+    """Optional curriculum metadata. The concept row stays the identity."""
+
+    __tablename__ = "knowledge_component_details"
+
+    kc_id = Column(String(64), ForeignKey("knowledge_components.id", ondelete="CASCADE"), primary_key=True)
+    grade_label = Column(String(20), nullable=False, default="")
+    chapter = Column(String(200), nullable=False, default="")
+    subtopic = Column(String(200), nullable=False, default="")
+    learning_objective = Column(Text, nullable=False, default="")
+    difficulty = Column(String(40), nullable=False, default="standard")
+    assessment_criteria = Column(Text, nullable=False, default="")
+    source_reference = Column(Text, nullable=False, default="")
+    stable_code = Column(String(80), nullable=True, unique=True)
+
+
+class QuestionBankKcMapping(Base):
+    """Teacher-confirmed concepts for a bank question, before a paper is published."""
+
+    __tablename__ = "question_bank_kc_mappings"
+    __table_args__ = (
+        UniqueConstraint("question_bank_item_id", "kc_id", name="uq_bank_kc_mapping"),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    question_bank_item_id = Column(
+        String(64), ForeignKey("question_bank_items.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    kc_id = Column(String(64), ForeignKey("knowledge_components.id", ondelete="CASCADE"), nullable=False, index=True)
+    relevance = Column(Float, nullable=False, default=1.0)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
+class StudentQuestionRecommendation(Base):
+    """A bank question already offered to one student. The next pass skips it."""
+
+    __tablename__ = "student_question_recommendations"
+    __table_args__ = (
+        UniqueConstraint("student_id", "question_bank_item_id", name="uq_student_question_recommendation"),
+    )
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    student_id = Column(String(64), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_bank_item_id = Column(
+        String(64), ForeignKey("question_bank_items.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    kc_id = Column(String(64), ForeignKey("knowledge_components.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(40), nullable=False)
+    reason = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+
+
 class StudentKcAttempt(Base):
     """One question-level observation. Mastery is recalculated from these rows."""
 

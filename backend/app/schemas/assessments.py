@@ -3,6 +3,11 @@ from pydantic import BaseModel, Field, StrictInt, model_validator
 from backend.app.schemas.common import BaseSchema
 
 
+class QuestionKcLink(BaseSchema):
+    kc_id: str
+    relevance: float = 1.0
+
+
 class QuestionSchema(BaseSchema):
     id: Optional[str] = None
     text: str
@@ -16,6 +21,9 @@ class QuestionSchema(BaseSchema):
     source_document_ids: Optional[List[str]] = None
     source_document_names: Optional[List[str]] = None
     is_ai_generated: Optional[bool] = False
+    # Present only after a teacher confirms catalogue ids. None keeps the older evaluation-time mapping.
+    kc_mappings: Optional[List[QuestionKcLink]] = None
+    difficulty: Optional[str] = None
 
 
 class CompetencyDistribution(BaseModel):

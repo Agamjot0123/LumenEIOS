@@ -598,6 +598,117 @@ export const apiClient = {
         }>;
       }>(`/knowledge-components/class-evidence?${query.toString()}`);
     },
+    studentAnalysis(studentId: string, subjectId: string) {
+      const query = new URLSearchParams({ student_id: studentId, subject_id: subjectId });
+      return request<{
+        student_id: string;
+        student_name: string;
+        subject_id: string;
+        subject_name: string;
+        assessed_count: number;
+        not_assessed_count: number;
+        concepts: Array<{
+          id: string;
+          name: string;
+          topic: string;
+          learning_status: string;
+          overall_mastery: number | null;
+          attempt_count: number;
+          correct_count: number;
+          incorrect_count: number;
+          recommendations: string[];
+        }>;
+      }>(`/knowledge-components/student-analysis?${query.toString()}`);
+    },
+    mapQuestions(subjectId: string, questions: Array<{
+      id: string;
+      text: string;
+      competency: string;
+      correct_answer?: string;
+      marking_rubric?: string;
+    }>) {
+      return request<{
+        questions: Array<{
+          question_id: string;
+          components: Array<{ id: string; name: string; relevance: number }>;
+        }>;
+      }>('/knowledge-components/map-questions', {
+        method: 'POST',
+        body: JSON.stringify({ subject_id: subjectId, questions }),
+      });
+    },
+    classBlueprint(body: {
+      class_id: string;
+      subject_id: string;
+      total_marks?: number;
+      question_count?: number;
+      duration_minutes?: number;
+      topic?: string;
+      slots?: Array<{ kc_id: string; include: boolean; question_count: number; difficulty: string }>;
+    }) {
+      return request<{
+        class_name: string;
+        subject_name: string;
+        roster_count: number;
+        students_without_evidence: number;
+        concepts: Array<{
+          id: string;
+          name: string;
+          band: string;
+          student_count: number;
+          average_mastery: number | null;
+          proficient_count: number;
+          developing_count: number;
+          needs_improvement_count: number;
+          reason: string;
+        }>;
+        slots: Array<{
+          kc_id: string;
+          kc_name: string;
+          band: string;
+          difficulty: string;
+          marks: number;
+          reason: string;
+          question: null | {
+            id: string;
+            text: string;
+            type: string;
+            competency: string;
+            marks: number;
+            bloom_level: string;
+            correct_answer?: string | null;
+            marking_rubric?: string | null;
+            kc_mappings: Array<{ kc_id: string; relevance: number }>;
+          };
+        }>;
+      }>('/knowledge-components/class-blueprint', { method: 'POST', body: JSON.stringify(body) });
+    },
+    sampleFractions() {
+      return request<{
+        class_name: string;
+        source_reference: string;
+        students: Array<{
+          student_name: string;
+          profile: string;
+          recommendations: Array<{ kc_name: string; kind: string; reason: string }>;
+        }>;
+      }>('/knowledge-components/sample-fractions', { method: 'POST' });
+    },
+    myRecommendations() {
+      return request<Array<{
+        kc_id: string;
+        kc_name: string;
+        kind: string;
+        reason: string;
+        previous_performance: string;
+        attempt_count: number;
+        expected_outcome: string;
+        difficulty: string;
+        question_type: string;
+        needs_generation: boolean;
+        question: null | { id: string; text: string; type: string; competency: string; marks: number };
+      }>>('/students/me/question-recommendations');
+    },
     link(body: { source_id: string; target_id: string; relationship: 'PREREQUISITE_OF' | 'RELATED_TO' | 'PART_OF' }) {
       return request<{
         id: string;
