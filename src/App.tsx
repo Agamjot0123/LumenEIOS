@@ -4,7 +4,7 @@ import { LearningJourney } from './pages/learnsphere/LearningJourney';
 import { TeachBackChallenge } from './pages/learnsphere/TeachBackChallenge';
 import { RealLifeMissions } from './pages/learnsphere/RealLifeMissions';
 import React, { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/auth/LoginPage';
@@ -34,8 +34,6 @@ import { WelcomePage } from './pages/shared/WelcomePage';
 import { SchoolStudents } from './pages/principal/SchoolStudents';
 import { SchoolTeachers } from './pages/principal/SchoolTeachers';
 import { SchoolPerformancePage } from './pages/principal/SchoolPerformancePage';
-import { StudentHomework } from './pages/teacher/StudentHomework';
-import { StudentAnswerSheets } from './pages/student/StudentAnswerSheets';
 import {
   AccessLog,
   CompetencyFramework,
@@ -66,6 +64,25 @@ import {
 import { ParentProgressHomePage } from './pages/progress/ParentProgressHomePage';
 import { getDefaultDashboardPath } from './lib/permissions';
 import { DEMO_MODE } from './lib/runtime';
+import type { Role } from './types';
+
+/** Old "-beta" addresses now point at the renamed pages; the query (e.g. ?assignment=) is kept. */
+const RenamedRoute: React.FC<{ to: string }> = ({ to }) => {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+};
+
+const STAFF: Role[] = ['admin', 'principal', 'teacher'];
+const LEADERSHIP: Role[] = ['admin', 'principal'];
+
+/** Route-level role gate. Pages reached by typing a URL must be refused the same as ones hidden from the
+ * sidebar; the backend still enforces data access, this keeps a persona out of another's workspace. */
+const RequireRole: React.FC<{ roles: Role[] }> = ({ roles }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser) return <Navigate to="/login" replace />;
+  if (currentUser.role !== 'developer' && !roles.includes(currentUser.role)) return <UnauthorizedPage />;
+  return <Outlet />;
+};
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser, isLoading, isRestoringSession } = useAuth();
@@ -102,12 +119,14 @@ const MainApp: React.FC = () => (
         <Route path="teach-back" element={<TeachBackChallenge />} />
         <Route path="missions" element={<RealLifeMissions />} />
       </Route>
+      <Route element={<RequireRole roles={['admin']} />}>
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/admin/schools" element={<SchoolsManagement />} />
       <Route path="/admin/schools/add" element={<OnboardingPage key="school" kind="School" />} />
       <Route path="/admin/users" element={<UsersManagement />} />
       <Route path="/admin/academic-config" element={<AcademicConfig />} />
       <Route path="/admin/audit-logs" element={<AuditLogs />} />
+      </Route>
 
       <Route path="/developer" element={<DeveloperHome />} />
       <Route path="/developer/health" element={<PlatformHealth />} />
@@ -120,9 +139,9 @@ const MainApp: React.FC = () => (
       <Route path="/developer/quality" element={<DataQuality />} />
       <Route path="/developer/releases" element={<ReleaseNotes />} />
 
+      <Route element={<RequireRole roles={LEADERSHIP} />}>
       <Route path="/principal/academic-config" element={<AcademicConfig />} />
       <Route path="/principal/coverage" element={<CoverageOversight />} />
-      <Route path="/logs" element={<PlanLogs />} />
       <Route path="/principal/dashboard" element={<PrincipalDashboard />} />
       <Route path="/principal/teachers" element={<TeacherAssignments />} />
       <Route path="/principal/teachers/add" element={<OnboardingPage key="teacher" kind="Teacher" />} />
@@ -131,42 +150,55 @@ const MainApp: React.FC = () => (
       <Route path="/principal/students" element={<SchoolStudents />} />
       <Route path="/principal/performance" element={<SchoolPerformancePage />} />
       <Route path="/principal/staff" element={<SchoolTeachers />} />
+      </Route>
 
+      <Route element={<RequireRole roles={['teacher']} />}>
       <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
+      </Route>
+      <Route element={<RequireRole roles={STAFF} />}>
       <Route path="/teacher/classes" element={<MyClasses />} />
       <Route path="/teacher/students/add" element={<OnboardingPage key="student" kind="Student" />} />
-      <Route path="/teacher/assessments" element={<AssessmentBuilder key="studio" />} />
-      <Route path="/teacher/assessments-beta" element={<AssessmentBuilder key="studio-beta" />} />
+      <Route path="/teacher/assessments" element={<AssessmentBuilder />} />
+      <Route path="/teacher/assessments-beta" element={<RenamedRoute to="/teacher/assessments" />} />
       <Route path="/teacher/curriculum-180" element={<CurriculumPlanner180 />} />
       <Route path="/teacher/time-aware" element={<TimeAwareEngine />} />
       <Route path="/teacher/knowledge-components" element={<KnowledgeComponentsPage />} />
+      <Route path="/logs" element={<PlanLogs />} />
+      </Route>
+      <Route element={<RequireRole roles={[...STAFF, 'student']} />}>
       <Route path="/upload" element={<ScanReview />} />
-      <Route path="/upload-beta" element={<ScanReview beta />} />
+      <Route path="/upload-beta" element={<RenamedRoute to="/upload" />} />
       <Route path="/teacher/scan-review" element={<Navigate to="/upload" replace />} />
+      </Route>
       {/* Sidebar "Differentiated Homework" → live role-aware workspaces */}
+      <Route element={<RequireRole roles={STAFF} />}>
       <Route path="/teacher/remediation" element={<DifferentiatedHomeworkPage />} />
       <Route path="/teacher/homework" element={<DifferentiatedHomeworkPage />} />
-      <Route path="/teacher/student-homework" element={<StudentHomework />} />
       <Route path="/teacher/students/:studentId/progress" element={<EducatorProgressOverviewPage />} />
       <Route
         path="/teacher/students/:studentId/progress/subjects/:subjectId"
         element={<EducatorSubjectProgressPage />}
       />
+      </Route>
 
       {/* Curriculum Catalogue (Classes VI–VIII Mathematics & Science) */}
+      <Route element={<RequireRole roles={STAFF} />}>
       <Route element={<CurriculumModule />}>
         <Route path="/curriculum/catalogue" element={<CatalogueDashboard />} />
         <Route path="/curriculum/catalogue/:grade/:subject" element={<CatalogueCombinationPage />} />
       </Route>
+      </Route>
 
+      <Route element={<RequireRole roles={['student']} />}>
       <Route path="/student/dashboard" element={<StudentDashboard />} />
       <Route path="/student/homework" element={<DifferentiatedHomeworkPage />} />
       <Route path="/student/progress" element={<StudentProgressOverviewPage />} />
       <Route path="/student/progress/subjects/:subjectId" element={<StudentSubjectProgressPage />} />
       <Route path="/student/history" element={<StudentRecords view="history" />} />
       <Route path="/student/profile" element={<StudentRecords view="profile" />} />
-      <Route path="/student/answer-sheets" element={<StudentAnswerSheets />} />
+      </Route>
 
+      <Route element={<RequireRole roles={['parent']} />}>
       <Route path="/parent/dashboard" element={<ParentDashboard />} />
       <Route path="/parent/homework" element={<DifferentiatedHomeworkPage />} />
       <Route path="/parent/progress" element={<ParentProgressHomePage />} />
@@ -175,6 +207,7 @@ const MainApp: React.FC = () => (
         path="/parent/students/:studentId/progress/subjects/:subjectId"
         element={<ParentSubjectProgressPage />}
       />
+      </Route>
 
       <Route path="/homework" element={<DifferentiatedHomeworkPage />} />
 

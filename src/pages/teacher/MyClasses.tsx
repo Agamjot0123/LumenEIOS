@@ -37,6 +37,11 @@ export const MyClasses: React.FC = () => {
     setIsRemediationModalOpen(true);
   };
 
+  const closeRemediation = () => {
+    setIsRemediationModalOpen(false);
+    setSelectedStudent(null);
+  };
+
   /** Open the live Differentiated Homework workspace (central bank + assign), not legacy remediation. */
   const handleOpenLiveHomework = (student: Student) => {
     const params = new URLSearchParams({
@@ -145,7 +150,8 @@ export const MyClasses: React.FC = () => {
       {/* Detailed Student Diagnostic Modal */}
       {selectedStudent && (
         <Modal
-          isOpen={!!selectedStudent}
+          // One dialog at a time: the Differentiate dialog also selects the student, so hide the profile meanwhile.
+          isOpen={!!selectedStudent && !isRemediationModalOpen}
           onClose={() => setSelectedStudent(null)}
           title={`Diagnostic Profile: ${selectedStudent.name}`}
           subtitle={`Roll #${selectedStudent.rollNo} • ${selectedStudent.className} • Modality: ${selectedStudent.learningModality}`}
@@ -235,13 +241,13 @@ export const MyClasses: React.FC = () => {
       {selectedStudent && (
         <Modal
           isOpen={isRemediationModalOpen}
-          onClose={() => setIsRemediationModalOpen(false)}
+          onClose={closeRemediation}
           title={`Open Differentiated Homework for ${selectedStudent.name}`}
           subtitle="Uses the live Differentiated Homework workspace (question bank → assemble → assign)"
           maxWidth="lg"
           footer={
             <div className="flex items-center justify-end gap-2.5 w-full">
-              <Button variant="secondary" size="sm" onClick={() => setIsRemediationModalOpen(false)}>
+              <Button variant="secondary" size="sm" onClick={closeRemediation}>
                 Cancel
               </Button>
               <Button variant="teal" size="sm" onClick={handleConfirmRemediation}>

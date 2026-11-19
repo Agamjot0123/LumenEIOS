@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { marksLabel } from '../../lib/utils';
 import { CheckCircle2, Circle, FileText, Loader2, Sparkles, UploadCloud, UserCheck } from 'lucide-react';
 import { ApiError, AssignmentUploads, PublishedGrade, apiClient } from '../../lib/apiClient';
 import { MathText } from '../../components/common/MathText';
@@ -165,7 +166,7 @@ function StudentGrader({ data, student, onPublished }: { data: AssignmentUploads
           {questions.map(q => (
             <div key={q.index} className="grid gap-2 border-t border-surface-border pt-2 sm:grid-cols-[1fr_6rem]">
               <div>
-                <p className="font-medium">Q{q.index}. <MathText text={q.text} /> <span className="text-xs text-content-secondary">({q.marks} marks · {q.competency})</span></p>
+                <p className="font-medium">Q{q.index}. <MathText text={q.text} /> <span className="text-xs text-content-secondary">({marksLabel(q.marks)} · {q.competency})</span></p>
                 {q.correct_answer && <p className="text-xs text-content-secondary">Key: <MathText text={q.correct_answer} /></p>}
                 <input aria-label={`Feedback for question ${q.index}`} value={draft.feedback[q.index] ?? ''} placeholder="Feedback (optional)"
                   onChange={e => setDraft({ ...draft, feedback: { ...draft.feedback, [q.index]: e.target.value } })}

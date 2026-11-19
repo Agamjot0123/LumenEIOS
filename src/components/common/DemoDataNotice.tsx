@@ -1,10 +1,11 @@
 import React from 'react';
 import { FlaskConical } from 'lucide-react';
+import { DEMO_MODE } from '../../lib/runtime';
 
 /**
- * Honest labelling for prototype modules. Pages backed by the shared planning workspace (Academic Configuration,
- * Time-Aware Engine, Daily Curriculum, Curriculum Oversight) show live records; the modules listed here run on seeded
- * demonstration records and must not be read as school data.
+ * Honest labelling for the offline demonstration build (VITE_DEMO_MODE), where the modules listed here run on seeded
+ * records kept in the browser. The live app saves these modules to the database (campus edits, teacher reassignment,
+ * AI question generation, Differentiated Homework), so the notices would be false there and are not shown.
  */
 const NOTICES: { match: (path: string) => boolean; text: string }[] = [
   { match: (p) => p === '/admin/schools', text: 'Campus profiles are seeded demonstration records. Adding or editing a campus is kept in this browser only.' },
@@ -13,7 +14,8 @@ const NOTICES: { match: (path: string) => boolean; text: string }[] = [
   { match: (p) => p === '/teacher/remediation', text: 'Remediation assignments are seeded demonstration records based on sample competency scores.' },
 ];
 
-export function demoNoticeFor(pathname: string): string | null {
+export function demoNoticeFor(pathname: string, offlineDemo: boolean = DEMO_MODE): string | null {
+  if (!offlineDemo) return null;
   return NOTICES.find((n) => n.match(pathname))?.text ?? null;
 }
 

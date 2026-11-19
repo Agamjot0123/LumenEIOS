@@ -837,10 +837,22 @@ def json_object_text(raw: str) -> str:
     return text[start:end + 1] if start != -1 and end > start else text
 
 
+def repair_latex_json(text: str) -> str:
+    """Make a model's JSON parseable when it wrote LaTeX with single backslashes ("\\frac" read as a form feed,
+    "\\(" as an invalid escape). Shares the scan evaluator's repair; callers use it only after strict parsing failed."""
+    from backend.app.services.evaluation_service import repair_json_latex
+    return repair_json_latex(text)
+
+
 def json_payload(raw: str, title: Optional[str] = None) -> Any:
     """The JSON object in a model reply, unwrapped when the model nests it under the schema's title
-    (e.g. {"StageClassification": {"questions": [...]}}), which made correct answers fail validation."""
-    data = json.loads(json_object_text(raw))
+    (e.g. {"StageClassification": {"questions": [...]}}), which made correct answers fail validation.
+    LaTeX written with single backslashes is repaired only if the reply is not valid JSON as it stands."""
+    text = json_object_text(raw)
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = json.loads(repair_latex_json(text))
     if isinstance(data, dict) and len(data) == 1:
         (key, inner), = data.items()
         if isinstance(inner, dict) and (key == title or (title is None and key[:1].isupper())):
@@ -877,7 +889,10 @@ def _content_words(text: str) -> set:
 
 def rubric_points(rubric: str) -> List[str]:
     """Rubric text -> its separate requirements (split on ';', new lines and sentence ends)."""
-    parts = [p.strip(" .-\u2022") for p in re.split(r"[;\n]|(?<=[.!?])\s+", rubric or "")]
+    # Also split mark allocations written in one sentence: "1 mark for X, 1 mark for Y" / "2 marks for X and 1 for Y".
+    parts = [p.strip(" .,-\u2022") for p in re.split(
+        r"[;\n]|(?<=[.!?])\s+|,\s*(?:and\s+)?(?=\d+(?:\.\d+)?\s*marks?\b)|\s+and\s+(?=\d+(?:\.\d+)?\s*marks?\b)",
+        rubric or "")]
     return [p for p in parts if len(p) > 3] or [(rubric or "").strip()]
 
 
@@ -1163,7 +1178,11 @@ class QwenQuestionStudioService:
                         data = json_payload(raw)
                         covered = [bool(x) for x in data.get("covered", [])]
                         if len(covered) != len(points):
-                            raise ValueError("one judgement per rubric point is required")
+                            if not attempt or not covered:
+                                raise ValueError("one judgement per rubric point is required")
+                            # Second try still miscounted: use the judgements in order (extra ones dropped, missing
+                            # ones left to the word-coverage check below) rather than discarding the whole evaluation.
+                            covered = (covered + [False] * len(points))[:len(points)]
                         # The judge under-reports points that are plainly there; accept clear word coverage too.
                         resp_words = _content_words(response)
                         covered = [c or (len(_content_words(p) & resp_words) / max(1, len(_content_words(p))) >= 0.6)

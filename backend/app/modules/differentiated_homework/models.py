@@ -389,7 +389,7 @@ class HomeworkEvaluationItemRecord(Base):
     evaluation = relationship("HomeworkEvaluationRecord", back_populates="items")
 
 
-SUGGESTION_SOURCES = ("deterministic_mcq", "gemini", "teacher_required")
+SUGGESTION_SOURCES = ("deterministic_mcq", "gemini", "qwen", "teacher_required")
 SUGGESTION_CORRECTNESS = ("correct", "partially_correct", "incorrect", "undetermined")
 # Ordinal heuristic labels only — not calibrated probabilities.
 SUGGESTION_CONFIDENCE = ("high", "medium", "low")

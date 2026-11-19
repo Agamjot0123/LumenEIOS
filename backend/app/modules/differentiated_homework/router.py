@@ -64,7 +64,6 @@ from backend.app.modules.differentiated_homework.schemas import (
     StudentAccountLinkListItemOut,
     StudentAccountLinkOut,
     StudentAssignmentOut,
-    StudentAssignmentSummaryOut,
 )
 from backend.app.modules.differentiated_homework.student_access import (
     resolve_linked_student,
@@ -843,13 +842,44 @@ async def _current_student(db: AsyncSession, user: User) -> Student:
     return student
 
 
-@router.get("/students/me/homework/assignments", response_model=List[StudentAssignmentSummaryOut])
+from backend.app.modules.differentiated_homework.schemas import ParentAssignmentSummaryOut  # noqa: E402
+
+
+async def _summaries_with_progress(db: AsyncSession, assignments) -> List[ParentAssignmentSummaryOut]:
+    """Assignment summaries plus the submission status and whether a teacher released the result.
+    Shared by the student's own list and a parent's view of a linked child, so both say the same."""
+    if not assignments:
+        return []
+    ids = [a.id for a in assignments]
+    submissions = {s.assignment_id: s for s in (await db.execute(
+        select(HomeworkSubmissionRecord).filter(HomeworkSubmissionRecord.assignment_id.in_(ids))
+    )).scalars().all()}
+    released = set((await db.execute(
+        select(HomeworkEvaluationRecord.assignment_id).filter(
+            HomeworkEvaluationRecord.assignment_id.in_(ids),
+            HomeworkEvaluationRecord.status == "released",
+        )
+    )).scalars().all())
+    names = await subject_names(db, (a.subject_id for a in assignments))
+    out = []
+    for a in assignments:
+        submission = submissions.get(a.id)
+        out.append(ParentAssignmentSummaryOut(
+            **to_student_summary(a, names).model_dump(),
+            submission_status=submission.status if submission is not None else "not_started",
+            result_released=a.id in released,
+        ))
+    return out
+
+
+@router.get("/students/me/homework/assignments", response_model=List[ParentAssignmentSummaryOut])
 async def list_my_homework_assignments(
     assignment_status: Optional[AssignmentStatus] = Query(default=None, alias="status"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """The logged-in student's own assignments, newest first."""
+    """The logged-in student's own assignments, newest first, with their submission status and
+    whether the result has been released (the same flags a linked parent sees)."""
     student = await _current_student(db, current_user)
     query = (
         select(HomeworkAssignmentRecord)
@@ -861,8 +891,7 @@ async def list_my_homework_assignments(
     rows = (await db.execute(
         query.order_by(HomeworkAssignmentRecord.assigned_at.desc(), HomeworkAssignmentRecord.id)
     )).scalars().all()
-    names = await subject_names(db, (a.subject_id for a in rows))
-    return [to_student_summary(a, names) for a in rows]
+    return await _summaries_with_progress(db, rows)
 
 
 @router.get("/students/me/homework/assignments/{assignment_id}", response_model=StudentAssignmentOut)
@@ -1436,12 +1465,15 @@ async def _run_ai_suggestions(
     assignment_id: str,
     positions: Optional[List[int]],
     replace: bool,
+    model: str = "gemini",
 ) -> AIEvaluationSuggestionsOut:
     assignment, student, submission = await _grading_context(db, current_user, assignment_id)
     evaluation = await _existing_evaluation(db, assignment, submission)
     version_before = evaluation.version
     try:
+        from backend.app.services.ai_gateway import QwenTextProvider
         built = await build_suggestions(
+            provider=QwenTextProvider() if model == "qwen" else None,
             evaluation=evaluation,
             assignment=assignment,
             submission=submission,
@@ -1481,13 +1513,15 @@ async def generate_ai_evaluation_suggestions(
     """Generate AI/deterministic mark suggestions for a pending evaluation.
 
     Does not apply marks. Fails with 409 if suggestions already exist unless replace=true.
-    MCQs with a usable frozen key are scored without calling Gemini."""
+    MCQs with a usable frozen key are scored without calling an AI model; open-ended answers use
+    the chosen model (`provider`: the local Qwen model or Gemini)."""
     return await _run_ai_suggestions(
         db=db,
         current_user=current_user,
         assignment_id=assignment_id,
         positions=body.positions,
         replace=body.replace,
+        model=body.provider,
     )
 
 
@@ -1528,6 +1562,7 @@ async def rerun_ai_evaluation_suggestions(
         assignment_id=assignment_id,
         positions=body.positions,
         replace=True,
+        model=body.provider,
     )
 
 
@@ -1608,10 +1643,7 @@ async def get_child_homework_result(
 # generic 404, so a parent can't probe for other students.
 
 from backend.app.models.entities import ParentStudentLink  # noqa: E402
-from backend.app.modules.differentiated_homework.schemas import (  # noqa: E402
-    ParentAssignmentSummaryOut,
-    ParentChildOut,
-)
+from backend.app.modules.differentiated_homework.schemas import ParentChildOut  # noqa: E402
 
 PARENT_STUDENT_NOT_FOUND = "Student not found."
 
@@ -1657,25 +1689,4 @@ async def list_child_homework_assignments(
         .options(selectinload(HomeworkAssignmentRecord.draft).raiseload(HomeworkDraftRecord.items))
         .order_by(HomeworkAssignmentRecord.assigned_at.desc(), HomeworkAssignmentRecord.id)
     )).scalars().all()
-    if not assignments:
-        return []
-    ids = [a.id for a in assignments]
-    submissions = {s.assignment_id: s for s in (await db.execute(
-        select(HomeworkSubmissionRecord).filter(HomeworkSubmissionRecord.assignment_id.in_(ids))
-    )).scalars().all()}
-    released = set((await db.execute(
-        select(HomeworkEvaluationRecord.assignment_id).filter(
-            HomeworkEvaluationRecord.assignment_id.in_(ids),
-            HomeworkEvaluationRecord.status == "released",
-        )
-    )).scalars().all())
-    names = await subject_names(db, (a.subject_id for a in assignments))
-    out = []
-    for a in assignments:
-        submission = submissions.get(a.id)
-        out.append(ParentAssignmentSummaryOut(
-            **to_student_summary(a, names).model_dump(),
-            submission_status=submission.status if submission is not None else "not_started",
-            result_released=a.id in released,
-        ))
-    return out
+    return await _summaries_with_progress(db, assignments)

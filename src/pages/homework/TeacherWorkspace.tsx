@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { marksLabel } from '../../lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   BookOpen, CheckCircle2, ClipboardCheck, FilePlus2, Library, PenLine, Plus, Search, Send, Sparkles, Users, UserRound,
@@ -387,7 +388,7 @@ function QuestionTable({ items, onRemove, disabled, showKey }: { items: any[]; o
         {onRemove && <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onRemove(q.position)}>Remove</Button>}
       </div>
       <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-content-secondary">
-        <CompetencyTag code={q.competency} /> <span>{q.bloom_level}</span> <span>·</span> <span>{typeLabel(q.type)}</span> <span>·</span> <span>{q.marks} marks</span>
+        <CompetencyTag code={q.competency} /> <span>{q.bloom_level}</span> <span>·</span> <span>{typeLabel(q.type)}</span> <span>·</span> <span>{marksLabel(q.marks)}</span>
         {q.is_ai_generated && <Badge variant="warning" size="sm">AI-generated</Badge>}
       </p>
       {q.options?.length > 0 && <OptionList options={q.options} correct={showKey ? q.correct_answer : undefined} />}
@@ -586,6 +587,9 @@ function Evaluation({
   const [suggestions, setSuggestions] = useState<Record<number, any>>({});
   const [decisions, setDecisions] = useState<Record<number, SuggestionDecision>>({});
   const [aiBusy, setAiBusy] = useState(false);
+  // Open-ended answers are marked by the local Qwen model (works offline) or Gemini; MCQs use the answer key.
+  const [aiModel, setAiModel] = useState<'qwen' | 'gemini'>('qwen');
+  const aiModelName = aiModel === 'qwen' ? 'Qwen' : 'Gemini';
   const [aiError, setAiError] = useState('');
   const [aiNotice, setAiNotice] = useState('');
   const update = (e: any) => { setEvaluation(e); setForm(fromEvaluation(e)); };
@@ -643,13 +647,13 @@ function Evaluation({
     setAiBusy(true); setAiError(''); setAiNotice('');
     try {
       const payload = mode === 'rerun'
-        ? await hw.rerunAiSuggestions(assignmentId)
-        : await hw.generateAiSuggestions(assignmentId, hasSuggestions ? { replace: true } : {});
+        ? await hw.rerunAiSuggestions(assignmentId, { provider: aiModel })
+        : await hw.generateAiSuggestions(assignmentId, hasSuggestions ? { replace: true, provider: aiModel } : { provider: aiModel });
       setSuggestions(suggestionMap(payload));
       setDecisions({});
       setAiNotice(mode === 'rerun'
-        ? 'AI suggestions regenerated. Accept, edit or reject each one before saving.'
-        : 'AI suggestions ready. They are not saved marks until you accept and save.');
+        ? `AI suggestions regenerated with ${aiModelName}. Accept, edit or reject each one before saving.`
+        : `AI suggestions from ${aiModelName} ready. They are not saved marks until you accept and save.`);
     } catch (ex) {
       setAiError(errorText(ex));
     } finally {
@@ -685,7 +689,12 @@ function Evaluation({
           <p className="flex items-center gap-1.5 text-sm font-medium text-sky-950"><Sparkles className="h-4 w-4" />AI-assisted suggestions</p>
           <p className="text-xs text-sky-900/80">Optional. Suggestions never finalize or release results. You keep full control of marks and feedback.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select aria-label="AI marking model" className="rounded-lg border border-sky-200 bg-white px-2 py-1 text-sm" value={aiModel}
+            disabled={busy || aiBusy} onChange={e => setAiModel(e.target.value as 'qwen' | 'gemini')}>
+            <option value="qwen">Qwen (default, works offline)</option>
+            <option value="gemini">Gemini (fallback)</option>
+          </select>
           {!hasSuggestions && <Button variant="teal" size="sm" loading={aiBusy} disabled={busy || aiBusy}
             onClick={() => runAi('generate')}>Evaluate with AI</Button>}
           {hasSuggestions && pendingSuggestions.length > 0 && <Button variant="teal" size="sm" disabled={busy || aiBusy} onClick={acceptConfident}>Accept confident suggestions</Button>}
@@ -693,7 +702,9 @@ function Evaluation({
             onClick={() => runAi('rerun')}>Regenerate suggestions</Button>}
         </div>
       </div>
-      {aiBusy && <p role="status" className="text-sm text-sky-900">Evaluating answers against keys and rubrics…</p>}
+      {aiBusy && <p role="status" className="text-sm text-sky-900">{aiModel === 'qwen'
+        ? 'Qwen is evaluating the answers against keys and rubrics on this server - this can take a few minutes…'
+        : 'Gemini is evaluating the answers against keys and rubrics…'}</p>}
       {hasSuggestions && !aiBusy && <p className="text-xs text-content-secondary">
         {Object.keys(suggestions).length} suggestion{Object.keys(suggestions).length === 1 ? '' : 's'} loaded
         {attentionCount > 0 ? ` · ${attentionCount} need teacher attention` : ''}.
@@ -716,7 +727,7 @@ function Evaluation({
 
       return <article key={q.position}
         className={'rounded-xl border p-3 ' + (uncertain && showSuggestion ? 'border-amber-300 bg-amber-50/30' : 'border-surface-border')}>
-        <p className="text-sm font-medium">{q.position}. <MathText text={q.text} /> <span className="text-content-secondary">({q.max_marks} marks)</span></p>
+        <p className="text-sm font-medium">{q.position}. <MathText text={q.text} /> <span className="text-content-secondary">({marksLabel(q.max_marks)})</span></p>
         {isMcq
           ? <OptionList options={q.options} correct={q.correct_answer} selected={q.selected_option_index} />
           : <p className="mt-1 rounded-lg bg-gray-50 px-2 py-1 text-sm">Student answer: <MathText text={answerText(q)} /></p>}
@@ -738,7 +749,7 @@ function Evaluation({
             <Badge variant="outline" size="sm">{
               suggestion.source === 'deterministic_mcq' ? 'Answer-key match'
                 : suggestion.source === 'teacher_required' ? 'Teacher review required'
-                  : 'Gemini'}</Badge>
+                  : suggestion.source === 'qwen' ? 'Qwen' : 'Gemini'}</Badge>
             {decision === 'accepted' && !editedAfterAccept && <Badge variant="teal" size="sm">Accepted into form</Badge>}
             {editedAfterAccept && <Badge variant="warning" size="sm">Edited after accept</Badge>}
           </div>
@@ -878,11 +889,11 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
 
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="primary" icon={<Plus className="h-4 w-4" />} disabled={!subject} onClick={startNew}>Write a question</Button>
-      <Link to="/teacher/assessments-beta"
+      <Link to="/teacher/assessments"
         className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-700">
-        <BookOpen className="h-4 w-4" />Generate from a chapter PDF (Studio Beta · Qwen)</Link>
+        <BookOpen className="h-4 w-4" />Generate from a chapter PDF (AI Question Studio)</Link>
       <Button variant={showAi ? 'secondary' : 'outline'} icon={<Sparkles className="h-4 w-4" />} onClick={() => setShowAi(v => !v)}>
-        {showAi ? 'Hide quick generator' : 'Quick generate from a topic (Gemini)'}</Button>
+        {showAi ? 'Hide quick generator' : 'Quick generate from a topic (Qwen or Gemini)'}</Button>
       <Button variant="ghost" disabled={busy || !subject} onClick={() => run(async () => {
         await apiClient.assessments.createTemplateQuestion({ subjectId: subject, bloomLevel: 'Apply', competency: 'CU' });
         await reload(); return 'Template question (no AI) added to the bank. Review and edit it before use.';
@@ -920,7 +931,7 @@ function QuestionBank({ subjectName }: { subjectName: NameFn }) {
           <ul className="max-h-[36rem] space-y-1.5 overflow-y-auto pr-1">{shown.map(q => <li key={q.id}>
             <button aria-label={q.text} className={'w-full rounded-xl border px-3 py-2.5 text-left transition hover:border-teal-300 ' + (selected?.id === q.id ? 'border-teal-400 bg-teal-50' : 'border-surface-border bg-white')} onClick={() => open(q)}>
               <p className="text-sm"><MathText text={q.text} /></p>
-              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-content-secondary"><CompetencyTag code={q.competency} /><span>{q.bloomLevel}</span><span>·</span><span>{typeLabel(q.type)}</span><span>·</span><span>{q.marks} marks</span>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-content-secondary"><CompetencyTag code={q.competency} /><span>{q.bloomLevel}</span><span>·</span><span>{typeLabel(q.type)}</span><span>·</span><span>{marksLabel(q.marks)}</span>
                 {q.topic ? <Badge variant="outline" size="sm">{q.topic}</Badge> : <span className="italic">no topic</span>}
                 {q.isAiGenerated && <Badge variant="warning" size="sm">AI-generated</Badge>}</p>
             </button></li>)}</ul>}

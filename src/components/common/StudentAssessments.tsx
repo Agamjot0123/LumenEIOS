@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { marksLabel } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient, UploadAssignment } from '../../lib/apiClient';
 import { assessmentResults } from '../../lib/assessmentResults';
@@ -17,7 +18,7 @@ function AnswerForm({assessment,onSaved}: {assessment: UploadAssignment; onSaved
   const update=(position:number,answer:AssessmentAnswer)=>{setAnswers(current=>({...current,[position]:answer}));setKey(crypto.randomUUID());};
   return <form className="space-y-4" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{onSaved(await assessmentResults.submit(assessment.id,Object.values(answers),key));}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>
     <p>Submit your own answers. Responses lock after submission. Automatic marking is provisional until teacher confirmation.</p>
-    {assessment.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-xl p-3"><legend>{i+1}. <MathText text={q.text} /> ({q.marks} marks · {q.competency})</legend>
+    {assessment.questions.map((q,i)=><fieldset key={i} disabled={busy} className="border rounded-xl p-3"><legend>{i+1}. <MathText text={q.text} /> ({marksLabel(q.marks)} · {q.competency})</legend>
       {q.type==='mcq' ? (q.options||[]).map((option,j)=><label key={j} className="block py-1"><input required type="radio" name={`answer-${assessment.id}-${i}`} checked={answers[i]?.selected_option_index===j} onChange={()=>update(i,{position:i,selected_option_index:j})} /> <MathText text={option} /></label>):<label>Your answer<textarea required maxLength={16000} className="block w-full border rounded-lg p-2" value={answers[i]?.answer_text||''} onChange={e=>update(i,{position:i,answer_text:e.target.value})} /></label>}
     </fieldset>)}
     {error&&<p role="alert" className="text-rose-700">{error}</p>}<Button type="submit" loading={busy}>Submit assessment answers</Button>

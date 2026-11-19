@@ -4,10 +4,10 @@ FORMAT_HELP = (
     "Use a grade and one letter, such as 8A, or a grade and a section name, such as 8 Name1."
 )
 
-_LETTER = re.compile(r"^(\d{1,2})([A-Za-z])$")
-_NAMED = re.compile(r"^(\d{1,2}) ([A-Za-z][A-Za-z0-9]*)$")
+_LETTER = re.compile(r"^(\d{1,2})\s*-?\s*([A-Za-z])$")
+_NAMED = re.compile(r"^(\d{1,2})(?: |\s*-\s*)([A-Za-z][A-Za-z0-9]*)$")
 _STORED_LETTER = re.compile(r"^(\d{1,2})\s*-?\s*([A-Za-z])$")
-_STORED_NAMED = re.compile(r"^(\d{1,2})\s+([A-Za-z][A-Za-z0-9]*)$")
+_STORED_NAMED = re.compile(r"^(\d{1,2})(?:\s+|\s*-\s*)([A-Za-z][A-Za-z0-9]*)$")
 
 
 def class_identity(name: str) -> str:
@@ -26,7 +26,8 @@ def class_identity(name: str) -> str:
 
 
 def parse_class_name(raw: str) -> tuple[int, str, str, str]:
-    text = re.sub(r"\s+", " ", raw.strip())
+    # Also accept the displayed form ("Class 8-C"), so a name can be typed the way it is shown.
+    text = re.sub(r"^class\s+", "", re.sub(r"\s+", " ", raw.strip()), flags=re.IGNORECASE)
     if not text:
         raise ValueError("Enter a class name.")
 
@@ -36,7 +37,7 @@ def parse_class_name(raw: str) -> tuple[int, str, str, str]:
         if grade < 1 or grade > 12:
             raise ValueError("Grade must be from 1 to 12.")
         section = letter.group(2).upper()
-        display = f"{grade}{section}"
+        display = f"Class {grade}-{section}"  # the same form as every other class ("Class 8-A")
         return grade, section, display, f"{grade}:{section}"
 
     named = _NAMED.match(text)
@@ -45,7 +46,7 @@ def parse_class_name(raw: str) -> tuple[int, str, str, str]:
         if grade < 1 or grade > 12:
             raise ValueError("Grade must be from 1 to 12.")
         section = named.group(2)
-        display = f"{grade} {section}"
+        display = f"Class {grade}-{section}"
         return grade, section, display, f"{grade}:{section.lower()}"
 
     raise ValueError(f"That name is not a supported class format. {FORMAT_HELP}")

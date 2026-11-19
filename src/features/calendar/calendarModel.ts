@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../../lib/apiClient';
+import { useAuth } from '../../context/AuthContext';
 
 export type CalendarCategory = 'holiday' | 'vacation' | 'exam' | 'event' | 'session' | 'deadline' | 'lost' | 'personal';
 
@@ -123,21 +124,12 @@ export const calendarApi = {
   add: (body: PersonalInput) => apiRequest<CalendarEvent>('/calendar/personal', { method: 'POST', body: JSON.stringify(body) }),
   update: (id: string, body: Partial<PersonalInput> & { is_done?: boolean }) =>
     apiRequest<CalendarEvent>(`/calendar/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  remove: async (id: string) => {
-    // DELETE answers 204 with no body, which the shared JSON helper cannot parse, so it is called directly.
-    const base = ((import.meta as any).env?.VITE_API_URL || '/api/v1').replace(/\/+$/, '');
-    const response = await fetch(`${base}/calendar/personal/${id}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('lumeneios_token') ?? ''}`,
-        'X-School-Id': localStorage.getItem('lumeneios_current_school') || 'school-1',
-      },
-    });
-    if (!response.ok) throw new Error('Could not delete this item.');
-  },
+  remove: (id: string) => apiRequest<void>(`/calendar/personal/${id}`, { method: 'DELETE' }),
 };
 
 export function useCalendarFeed(start: string, end: string) {
+  // Reload when the account or the selected campus changes (management can switch campus on this page).
+  const { currentUser, currentSchoolId } = useAuth();
   const [feed, setFeed] = useState<CalendarFeed | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -160,7 +152,7 @@ export function useCalendarFeed(start: string, end: string) {
     return () => {
       active = false;
     };
-  }, [start, end, nonce]);
+  }, [start, end, nonce, currentUser?.id, currentSchoolId]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   return { feed, loading, error, reload };

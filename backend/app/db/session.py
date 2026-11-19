@@ -59,6 +59,8 @@ async def init_db():
             if name not in existing:
                 await conn.execute(text(f"ALTER TABLE documents ADD COLUMN {name} {definition}"))
 
+        await _allow_all_suggestion_sources(conn)
+
         # Additive optional columns for databases created by older versions (never dropped or rewritten).
         additive = {
             "question_bank_items": {"topic": "VARCHAR(255)", "grade": "INTEGER"},
@@ -89,4 +91,35 @@ async def init_db():
                     text(f"ALTER TABLE student_competency_snapshots ADD COLUMN {name} {definition}")
                 )
 
+
+async def _allow_all_suggestion_sources(conn) -> None:
+    """Homework AI-marking suggestions may now come from the local Qwen model as well as Gemini. Databases created
+    before that have a CHECK constraint on `source` without 'qwen', so saving a Qwen suggestion failed. Widen it once.
+
+    SQLite cannot alter a constraint, so the (leaf) table is rebuilt from the current model with every row copied.
+    PostgreSQL drops and re-adds the named constraint. Both steps run only when the old constraint is present."""
+    from sqlalchemy import text
+    from backend.app.modules.differentiated_homework.models import SUGGESTION_SOURCES, HomeworkEvaluationSuggestionRecord
+    table = HomeworkEvaluationSuggestionRecord.__table__
+    name, check = table.name, "ck_homework_eval_ai_suggestions_source"
+    allowed = "source IN ('" + "', '".join(SUGGESTION_SOURCES) + "')"
+    if conn.dialect.name == "sqlite":
+        sql = (await conn.execute(text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :n"), {"n": name})).scalar()
+        if not sql or check not in sql or "'qwen'" in sql:
+            return
+        columns = ", ".join(c.name for c in table.columns)
+        await conn.execute(text(f"ALTER TABLE {name} RENAME TO {name}_before_qwen"))
+        for index in table.indexes:
+            await conn.execute(text(f"DROP INDEX IF EXISTS {index.name}"))
+        await conn.run_sync(lambda sync: table.create(sync))
+        await conn.execute(text(f"INSERT INTO {name} ({columns}) SELECT {columns} FROM {name}_before_qwen"))
+        await conn.execute(text(f"DROP TABLE {name}_before_qwen"))
+    elif conn.dialect.name == "postgresql":
+        definition = (await conn.execute(text(
+            "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid "
+            "WHERE t.relname = :t AND c.conname = :c"), {"t": name, "c": check})).scalar()
+        if definition is None or "qwen" in definition:
+            return
+        await conn.execute(text(f"ALTER TABLE {name} DROP CONSTRAINT {check}"))
+        await conn.execute(text(f"ALTER TABLE {name} ADD CONSTRAINT {check} CHECK ({allowed})"))
 

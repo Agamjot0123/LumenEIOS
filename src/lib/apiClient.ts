@@ -174,6 +174,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       );
     }
 
+    // 204 No Content (e.g. a DELETE) has no JSON body to parse.
+    if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T;
     return await response.json();
   } catch (err: any) {
     if (err instanceof ApiError) throw err;
@@ -376,13 +378,13 @@ export const apiClient = {
     aiSuggestions(assignmentId: string) {
       return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`);
     },
-    generateAiSuggestions(assignmentId: string, body: { positions?: number[]; replace?: boolean } = {}) {
+    generateAiSuggestions(assignmentId: string, body: { positions?: number[]; replace?: boolean; provider?: 'qwen' | 'gemini' } = {}) {
       return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions`, {
         method: 'POST',
         body: JSON.stringify(body),
       });
     },
-    rerunAiSuggestions(assignmentId: string, body: { positions?: number[] } = {}) {
+    rerunAiSuggestions(assignmentId: string, body: { positions?: number[]; provider?: 'qwen' | 'gemini' } = {}) {
       return request<any>(`/homework/assignments/${encodeURIComponent(assignmentId)}/evaluation/ai-suggestions/rerun`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -677,6 +679,9 @@ export const apiClient = {
     async getById(id: string) {
       return request<any>(`/schools/${id}`);
     },
+    async update(id: string, changes: { name?: string; location?: string; state?: string; infrastructure_tier?: string; description?: string }) {
+      return request<any>(`/schools/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) });
+    },
   },
 
   teachers: {
@@ -695,6 +700,12 @@ export const apiClient = {
   },
 
   classes: {
+    async assignTeacher(classId: string, teacherId: string) {
+      return request<any>(`/classes/${encodeURIComponent(classId)}/assignments`, {
+        method: 'POST',
+        body: JSON.stringify({ teacher_id: teacherId }),
+      });
+    },
     async create(schoolId: string, name: string) {
       return request<any>('/classes', {
         method: 'POST',
@@ -1018,7 +1029,7 @@ export const apiClient = {
       });
       return mapQuestionOut(res);
     },
-    /** Gemini preview: returns questions for review; nothing is saved. */
+    /** AI preview (local Qwen or Gemini, `provider`): returns questions for review; nothing is saved. */
     async aiGenerateQuestions(params: Record<string, unknown>) {
       return request<any>('/assessments/ai/generate-questions', { method: 'POST', body: JSON.stringify(params) });
     },

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { apiClient } from '../../lib/apiClient';
 import { useData } from '../../context/DataContext';
 import { School, InfrastructureTier } from '../../types';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
@@ -11,7 +12,12 @@ import { SchoolPerformance } from '../../components/school/SchoolPerformance';
 import { PlusCircle, Edit2, CheckCircle2 } from 'lucide-react';
 
 export const SchoolsManagement: React.FC = () => {
-  const { schools, addSchool, updateSchool } = useData();
+  const { schools, addSchool, updateSchool, workspace, refreshWorkspace } = useData();
+  // Live: campuses are database records (counts and principal come from real accounts). Offline demo: browser only.
+  const live = Boolean(workspace);
+  const navigate = useNavigate();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearch] = useState('');
@@ -46,6 +52,8 @@ export const SchoolsManagement: React.FC = () => {
   };
 
   const handleOpenCreate = () => {
+    if (live) { navigate('/admin/schools/add'); return; }
+    setSaveError('');
     setEditingSchool(null);
     setName('');
     setLocation('');
@@ -59,6 +67,7 @@ export const SchoolsManagement: React.FC = () => {
   };
 
   const handleOpenEdit = (s: School) => {
+    setSaveError('');
     setEditingSchool(s);
     setName(s.name);
     setLocation(s.location);
@@ -71,9 +80,31 @@ export const SchoolsManagement: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (saving) return;
+    if (!name.trim() || !location.trim() || !state.trim()) {
+      setSaveError('School name, city / district and state are required.');
+      return;
+    }
+    if (live && editingSchool) {
+      setSaving(true);
+      setSaveError('');
+      try {
+        await apiClient.schools.update(editingSchool.id, {
+          name: name.trim(), location: location.trim(), state: state.trim(), infrastructure_tier: tier, description,
+        });
+        await refreshWorkspace();
+        setIsModalOpen(false);
+        setToast(`Updated ${name.trim()}.`);
+        setTimeout(() => setToast(null), 4000);
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : 'Could not save the changes.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
 
     if (editingSchool) {
       updateSchool(editingSchool.id, {
@@ -259,13 +290,14 @@ export const SchoolsManagement: React.FC = () => {
             <Button variant="secondary" size="md" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="teal" size="md" onClick={handleSubmit}>
+            <Button variant="teal" size="md" onClick={handleSubmit} loading={saving}>
               {editingSchool ? 'Save Changes' : 'Onboard Campus'}
             </Button>
           </div>
         }
       >
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {saveError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">{saveError}</p>}
           <div>
             <label className="block font-semibold text-content-primary mb-1">School Name</label>
             <input
@@ -316,7 +348,7 @@ export const SchoolsManagement: React.FC = () => {
                 <option value="low-tech">Low-Tech (Physical worksheets, mobile OCR)</option>
               </select>
             </div>
-            <div>
+            {!live && <div>
               <label className="block font-semibold text-content-primary mb-1">Principal in Charge</label>
               <input
                 type="text"
@@ -325,10 +357,10 @@ export const SchoolsManagement: React.FC = () => {
                 placeholder="e.g. Dr. Sunita Deshmukh"
                 className="w-full px-3 py-2 bg-white border border-surface-border rounded-lg"
               />
-            </div>
+            </div>}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {!live && <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold text-content-primary mb-1">Student Enrollment</label>
               <input
@@ -347,7 +379,8 @@ export const SchoolsManagement: React.FC = () => {
                 className="w-full px-3 py-2 bg-white border border-surface-border rounded-lg"
               />
             </div>
-          </div>
+          </div>}
+          {live && <p className="text-content-secondary">Enrolment, staff counts and the principal come from the accounts added to this school.</p>}
 
           <div>
             <label className="block font-semibold text-content-primary mb-1">Infrastructure Notes</label>

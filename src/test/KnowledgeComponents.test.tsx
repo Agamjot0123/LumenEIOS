@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../context/AuthContext';
 import { initialUsers } from '../data/seedData';
@@ -64,9 +64,7 @@ describe('teacher knowledge components', () => {
 
     renderPage('teacher');
     expect(await screen.findByRole('option', { name: 'Mathematics' })).toBeInTheDocument();
-    expect((await screen.findAllByRole('option', { name: 'Chain Rule' })).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('option', { name: 'Differentiation' }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('option', { name: 'Calculus' })).toBeInTheDocument();
+    // The subject's sample concepts and links are added on first open.
     expect(await screen.findByText(/Limits is a prerequisite of Chain Rule/)).toBeInTheDocument();
     expect(apiClient.knowledgeGraph.create).toHaveBeenCalledWith({
       name: 'Chain Rule',
@@ -74,6 +72,17 @@ describe('teacher knowledge components', () => {
       subject_id: 'sub-math',
       topic: 'Calculus',
     });
+
+    // A teacher can type a brand-new concept (the old form only offered samples that were already saved).
+    fireEvent.change(screen.getByPlaceholderText('e.g. Fractions'), { target: { value: 'Integration' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. Number system'), { target: { value: 'Calculus' } });
+    fireEvent.change(screen.getByPlaceholderText(/What a student should understand/), { target: { value: 'Area under a curve.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add concept' }));
+    expect(await screen.findByText(/Concept saved/)).toBeInTheDocument();
+    expect(apiClient.knowledgeGraph.create).toHaveBeenLastCalledWith({
+      name: 'Integration', description: 'Area under a curve.', subject_id: 'sub-math', topic: 'Calculus',
+    });
+    expect((await screen.findAllByText('Integration')).length).toBeGreaterThan(0);
   });
 
   it('keeps the catalogue off the student account', async () => {

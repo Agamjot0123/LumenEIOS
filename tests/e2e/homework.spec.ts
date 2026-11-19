@@ -136,6 +136,7 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
     requests++; const body=route.request().postDataJSON();
     expect(JSON.stringify(body)).not.toMatch(/student|user-/);
     expect(body.avoid_texts).toBeDefined();
+    expect(body.provider).toBe('gemini');  // chosen below; the local Qwen model is the default
     await route.fulfill({json:{provider:'gemini',model:'mock',source:'ai_generated',requested:body.count,generated:body.count,
       attempts:1,received:body.count,checked_against:15,rejected_duplicates:0,rejected_repeats:0,rejected_invalid:0,discarded:0,warnings:[],
       questions:Array.from({length:body.count},(_,i)=>fake(requests*10+i))}});
@@ -146,7 +147,9 @@ test('teacher generates AI questions, edits, rejects one and saves the approved 
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByRole('link',{name:'Differentiated Homework',exact:true}).click();
   await page.getByRole('tab',{name:/Question bank/}).click();
-  await page.getByRole('button',{name:'Quick generate from a topic (Gemini)',exact:true}).click();
+  await page.getByRole('button',{name:'Quick generate from a topic (Qwen or Gemini)',exact:true}).click();
+  await expect(page.getByLabel('AI model',{exact:true})).toHaveValue('qwen');
+  await page.getByLabel('AI model',{exact:true}).selectOption('gemini');
   await page.getByLabel('AI subject',{exact:true}).selectOption('sub-sci');
   await page.getByLabel('AI topic',{exact:true}).fill('Mensuration');
   await page.getByLabel('AI count',{exact:true}).fill('2');

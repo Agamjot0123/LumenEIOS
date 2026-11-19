@@ -2,7 +2,7 @@
 
 Sources (nothing is copied, so Academic Config stays the single source of truth):
   * the school's latest Academic Config calendar: holidays, vacations, exam windows, events, session start/end
-  * instructional disruptions (days lost) recorded for the school
+  * lost teaching days: dates with lost periods recorded in the Time-Aware Engine
   * assessments (class tests / exams) for the classes the user teaches, attends or is the parent of
   * differentiated-homework deadlines (due_at)
   * the user's own tasks and deadlines (the only table this feature owns)
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import user_school_ids
 from backend.app.models.calendar_events import PersonalCalendarEvent
 from backend.app.models.entities import (
-    Assessment, ClassSection, InstructionalDisruption, ParentStudentLink, School, Student, Subject, TeacherAssignment, User,
+    Assessment, ClassSection, ParentStudentLink, School, Student, Subject, TeacherAssignment, User,
 )
 from backend.app.models.teacher_planning import SchoolPlanCalendar
 from backend.app.modules.differentiated_homework.models import HomeworkAssignmentRecord
@@ -137,16 +137,25 @@ async def _school_calendar_events(db: AsyncSession, scope: Scope, lo: date, hi: 
     return events, meta
 
 
-async def _disruption_events(db: AsyncSession, scope: Scope, lo: date, hi: date) -> List[Dict[str, Any]]:
+async def _disruption_events(db: AsyncSession, user: User, scope: Scope, lo: date, hi: date) -> List[Dict[str, Any]]:
+    """Lost teaching days: dates with lost periods recorded in the Time-Aware Engine (the same count the dashboards
+    and the engine show), not the retired school disruption register. Leadership sees the school; a teacher their own
+    losses; a student or parent only losses in their class's grade."""
     if not scope.school_ids:
         return []
+    from backend.app.services.lost_period_service import school_lost_days
+    filters: Dict[str, Any] = {}
+    if user.role == "teacher":
+        filters["teacher_id"] = user.id
+    elif user.role in ("student", "parent"):
+        classes = (await db.scalars(select(ClassSection).where(ClassSection.id.in_(scope.class_ids)))).all()
+        filters["grades"] = {c.grade for c in classes}
     out = []
-    for row in (await db.scalars(select(InstructionalDisruption).where(InstructionalDisruption.school_id.in_(scope.school_ids)))).all():
-        day = parse_day(row.date)
+    for day_row in await school_lost_days(db, scope.school_ids, **filters):
+        day = parse_day(day_row["date"])
         if day and lo <= day <= hi:
-            days = f"{row.days_lost:g} day{'s' if row.days_lost != 1 else ''} lost"
-            out.append(_event(f"lost:{row.id}", "lost", f"Teaching disrupted: {row.reason}", day, source="school",
-                              detail=days, school_id=row.school_id))
+            out.append(_event(f"lost:{day_row['id']}", "lost", f"Teaching disrupted: {day_row['reason']}", day,
+                              source="school", detail=day_row["notes"], school_id=day_row["schoolId"]))
     return out
 
 
@@ -154,9 +163,18 @@ async def _assessment_events(db: AsyncSession, user: User, scope: Scope, lo: dat
     if not scope.class_ids:
         return []
     query = select(Assessment).where(Assessment.class_id.in_(scope.class_ids))
-    if user.role in ("student", "parent"):
-        query = query.where(Assessment.status != "draft")  # drafts are not published to learners or families
+    if user.role != "teacher":
+        # Drafts are not published to learners or families, and for leadership they are not yet events: the exam
+        # window itself comes from Academic Config. Listing every class x subject draft buried the calendar.
+        query = query.where(Assessment.status != "draft")
     rows = (await db.scalars(query)).all()
+    if user.role == "teacher":
+        # A teacher sees the assessments of the subjects they teach in each class (drafts included: their own work),
+        # plus published assessments of other subjects in the class they are class teacher of.
+        taught = set((await db.execute(select(TeacherAssignment.class_id, TeacherAssignment.subject_id)
+                                       .where(TeacherAssignment.teacher_id == user.id))).all())
+        homeroom = set((await db.scalars(select(ClassSection.id).where(ClassSection.class_teacher_id == user.id))).all())
+        rows = [r for r in rows if (r.class_id, r.subject_id) in taught or (r.class_id in homeroom and r.status != "draft")]
     subjects = {s.id: s.name for s in (await db.scalars(select(Subject))).all()}
     classes = {c.id: c.name for c in (await db.scalars(select(ClassSection).where(ClassSection.id.in_({r.class_id for r in rows})))).all()} if rows else {}
     out = []
@@ -169,7 +187,8 @@ async def _assessment_events(db: AsyncSession, user: User, scope: Scope, lo: dat
                                         f"{row.total_marks} marks", row.status.title()) if x)
         # Staff see several classes at once, so name the class; a learner or parent only ever sees their own.
         label = classes.get(row.class_id, "").replace("Class ", "")
-        title = f"{row.title} · {label}" if label and user.role in ("teacher", "principal", "admin") else row.title
+        # Class first, so the same paper for two classes stays distinguishable when a narrow list truncates it.
+        title = f"{label} · {row.title}" if label and user.role in ("teacher", "principal", "admin") else row.title
         out.append(_event(f"assessment:{row.id}", "exam", title, day, source="assessment", detail=detail,
                           school_id=row.school_id, status=row.status))
     return out
@@ -223,18 +242,21 @@ async def collect_events(db: AsyncSession, user: User, school_id: Optional[str],
         raise ValueError(f"Ask for at most {MAX_RANGE_DAYS} days at a time.")
     scope = await resolve_scope(db, user, school_id)
     school_events, meta = await _school_calendar_events(db, scope, lo, hi)
-    events = (school_events + await _disruption_events(db, scope, lo, hi) + await _assessment_events(db, user, scope, lo, hi)
+    events = (school_events + await _disruption_events(db, user, scope, lo, hi) + await _assessment_events(db, user, scope, lo, hi)
               + await _homework_events(db, user, scope, lo, hi) + await _personal_events(db, user, lo, hi))
     events.sort(key=lambda e: (e["start"], e["end"], e["category"], e["title"]))
     return {"start": lo.isoformat(), "end": hi.isoformat(), "events": events, "meta": meta}
 
 
-async def upcoming_for_assistant(db: AsyncSession, user: User, school_id: Optional[str], days: int = 45) -> List[Dict[str, Any]]:
-    """Compact, read-only view of the next weeks for the assistant (same scoping as the calendar page)."""
+async def upcoming_for_assistant(db: AsyncSession, user: User, school_id: Optional[str], days: int = 45,
+                                 limit: Optional[int] = 60) -> List[Dict[str, Any]]:
+    """Compact, read-only view of the next weeks for the assistant (same scoping as the calendar page). `limit` keeps
+    the model's prompt small; direct calendar answers pass None so a type is never cut off by earlier items."""
     today = date.today()
     data = await collect_events(db, user, school_id, today, today + timedelta(days=days))
+    events = data["events"] if limit is None else data["events"][:limit]
     return [{"date": e["start"] if e["start"] == e["end"] else f"{e['start']} to {e['end']}", "type": e["category"],
-             "title": e["title"], "detail": e["detail"]} for e in data["events"][:60]]
+             "title": e["title"], "detail": e["detail"]} for e in events]
 
 
 _HIGHLIGHT_LABELS = {"exam": "next_exam_or_test", "deadline": "next_homework_deadline", "holiday": "next_holiday",
@@ -254,3 +276,81 @@ def assistant_highlights(items: List[Dict[str, Any]], today: date) -> Dict[str, 
             out[key] = f"{item['title']} on {item['date']}"
     out["next_7_days"] = [f"{i['date']}: {i['title']} ({i['type']})" for i in items if i["date"][:10] <= week_end][:15]
     return out
+
+
+# ---- direct answers to calendar questions (no model) ------------------------------------------------------------------
+# "When is my next test?" is a date lookup; the small local model got it wrong (no date, wrong page, "Yes", or claiming
+# the data was not visible). Clear calendar questions are answered here from the same role-scoped items instead.
+import re as _re
+
+_KINDS = (
+    ("holiday", _re.compile(r"\b(holidays?|vacations?|breaks?|school (is )?closed|day off|days off|leave)\b"), ("holiday", "vacation")),
+    ("deadline", _re.compile(r"\b(homework|due|deadlines?|assignments?|submit|submission)\b"), ("deadline",)),
+    ("exam", _re.compile(r"\b(exams?|tests?|quiz(zes)?|worksheets?|papers?|assessments?|periodic)\b"), ("exam",)),
+    ("event", _re.compile(r"\b(events?|functions?|sports day|celebrations?|annual day|meetings?)\b"), ("event",)),
+    ("task", _re.compile(r"\b(my tasks?|my reminders?|to-?do)\b"), ("personal",)),
+)
+_TIMING = _re.compile(r"\b(when|next|upcoming|coming|due|this week|next week|today|tomorrow|schedule|scheduled|calendar|"
+                      r"any (exams?|tests?|homework|holidays?|deadlines?)|what'?s on|what is on|date of)\b")
+_WEEK = _re.compile(r"\b(this week|next 7 days|coming week|today|tomorrow|what'?s on|what is on)\b")
+_PERFORMANCE = _re.compile(r"\b(how did|marks?|scores?|results?|grades?|performance|weak|strong|progress|feedback)\b")
+CALENDAR_LOOKAHEAD_DAYS = 180
+
+
+def calendar_intent(message: str) -> Optional[str]:
+    """'holiday' / 'deadline' / 'exam' / 'event' / 'task' / 'week' for a clear calendar question, else None."""
+    text = (message or "").lower()
+    if not _TIMING.search(text) or _PERFORMANCE.search(text):
+        return None
+    for name, pattern, _types in _KINDS:
+        if pattern.search(text):
+            return name
+    return "week" if _WEEK.search(text) or "calendar" in text or "schedule" in text else None
+
+
+def _counted(texts: List[str]) -> List[str]:
+    """Identical entries once, with a count ("Homework due: Science (2)"), keeping first-seen order."""
+    counts: Dict[str, int] = {}
+    for text in texts:
+        counts[text] = counts.get(text, 0) + 1
+    return [text if n == 1 else f"{text} ({n})" for text, n in counts.items()]
+
+
+def _when(value: str) -> str:
+    def one(iso: str) -> str:
+        d = parse_day(iso)
+        return d.strftime("%a, %d %b %Y").replace(" 0", " ") if d else iso
+    if " to " in value:
+        start, end = value.split(" to ", 1)
+        return f"{one(start)} to {one(end)}"
+    return one(value)
+
+
+def calendar_answer(intent: str, items: List[Dict[str, Any]], today: date, role: Optional[str] = None) -> str:
+    """A plain answer for a calendar question from role-scoped items (each {date, type, title, detail})."""
+    shown = [i for i in items if i["type"] not in ("lost", "session")]
+    # A parent asks about their child's calendar.
+    whose, lead = ("your child's", "Your child's next") if role == "parent" else ("your", "Your next")
+    if intent == "week":
+        week_end = (today + timedelta(days=7)).isoformat()
+        soon = [i for i in shown if i["date"][:10] <= week_end]
+        if not soon:
+            return f"Nothing is on {whose} calendar for the next 7 days."
+        rows = _counted([f"{_when(i['date'])}: {i['title']}" for i in soon])
+        lines = [f"- {row}" for row in rows[:8]]
+        more = f"\n…and {len(rows) - 8} more on the Calendar page." if len(rows) > 8 else ""
+        return "Coming up in the next 7 days:\n" + "\n".join(lines) + more
+    types = next(t for name, _p, t in _KINDS if name == intent)
+    label = {"holiday": "holiday or vacation", "deadline": "homework or deadline", "exam": "exam or test",
+             "event": "school event", "task": "task of your own"}[intent]
+    matching = [i for i in shown if i["type"] in types]
+    if not matching:
+        return f"There is no {label} on {whose} calendar in the next {CALENDAR_LOOKAHEAD_DAYS // 30} months."
+    first = matching[0]["date"]
+    same_day = _counted([i["title"] for i in matching if i["date"] == first])
+    names = same_day[0] if len(same_day) == 1 else ", ".join(same_day[:-1]) + f" and {same_day[-1]}"
+    answer = f"{lead} {label}: {names}, on {_when(first)}."
+    later = [i for i in matching if i["date"] != first][:2]
+    if later:
+        answer += " After that: " + "; ".join(f"{i['title']} ({_when(i['date'])})" for i in later) + "."
+    return answer

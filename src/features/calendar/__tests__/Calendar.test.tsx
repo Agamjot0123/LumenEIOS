@@ -6,7 +6,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 const request = vi.fn();
 vi.mock('../../../lib/apiClient', async (orig) => ({ ...(await orig<typeof import('../../../lib/apiClient')>()), apiRequest: (...a: unknown[]) => request(...a) }));
-vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ currentUser: { id: 'u1', role: 'student', name: 'Asha' } }) }));
+const auth = vi.hoisted(() => ({ value: { currentUser: { id: 'u1', role: 'student', name: 'Asha' }, currentSchoolId: 's1' } as any }));
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => auth.value }));
 
 import { CalendarPage } from '../CalendarPage';
 import { CalendarOverview } from '../CalendarOverview';
@@ -33,6 +34,7 @@ const feed = (events = EVENTS): CalendarFeed => ({
 });
 
 beforeEach(() => {
+  auth.value = { currentUser: { id: 'u1', role: 'student', name: 'Asha' }, currentSchoolId: 's1' };
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 11, 10, 9, 0, 0)); // 10 Dec 2026
   request.mockReset();
@@ -149,6 +151,16 @@ describe('Calendar page', () => {
     page('/calendar?date=2026-12-25');
     const holidayPanel = await screen.findByRole('region', { name: 'Selected day' });
     expect(within(holidayPanel).queryByRole('button', { name: /Edit|Delete/ })).toBeNull();
+  });
+
+  it('reloads for the new campus when management switches school', async () => {
+    const view = render(<MemoryRouter initialEntries={['/calendar?date=2026-12-12']}><CalendarPage /></MemoryRouter>);
+    await screen.findAllByText('Unit Test 1');
+    const loads = () => request.mock.calls.filter(([url]) => String(url).startsWith('/calendar/events')).length;
+    const before = loads();
+    auth.value = { currentUser: { id: 'u1', role: 'admin', name: 'Asha' }, currentSchoolId: 's2' };
+    view.rerender(<MemoryRouter initialEntries={['/calendar?date=2026-12-12']}><CalendarPage /></MemoryRouter>);
+    await waitFor(() => expect(loads()).toBe(before + 1));
   });
 
   it('shows a retry when the calendar cannot load', async () => {

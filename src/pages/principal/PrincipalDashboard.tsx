@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 
 export const PrincipalDashboard: React.FC = () => {
-  const { schools, addClass } = useData();
+  const { schools, addClass, workspace, refreshWorkspace } = useData();
   const { currentUser, currentSchoolId } = useAuth();
   const navigate = useNavigate();
 
@@ -61,24 +61,33 @@ export const PrincipalDashboard: React.FC = () => {
     event.preventDefault();
     setSavingClass(true);
     setClassError(null);
-    try {
-      await apiClient.classes.create(activeSchool.id, className);
-    } catch (error) {
-      if (error instanceof ApiError && error.status !== 0) {
-        setClassError(error.message || 'A class with this name already exists');
+    let addedName: string;
+    if (workspace) {
+      // Live: the class exists only once the server has saved it; the list is then reloaded from the database.
+      try {
+        const created = await apiClient.classes.create(activeSchool.id, className);
+        await refreshWorkspace();
+        addedName = created?.name ?? className;
+      } catch (error) {
+        setClassError(error instanceof ApiError && error.status !== 0
+          ? error.message || 'A class with this name already exists'
+          : 'Could not reach the server. The class was not added.');
         setSavingClass(false);
         return;
       }
+    } else {
+      const saved = addClass(activeSchool.id, className);
+      if (!saved.ok) {
+        setClassError(saved.error);
+        setSavingClass(false);
+        return;
+      }
+      addedName = saved.name;
     }
-    const saved = addClass(activeSchool.id, className);
     setSavingClass(false);
-    if (!saved.ok) {
-      setClassError(saved.error);
-      return;
-    }
     setClassName('');
     setIsClassModalOpen(false);
-    setToast(`Added ${saved.name}.`);
+    setToast(`Added ${addedName}.`);
     setTimeout(() => setToast(null), 4000);
   };
 

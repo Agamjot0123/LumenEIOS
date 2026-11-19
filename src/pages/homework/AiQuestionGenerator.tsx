@@ -9,15 +9,16 @@ const LANGUAGES = ['English', 'Hindi', 'Bengali', 'Marathi', 'Tamil', 'Telugu', 
 type Draft = { key: number; approved: boolean; q: any };
 let nextKey = 1;
 
-/** Gemini question generation: parameters -> preview -> edit -> approve & save. Nothing is saved
+/** AI question generation (local Qwen or Gemini): parameters -> preview -> edit -> approve & save. Nothing is saved
  * until the teacher clicks "Save approved". Saved questions are flagged AI-generated in the bank. */
 export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject: string; onSaved: (savedSubject?: string) => Promise<void>; subjectName?: (id: string) => string }> =
   ({ subjects, defaultSubject, onSaved, subjectName = id => id }) => {
   const { busy, error, notice, run } = useRunner();
   const [params, setParams] = useState({
     subject_id: defaultSubject, grade: 8, topic: '', competency: 'AU', bloom_level: 'Apply', question_type: 'mcq',
-    marks: 2, count: 3, language: 'English', instructions: '',
+    marks: 2, count: 3, language: 'English', instructions: '', provider: 'qwen' as 'qwen' | 'gemini',
   });
+  const modelName = params.provider === 'qwen' ? 'Qwen' : 'Gemini';
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [meta, setMeta] = useState<any>(null);  // provenance summary of the last AI response
   const [savedCount, setSavedCount] = useState(0);  // questions from this AI response already saved
@@ -33,23 +34,31 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
     if (res.source !== 'ai_generated') throw new Error('Unexpected response: these are not AI-generated questions.');
     setDrafts(res.questions.map((q: any) => ({ key: nextKey++, approved: true, q })));
     setMeta(res);
-    return `Gemini generated ${res.generated} new question(s)${res.generated < res.requested ? ` of ${res.requested} requested` : ''}. Review, edit and approve before saving.`;
+    const usedModel = res.provider === 'qwen' ? 'Qwen' : res.provider === 'gemini' ? 'Gemini' : modelName;
+    return `${usedModel} generated ${res.generated} new question(s)${res.generated < res.requested ? ` of ${res.requested} requested` : ''}. Review, edit and approve before saving.`;
   });
   const regenerateOne = (key: number) => { setRegenerating(key); run(async () => {
     try {
       // Questions still on screen are sent only for the server's duplicate check.
       const res = await apiClient.assessments.aiGenerateQuestions(body(1, drafts.map(d => d.q.text)));
       setDrafts(ds => ds.map(d => d.key === key ? { key: nextKey++, approved: true, q: res.questions[0] } : d));
-      return 'Question regenerated with a new one from Gemini.';
+      return `Question regenerated with a new one from ${modelName}.`;
     } finally { setRegenerating(null); }
   }); };
   const update = (key: number, patch: any) => setDrafts(ds => ds.map(d => d.key === key ? { ...d, q: { ...d.q, ...patch } } : d));
   const approved = drafts.filter(d => d.approved);
 
-  return <Section title={<span>Generate questions with AI <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">Gemini - teacher review required</span></span>}
-    subtitle="Only the teaching parameters below are sent to the AI service - never student names, IDs or scores. Nothing is saved until you approve it.">
+  return <Section title={<span>Generate questions with AI <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">{modelName} - teacher review required</span></span>}
+    subtitle={params.provider === 'qwen'
+      ? 'Qwen runs on this server, so no internet connection is needed. Only the teaching parameters below are used - never student names, IDs or scores. Nothing is saved until you approve it.'
+      : 'Only the teaching parameters below are sent to the Gemini service - never student names, IDs or scores. Nothing is saved until you approve it.'}>
     <Messages error={error} notice={notice} />
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <label><span className={labelClass}>Model</span>
+        <select aria-label="AI model" className={inputClass} value={params.provider} disabled={busy}
+          onChange={e => set({ provider: e.target.value as 'qwen' | 'gemini' })}>
+          <option value="qwen">Qwen (default, works offline)</option>
+          <option value="gemini">Gemini (fallback)</option></select></label>
       <label><span className={labelClass}>Subject</span>
         <select aria-label="AI subject" className={inputClass} value={subject} disabled={busy} onChange={e => set({ subject_id: e.target.value })}>
           {subjects.map(s => <option key={s} value={s}>{subjectName(s)}</option>)}</select></label>
@@ -80,8 +89,8 @@ export const AiQuestionGenerator: React.FC<{ subjects: string[]; defaultSubject:
     <p className="text-[11px] text-content-secondary">The AI writes formulas as LaTeX and they are shown typeset. {MATH_HINT}</p>
     <div className="flex flex-wrap items-center gap-2">
       <Button variant="teal" disabled={busy || !subject || params.topic.trim().length < 2} loading={busy && regenerating === null} onClick={generate}>
-        {busy && regenerating === null ? 'Generating with Gemini...' : drafts.length ? 'Regenerate all' : 'Generate'}</Button>
-      {busy && <span role="status" className="text-sm text-content-secondary">Waiting for the AI service - this can take up to a minute.</span>}
+        {busy && regenerating === null ? `Generating with ${modelName}...` : drafts.length ? 'Regenerate all' : 'Generate'}</Button>
+      {busy && <span role="status" className="text-sm text-content-secondary">{params.provider === 'qwen' ? 'Qwen is writing the questions on this server - this can take a few minutes.' : 'Waiting for Gemini - this can take up to a minute.'}</span>}
     </div>
 
     {meta && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-content-secondary">

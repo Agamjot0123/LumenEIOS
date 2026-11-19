@@ -293,3 +293,152 @@ async def test_teacher_saves_edited_approved_questions(client, teacher_token, cl
     assert any(q["id"] == saved["id"] and q["is_ai_generated"] for q in bank)
     invalid = {"subject_id": "sub-math", "questions": [mcq(2, correct_answer="not an option")]}
     assert (await client.post(SAVE, json=invalid, headers=auth(teacher_token))).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_teacher_can_choose_the_local_qwen_model(client, db_session, teacher_token, monkeypatch, no_template_fallback):
+    """provider='qwen' uses the local Qwen model (works offline) and never calls Gemini; Qwen's fenced reply is accepted."""
+    def gemini_forbidden():
+        raise AssertionError("Gemini must not be used when Qwen is chosen")
+    monkeypatch.setattr(ai_gateway, "get_ai_provider", gemini_forbidden)
+    qwen = FakeProvider("```json\n" + json.dumps({"questions": [mcq(0), mcq(1)]}) + "\n```")
+    qwen.name, qwen.model = "qwen", "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: qwen)
+    res = await client.post(GENERATE, json=dict(REQUEST, provider="qwen"), headers=auth(teacher_token))
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert len(qwen.calls) == 1 and (body["provider"], body["model"]) == ("qwen", qwen.model)
+    assert [q["text"] for q in body["questions"]] == [mcq(0)["text"], mcq(1)["text"]]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_qwen_is_reported_and_unknown_models_are_refused(client, teacher_token, monkeypatch):
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: FakeProvider(error=ai_gateway.QwenUnavailable()))
+    res = await client.post(GENERATE, json=dict(REQUEST, provider="qwen"), headers=auth(teacher_token))
+    assert res.status_code == 503 and "Qwen is not available" in res.json()["detail"]
+    assert (await client.post(GENERATE, json=dict(REQUEST, provider="gpt"), headers=auth(teacher_token))).status_code == 422
+
+
+# --- Gemini overload and the local Qwen model's real-world replies -----------------------------
+
+class _ApiError(Exception):
+    def __init__(self, code):
+        self.code = code
+
+
+@pytest.mark.asyncio
+async def test_gemini_overload_is_retried_then_reported_clearly(monkeypatch):
+    from google.genai import errors
+    monkeypatch.setattr(errors, "APIError", _ApiError)
+    monkeypatch.setattr(ai_gateway.GeminiProvider, "RETRY_DELAYS", (0.0, 0.0))
+    from backend.app.services.ai_question_service import _WireResponse
+
+    def client(codes):
+        calls = []
+
+        async def gen(model, contents, config):
+            calls.append(1)
+            code = codes[min(len(calls), len(codes)) - 1]
+            if code:
+                raise _ApiError(code)
+            return pytypes.SimpleNamespace(text='{"questions": []}')
+        return pytypes.SimpleNamespace(aio=pytypes.SimpleNamespace(models=pytypes.SimpleNamespace(generate_content=gen))), calls
+
+    c, calls = client([503, None])  # one overload, then success
+    assert await ai_gateway.GeminiProvider("k", "m", 5, client=c).generate_json(system="s", prompt="p", schema=_WireResponse) == '{"questions": []}'
+    assert len(calls) == 2
+    c, calls = client([503])  # still overloaded after the retries
+    with pytest.raises(ai_gateway.AIProviderBusy) as info:
+        await ai_gateway.GeminiProvider("k", "m", 5, client=c).generate_json(system="s", prompt="p", schema=_WireResponse)
+    assert len(calls) == 3 and "Qwen" in info.value.public_message
+    c, calls = client([400])  # a real error is not retried
+    with pytest.raises(ai_gateway.AIProviderError) as info:
+        await ai_gateway.GeminiProvider("k", "m", 5, client=c).generate_json(system="s", prompt="p", schema=_WireResponse)
+    assert len(calls) == 1 and not isinstance(info.value, ai_gateway.AIProviderBusy)
+
+
+# Shapes the local Qwen 3B model actually returned (shortened): the schema's "$defs" key wrapped around each
+# question, LaTeX with single backslashes, unbalanced brackets, and the answer missing from its own options.
+QWEN_DEFS_LATEX = r'''```json
+{
+  "questions": [
+    {
+    "$defs": {
+      "text": "A school has 100 students in 4 equally filled buses. How many students ride in each bus?",
+      "question_type": "mcq", "competency": "AU", "bloom_level": "Apply", "marks": 2,
+      "explanation": "We calculate \( \frac{100}{4} = 25 \).",
+      "correct_answer": "25", "options": ["10", "20", "30", "40"],
+      "marking_rubric": "Correct - 2 mark(s)"
+    }
+  },
+  {
+    "$defs": {
+      "text": "A farmer packs 150 apples, 10 in each box. How many boxes does he need?",
+      "question_type": "mcq", "competency": "AU", "bloom_level": "Apply", "marks": 2,
+      "explanation": "We calculate \( \frac{150}{10} = 15 \).",
+      "correct_answer": "15", "options": ["10", "15", "30", "40"],
+      "marking_rubric": "Correct - 2 mark(s)"
+    }
+  }
+]
+}
+```'''
+QWEN_UNBALANCED = '''```json
+{"questions": [
+  {"$defs": {"text": "A class of 36 forms teams of 4. How many teams are there?", "question_type": "mcq",
+             "correct_answer": "9", "options": ["6", "8", "9", "12"], "marking_rubric": "2 marks for 9",
+             "explanation": "36 / 4 = 9"}, "marks": 2}
+}
+```'''
+
+
+@pytest.mark.asyncio
+async def test_qwen_replies_with_defs_latex_and_missing_answers_become_usable_questions(
+        client, teacher_token, monkeypatch, no_template_fallback):
+    qwen = FakeProvider(QWEN_DEFS_LATEX)
+    qwen.name, qwen.model = "qwen", "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: qwen)
+    body = dict(REQUEST, provider="qwen", topic="Data Handling")
+    res = await client.post(GENERATE, json=body, headers=auth(teacher_token))
+    assert res.status_code == 200, res.text
+    out = res.json()
+    assert out["generated"] == 2 and len(qwen.calls) == 1
+    first, second = out["questions"]
+    assert "25" in first["options"] and first["correct_answer"] == "25"  # Qwen's answer was added to its options
+    assert second["correct_answer"] == "15" and sorted(second["options"]) == ["10", "15", "30", "40"]  # untouched
+    assert r"\frac{100}{4}" in first["explanation"]  # LaTeX survived the JSON repair
+    assert any("Check question(s) 1" in w for w in out["warnings"])
+
+
+def test_qwen_reply_with_unbalanced_brackets_is_salvaged():
+    from backend.app.services.ai_question_service import parse_items
+    items = parse_items(QWEN_UNBALANCED)
+    assert [i["text"] for i in items] == ["A class of 36 forms teams of 4. How many teams are there?"]
+    assert items[0]["correct_answer"] == "9" and items[0]["marks"] == 2
+
+
+def test_qwen_prompt_schema_has_no_defs_to_copy():
+    from backend.app.services.ai_question_service import _WireResponse
+    schema = ai_gateway._inline_schema_refs(ai_gateway._gemini_json_schema(_WireResponse))
+    text_schema = json.dumps(schema)
+    assert "$defs" not in text_schema and "$ref" not in text_schema
+    assert "text" in schema["properties"]["questions"]["items"]["properties"]
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_reply_is_asked_again_instead_of_failing(client, teacher_token, monkeypatch, no_template_fallback):
+    """Qwen's first reply sometimes echoes the JSON schema; that is one failed attempt, not the end of the request."""
+    echoed_schema = json.dumps({"properties": {"questions": {"type": "array"}}, "type": "object", "title": "_WireResponse"})
+    qwen = FakeProvider(echoed_schema, QWEN_DEFS_LATEX)
+    qwen.name, qwen.model = "qwen", "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: qwen)
+    res = await client.post(GENERATE, json=dict(REQUEST, provider="qwen"), headers=auth(teacher_token))
+    assert res.status_code == 200, res.text
+    assert res.json()["generated"] == 2 and len(qwen.calls) == 2
+    assert any("could not be read and was requested again" in w for w in res.json()["warnings"])
+
+    always_bad = FakeProvider(echoed_schema)
+    always_bad.name, always_bad.model = "qwen", "m"
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: always_bad)
+    res = await client.post(GENERATE, json=dict(REQUEST, provider="qwen"), headers=auth(teacher_token))
+    assert res.status_code == 502 and "choose Gemini" in res.json()["detail"]

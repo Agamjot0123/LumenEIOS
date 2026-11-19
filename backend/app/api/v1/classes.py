@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_roles, require_school_access, user_school_ids
+from backend.app.api.dependencies import get_current_user, require_class_access, require_roles, require_school_access, user_school_ids
 from backend.app.db.session import get_db
 from backend.app.lib.class_names import parse_class_name, class_identity
 from backend.app.models.entities import SchoolMembership, ClassSection, ParentStudentLink, School, Student, User, AuditEvent, utc_now
@@ -71,7 +71,7 @@ async def get_class(class_id: str, db: AsyncSession = Depends(get_db), current_u
     cls = result.scalars().first()
     if not cls:
         raise HTTPException(status_code=404, detail="Class not found.")
-    await require_school_access(db, current_user, cls.school_id)
+    await require_class_access(db, current_user, cls)
     return cls
 
 

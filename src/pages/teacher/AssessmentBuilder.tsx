@@ -361,7 +361,7 @@ export const AssessmentBuilder: React.FC = () => {
         status: 'scheduled',
         competencyFocus: Array.from(new Set(generatedQuestions.map((question) => question.competency))),
       });
-      showToast(`Assigned ${targetSubject.name} to ${targetClass.name}. Students can open it in Upload Beta.`);
+      showToast(`Assigned ${targetSubject.name} to ${targetClass.name}. Students can open it in Upload.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Could not assign the assignment.', 'warning');
     } finally {
@@ -535,7 +535,7 @@ export const AssessmentBuilder: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-navy-900 tracking-tight">
-              AI Question Studio Beta
+              AI Question Studio
             </h1>
             <Badge variant="teal" size="sm">
               NEP 2020 Grounded
@@ -559,8 +559,9 @@ export const AssessmentBuilder: React.FC = () => {
             <CardBody className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-navy-900 mb-1.5">Target Class</label>
+                  <label htmlFor="studio-target-class" className="block font-semibold text-navy-900 mb-1.5">Target Class</label>
                   <select
+                    id="studio-target-class"
                     value={targetClassId}
                     onChange={(e) => changeClass(e.target.value)}
                     disabled={!targets?.length || isGenerating || isUploadingStudioPdf || !!regeneratingId || isAssigning}
@@ -575,8 +576,9 @@ export const AssessmentBuilder: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block font-semibold text-navy-900 mb-1.5">Target Subject</label>
+                  <label htmlFor="studio-target-subject" className="block font-semibold text-navy-900 mb-1.5">Target Subject</label>
                   <select
+                    id="studio-target-subject"
                     value={genSubjectId}
                     onChange={(e) => changeSubject(e.target.value)}
                     disabled={!subjects.length || isGenerating || isUploadingStudioPdf || !!regeneratingId || isAssigning}
@@ -707,10 +709,11 @@ export const AssessmentBuilder: React.FC = () => {
             <CardBody className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-navy-900 mb-1">
+                  <label htmlFor="studio-mcq-count" className="block font-semibold text-navy-900 mb-1">
                     Number of MCQs (2m each)
                   </label>
                   <input
+                    id="studio-mcq-count"
                     type="number"
                     min={0}
                     max={15}
@@ -720,10 +723,11 @@ export const AssessmentBuilder: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-navy-900 mb-1">
+                  <label htmlFor="studio-theory-count" className="block font-semibold text-navy-900 mb-1">
                     Theory Questions (5m each)
                   </label>
                   <input
+                    id="studio-theory-count"
                     type="number"
                     min={0}
                     max={10}

@@ -251,3 +251,24 @@ async def test_multi_student_pdf_splitting(client, teacher_token):
     # 6 pages split into 2-page student scripts -> 3 separate student submissions
     assert batch["valid_files"] == 3
     assert all(it["page_range"] is not None for it in batch["items"])
+
+
+@pytest.mark.asyncio
+async def test_uploading_the_same_chapter_again_reuses_the_stored_pdf(client, teacher_token):
+    """The Question Studio listed a re-uploaded chapter twice; the same file for the same subject is now one document."""
+    import pymupdf
+    with pymupdf.open() as pdf:
+        pdf.new_page().insert_text((40, 60), "Reuse check: perimeter of a rectangle is 2 x (l + b).")
+        chapter = pdf.tobytes()
+    headers = {"Authorization": f"Bearer {teacher_token}"}
+
+    async def upload(subject):
+        res = await client.post("/api/v1/documents/studio-pdf-upload", headers=headers,
+                                data={"subject_id": subject}, files={"file": ("rect.pdf", chapter, "application/pdf")})
+        assert res.status_code == 201, res.text
+        return res.json()["id"]
+
+    first, again, other_subject = await upload("sub-math"), await upload("sub-math"), await upload("sub-sci")
+    assert first == again and other_subject != first
+    for doc_id in {first, other_subject}:
+        await client.delete(f"/api/v1/documents/{doc_id}", headers=headers)

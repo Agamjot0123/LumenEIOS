@@ -38,7 +38,8 @@ async def test_assistant_scopes_parent_records_and_navigation(client, parent_tok
     prompt = captured["messages"][0]["content"][0]["text"]
     marker = "Authorized data: "
     payload = json.loads(prompt[prompt.index(marker) + len(marker):].split("\n", 1)[0])
-    assert payload["pages"] == ["Child progress", "Unified progress", "Homework results"]
+    assert payload["pages"] == ["Child progress", "Unified progress", "Homework results", "Calendar"]
+    assert set(payload["records"]["calendar"]) == {"today", "highlights", "upcoming"}  # role-scoped calendar items
     assert payload["records"]["student_count"] == 2
     assert payload["records"]["classes"] == []
 
@@ -82,3 +83,16 @@ async def test_student_and_admin_receive_scoped_context(db_session):
     context = await assistant.assistant_context(db_session, admin, None)
     assert context["schools"]
     assert all(set(school) == {"name", "student_count", "average_overall"} for school in context["schools"])
+
+
+@pytest.mark.asyncio
+async def test_calendar_questions_are_answered_from_the_calendar_without_the_model(client, parent_token, monkeypatch):
+    def model_must_not_run(messages, max_new_tokens):
+        raise AssertionError("a calendar question must not reach the model")
+    monkeypatch.setattr(assistant.qwen_model, "generate", model_must_not_run)
+    response = await client.request("POST", URL, json={"message": "When is the next holiday?"},
+                                    headers={"Authorization": f"Bearer {parent_token}"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["links"] == [{"label": "Calendar", "path": "/calendar"}]
+    assert "holiday" in body["answer"].lower()

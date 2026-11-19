@@ -227,8 +227,8 @@ async def list_flags(
     rows = (await db.scalars(select(SchoolFeatureFlag))).all()
     return {
         "keys": [
-            {"key": "question_studio", "label": "AI Question Studio Beta"},
-            {"key": "upload_beta", "label": "Upload Beta"},
+            {"key": "question_studio", "label": "AI Question Studio"},
+            {"key": "upload_beta", "label": "Upload"},
             {"key": "answer_sheet_ocr", "label": "Answer Sheet OCR"},
             {"key": "presentation_ui", "label": "Presentation interface"},
         ],
@@ -451,7 +451,7 @@ async def release_notes(_: User = Depends(require_developer)):
             "points": [
                 "Platform health shows the API, database, OCR model, and question model without calling them.",
                 "Sample accounts and a confirmed roster reseed keep the sign-in page and the database aligned.",
-                "Question Studio, Upload Beta, answer-sheet OCR, and the Presentation interface can be turned off per school.",
+                "Question Studio, Upload, answer-sheet OCR, and the Presentation interface can be turned off per school.",
                 "Role switches are recorded, and a developer session is labelled while it is viewing another role.",
             ],
         },

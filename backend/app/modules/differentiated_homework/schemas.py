@@ -398,8 +398,8 @@ class ParentChildOut(BaseModel):
 
 
 class ParentAssignmentSummaryOut(StudentAssignmentSummaryOut):
-    """A linked child's assignment as the child sees it in their list, plus progress flags.
-    Never includes questions, answers, keys, rubrics or unreleased marks."""
+    """An assignment in the student's own list (and a linked parent's view of it), plus progress
+    flags. Never includes questions, answers, keys, rubrics or unreleased marks."""
 
     submission_status: Literal["not_started", "in_progress", "submitted"]
     result_released: bool
@@ -748,7 +748,9 @@ class StudentResultOut(BaseModel):
 SuggestionCorrectness = Literal["correct", "partially_correct", "incorrect", "undetermined"]
 # Ordinal heuristic only — not a calibrated probability.
 SuggestionConfidence = Literal["high", "medium", "low"]
-SuggestionSource = Literal["deterministic_mcq", "gemini", "teacher_required"]
+SuggestionSource = Literal["deterministic_mcq", "gemini", "qwen", "teacher_required"]
+# Which model marks open-ended answers: the local Qwen model (works offline) or Gemini.
+SuggestionModel = Literal["gemini", "qwen"]
 MAX_SUGGESTION_POSITIONS = 500
 MAX_EXPLANATION_LENGTH = 4000
 MAX_RUBRIC_CRITERIA = 20
@@ -775,6 +777,7 @@ class AIEvaluationSuggestRequest(BaseModel):
 
     positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
     replace: StrictBool = False
+    provider: SuggestionModel = "gemini"
 
     @model_validator(mode="after")
     def _positions_ok(self) -> "AIEvaluationSuggestRequest":
@@ -796,6 +799,7 @@ class AIEvaluationRerunRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     positions: Optional[List[StrictInt]] = Field(default=None, max_length=MAX_SUGGESTION_POSITIONS)
+    provider: SuggestionModel = "gemini"
 
     @model_validator(mode="after")
     def _positions_ok(self) -> "AIEvaluationRerunRequest":

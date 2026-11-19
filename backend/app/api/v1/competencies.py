@@ -4,7 +4,7 @@ from backend.app.modules.differentiated_homework.student_access import resolve_l
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.api.dependencies import get_current_user, require_school_access, user_school_ids
+from backend.app.api.dependencies import get_current_user, require_school_access, user_school_ids, require_class_access
 from backend.app.db.session import get_db
 from backend.app.models.entities import Student, School, ClassSection, User, ParentStudentLink
 from backend.app.schemas.competencies import (
@@ -64,7 +64,7 @@ async def get_class_competency_analytics(
     section = await db.get(ClassSection, class_id)
     if not section:
         raise HTTPException(status_code=404, detail="Class not found.")
-    await require_school_access(db, current_user, section.school_id)
+    await require_class_access(db, current_user, section)
     st_res = await db.execute(select(Student).filter(Student.class_id == class_id))
     students = st_res.scalars().all()
 

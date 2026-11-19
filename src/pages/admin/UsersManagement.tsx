@@ -10,6 +10,7 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { SearchInput } from '../../components/common/SearchInput';
 import { getRoleLabel } from '../../lib/permissions';
+import { nameInitial } from '../../lib/utils';
 import { Users, Shield, BookOpen, GraduationCap, School, CheckCircle2, Code } from 'lucide-react';
 
 export const UsersManagement: React.FC = () => {
@@ -34,6 +35,11 @@ export const UsersManagement: React.FC = () => {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const filteredUsers = availableUsers.filter((u) => {
     const matchesSearch =
@@ -81,7 +87,7 @@ export const UsersManagement: React.FC = () => {
         </div>
 
         <Badge variant="teal" size="sm">
-          5 Demo Personas Configured
+          {availableUsers.length} {availableUsers.length === 1 ? 'account' : 'accounts'}
         </Badge>
       </div>
 
@@ -135,7 +141,7 @@ export const UsersManagement: React.FC = () => {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-navy-800 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                            {user.name.charAt(0)}
+                            {nameInitial(user.name)}
                           </div>
                           <div>
                             <span className="font-bold text-navy-900 block">{user.name}</span>

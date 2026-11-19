@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date as _date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -197,3 +197,34 @@ async def all_records(db: AsyncSession, school_id: str, teacher_id: str, year: s
                              .order_by(TeacherLostPeriod.grade, TeacherLostPeriod.subject, TeacherLostPeriod.lost_date,
                                        TeacherLostPeriod.period_number))).scalars().all()
     return [row_dict(r) for r in rows]
+
+
+async def school_lost_days(db: AsyncSession, school_ids, *, teacher_id: Optional[str] = None,
+                           grades: Optional[Iterable[int]] = None) -> List[Dict[str, Any]]:
+    """Lost teaching days per school, from the same records the Time-Aware Engine uses (dashboards and calendar).
+
+    Teachers record lost periods against their plans (teacher_lost_periods). A date with any active lost period is one
+    lost teaching day for the school, however many periods or classes it affected, matching the engine's "lost days"."""
+    rows = (await db.execute(
+        select(TeacherLostPeriod).filter(TeacherLostPeriod.school_id.in_(school_ids), TeacherLostPeriod.status == "active",
+                                         *([TeacherLostPeriod.teacher_id == teacher_id] if teacher_id else []),
+                                         *([TeacherLostPeriod.grade.in_(list(grades))] if grades is not None else []))
+        .order_by(TeacherLostPeriod.lost_date))).scalars().all()
+    recorders = {r.recorded_by for r in rows}
+    names = dict((await db.execute(select(User.id, User.name).filter(User.id.in_(recorders)))).all()) if recorders else {}
+    days: dict = {}
+    for r in rows:
+        day = days.setdefault((r.school_id, r.lost_date), {"reasons": [], "classes": set(), "periods": 0, "by": []})
+        reason = r.reason_code.replace("_", " ")
+        reason = reason[:1].upper() + reason[1:]
+        if reason not in day["reasons"]:
+            day["reasons"].append(reason)
+        day["classes"].add(f"Class {r.grade} {r.subject}")
+        day["periods"] += 1
+        name = names.get(r.recorded_by, r.recorded_by)
+        if name not in day["by"]:
+            day["by"].append(name)
+    return [{"id": f"{school}:{date}", "schoolId": school, "date": date, "reason": ", ".join(d["reasons"]), "daysLost": 1,
+             "recordedBy": ", ".join(d["by"]),
+             "notes": f"{d['periods']} period{'' if d['periods'] == 1 else 's'} lost · {', '.join(sorted(d['classes']))}"}
+            for (school, date), d in days.items()]

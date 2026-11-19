@@ -64,7 +64,7 @@ export const LearnerOverview: React.FC<{ studentId: string; audience: 'student' 
                 {done ? <Badge variant="success" size="sm"><CheckCircle2 className="mr-1 inline h-3 w-3" />Graded {done.marksObtained}/{done.totalMarks}</Badge>
                   : uploaded ? <Badge variant="info" size="sm">Uploaded · awaiting teacher</Badge>
                     : audience === 'student'
-                      ? <button onClick={() => navigate(`/upload-beta?assignment=${a.id}`)} className="inline-flex items-center gap-1.5 rounded-lg bg-navy-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy-900"><UploadCloud className="h-3.5 w-3.5" />Upload handwritten answers</button>
+                      ? <button onClick={() => navigate(`/upload?assignment=${a.id}`)} className="inline-flex items-center gap-1.5 rounded-lg bg-navy-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-navy-900"><UploadCloud className="h-3.5 w-3.5" />Upload handwritten answers</button>
                       : <Badge variant="warning" size="sm">Not submitted yet</Badge>}
               </div>
             );

@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import get_password_hash
 from backend.app.models.entities import (
-    Announcement, Assessment, AssessmentSubmission, AuditEvent, ClassSection, InstructionalDisruption,
+    Announcement, Assessment, AssessmentSubmission, AuditEvent, ClassSection,
     Notification, ParentStudentLink, QuestionBankItem, School, SchoolMembership, Student, Subject,
     TeacherAssignment, User, UserProfile,
 )
@@ -601,26 +601,14 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
                         competency_focus_json=sorted({q["competency"] for q in questions}), questions_json=questions,
                     ))
 
-    # Lost teaching days, announcements, notifications
-    disruptions = {
-        "school-1": [("2026-06-24", "Teacher Training", 1, "CBSE capacity-building workshop"),
-                     ("2026-08-12", "Health Drive", 1, "School health and vaccination camp"),
-                     ("2026-10-05", "Election Duties", 2, "Staff deployed for local body elections")],
-        "school-2": [("2026-07-15", "Extreme Weather", 3, "Heavy monsoon rain and landslide warnings - school closed"),
-                     ("2026-08-26", "Extreme Weather", 2, "Road to Kotli villages blocked"),
-                     ("2026-10-14", "Local Festival", 1, "International Kullu/Mandi Dussehra arrangements")],
-    }
-    for school_id, rows in disruptions.items():
-        principal = _school(school_id)["principal"]
-        for day, reason, lost, notes in rows:
-            session.add(InstructionalDisruption(school_id=school_id, date=day, reason=reason, days_lost=lost,
-                                                recorded_by=principal[1], notes=notes))
+    # Announcements and notifications. Lost teaching days are not seeded: they come only from lost periods that
+    # teachers record in the Time-Aware Engine, so the dashboards and the engine always show the same count.
     for school in SCHOOLS:
         pid, pname, _h, _g = school["principal"]
         for title, content, role in [
             ("Half-Yearly results published", "Half-Yearly Examination results for Classes 6-8 are available on LumenEIOS. Parent-teacher meeting on Saturday, 17 October.", "all"),
             ("Periodic Test 2 schedule", "Periodic Test 2 for Classes 6-8 begins on 8 December 2026. The syllabus is the chapters completed after the Half-Yearly Examination.", "all"),
-            ("Submit worksheets by 20 November", "Mathematics and Science worksheets must be uploaded (photo or PDF of your handwritten answers) through Upload Beta by 20 November.", "student"),
+            ("Submit worksheets by 20 November", "Mathematics and Science worksheets must be uploaded (photo or PDF of your handwritten answers) through Upload by 20 November.", "student"),
         ]:
             session.add(Announcement(school_id=school["id"], sender_id=pid, sender_name=pname, title=title,
                                      content=content, target_role=role))
@@ -635,7 +623,7 @@ async def seed_database_if_empty(session: AsyncSession) -> None:
     for school_id, roster in TEACHER_ROSTER.items():
         for key, *_ in roster:
             session.add(Notification(user_id=teacher_user_id(key), title="Worksheets awaiting evaluation",
-                                     message="Students are uploading handwritten worksheets. Review the OCR text and evaluate them in Upload Beta."))
+                                     message="Students are uploading handwritten worksheets. Review the OCR text and evaluate them in Upload."))
 
     session.add(AuditEvent(timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), user_id=ADMIN[0],
                            user_name="System", action="Demonstration database created",

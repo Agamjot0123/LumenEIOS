@@ -112,6 +112,26 @@ async def require_school_access(db: AsyncSession, user: User, school_id: str) ->
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
 
 
+async def require_class_access(db: AsyncSession, user: User, cls) -> None:
+    """Staff see every class in their schools. A student sees only their own class and a parent only their linked
+    children's classes; any other class is reported as not found, exactly like a missing one."""
+    await require_school_access(db, user, cls.school_id)
+    if user.role not in ("student", "parent"):
+        return
+    from backend.app.models.entities import ParentStudentLink, Student
+    if user.role == "student":
+        from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
+        own = await resolve_linked_student(db, user)
+        allowed = own is not None and own.class_id == cls.id
+    else:
+        allowed = (await db.execute(
+            select(Student.id).join(ParentStudentLink, ParentStudentLink.student_id == Student.id)
+            .filter(ParentStudentLink.parent_user_id == user.id, Student.class_id == cls.id).limit(1)
+        )).first() is not None
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found.")
+
+
 async def get_current_school_context(
     x_school_id: Optional[str] = Header(None),
     current_user: User = Depends(get_current_user),

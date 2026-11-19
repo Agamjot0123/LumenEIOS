@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { marksLabel } from '../../lib/utils';
 import { apiClient, ApiError } from '../../lib/apiClient';
 import { Button } from '../../components/common/Button';
 import { MathText } from '../../components/common/MathText';
@@ -12,10 +13,11 @@ export const StudentWorkspace: React.FC = () => {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState('');
+  // The list carries each submission's status and whether the teacher released the result.
+  const listStatus = (a: any) => a.result_released ? 'released' : a.submission_status;
   const refresh = async () => {
     const rows = await hw.assignments(); setAssignments(rows);
-    const entries = await Promise.all(rows.map(async (a: any) => [a.id, (await hw.submission(a.id)).status] as const));
-    setStatuses(Object.fromEntries(entries));
+    setStatuses(Object.fromEntries(rows.map((a: any) => [a.id, listStatus(a)])));
   };
   useEffect(() => { run(refresh); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -31,7 +33,7 @@ export const StudentWorkspace: React.FC = () => {
           </button></li>)}</ul>}
     </Section>
     {selected ? <StudentAssignment key={selected} id={selected}
-      onStatus={status => setStatuses(s => ({ ...s, [selected]: status }))} /> :
+      onStatus={status => setStatuses(s => ({ ...s, [selected]: s[selected] === 'released' ? 'released' : status }))} /> :
       <Section title="Assignment"><Empty>Select an assignment to open it.</Empty></Section>}
   </div>;
 };
@@ -88,7 +90,7 @@ function StudentAssignment({ id, onStatus }: { id: string; onStatus: (status: st
       </div>}
       <ol className="space-y-3">{assignment.items.map((q: any) => <li key={q.position} className={'rounded-xl border p-4 ' + ((answers[q.position] ?? '') !== '' ? 'border-teal-200 bg-teal-50/20' : 'border-surface-border bg-white')}>
         <div>
-          <p className="text-sm font-medium"><span className="mr-1 text-navy-800">{q.position}.</span><MathText text={q.text} /> <span className="text-content-secondary">({q.marks} marks)</span></p>
+          <p className="text-sm font-medium"><span className="mr-1 text-navy-800">{q.position}.</span><MathText text={q.text} /> <span className="text-content-secondary">({marksLabel(q.marks)})</span></p>
           {q.type === 'mcq' ? <div className="mt-3 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={`Answer for question ${q.position}`}>
             {q.options.map((option: any, i: number) => {
               const on = answers[q.position] === String(i);

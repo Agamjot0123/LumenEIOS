@@ -664,3 +664,44 @@ async def test_unconfigured_gemini_returns_503_without_side_effects(world, clien
     loaded = await client.get(EVAL.format(world["a_alice"]), headers=headers)
     assert loaded.json()["version"] == started["version"]
     assert all(q["awarded_marks"] is None for q in loaded.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_teacher_can_mark_with_the_local_qwen_model(world, client, monkeypatch, teacher_token):
+    """provider='qwen' marks open-ended answers with the local Qwen model (works offline) and never calls Gemini;
+    the MCQ is still scored from its key. Qwen's fenced JSON is accepted and the suggestion is labelled 'qwen'."""
+    def gemini_forbidden():
+        raise AssertionError("Gemini must not be used when Qwen is chosen")
+    monkeypatch.setattr(ai_gateway, "get_ai_provider", gemini_forbidden)
+    qwen = FakeProvider("```json\n" + json.dumps(gemini_ok(marks=2)) + "\n```",
+                        json.dumps({"_WireSuggestion": gemini_ok(marks=1)}))
+    qwen.name, qwen.model = "qwen", "Qwen/Qwen2.5-VL-3B-Instruct-AWQ"
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: qwen)
+    headers = auth(teacher_token)
+    await start_eval(client, world["a_alice"], headers)
+
+    res = await client.post(SUGGEST.format(world["a_alice"]), headers=headers, json={"provider": "qwen"})
+    assert res.status_code == 201, res.text
+    by_pos = {item["position"]: item for item in res.json()["items"]}
+    assert by_pos[1]["source"] == "deterministic_mcq"
+    assert (by_pos[2]["source"], by_pos[2]["suggested_marks"]) == ("qwen", 2)
+    assert (by_pos[3]["source"], by_pos[3]["suggested_marks"]) == ("qwen", 1)
+    assert len(qwen.calls) == 2
+
+    # Re-running with Gemini replaces them with Gemini suggestions.
+    gemini = FakeProvider(gemini_ok(marks=3), gemini_ok(marks=3))
+    monkeypatch.setattr(ai_gateway, "get_ai_provider", lambda: gemini)
+    rerun = await client.post(RERUN.format(world["a_alice"]), headers=headers, json={"provider": "gemini"})
+    assert rerun.status_code == 200, rerun.text
+    assert {i["source"] for i in rerun.json()["items"] if i["position"] > 1} == {"gemini"}
+
+
+@pytest.mark.asyncio
+async def test_unavailable_qwen_marking_is_reported_and_unknown_models_refused(world, client, monkeypatch, teacher_token):
+    monkeypatch.setattr(ai_gateway, "QwenTextProvider", lambda: FakeProvider(error=ai_gateway.QwenUnavailable()))
+    headers = auth(teacher_token)
+    await start_eval(client, world["a_alice"], headers)
+    res = await client.post(SUGGEST.format(world["a_alice"]), headers=headers, json={"provider": "qwen"})
+    assert res.status_code == 503 and "Qwen is not available" in res.json()["detail"]
+    bad = await client.post(SUGGEST.format(world["a_alice"]), headers=headers, json={"provider": "gpt"})
+    assert bad.status_code == 422

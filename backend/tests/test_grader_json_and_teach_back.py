@@ -70,3 +70,37 @@ def test_echoed_schema_definitions_become_null():
     assert guidance.explanation.startswith("Acids")
     # genuine nested values are untouched
     assert json_payload('{"mapping": {"stage": "Bodh", "reasoning": "explains"}}') == {"mapping": {"stage": "Bodh", "reasoning": "explains"}}
+
+
+def test_mark_allocations_in_one_sentence_are_separate_rubric_points():
+    from backend.app.services.llm_service import rubric_points
+    assert rubric_points("1 mark for understanding the concept of neutralization, 1 mark for explaining how an antacid "
+                         "works to relieve acidity.") == [
+        "1 mark for understanding the concept of neutralization",
+        "1 mark for explaining how an antacid works to relieve acidity"]
+    assert rubric_points("2 marks for the formula and 1 mark for the answer") == ["2 marks for the formula", "1 mark for the answer"]
+    assert rubric_points("Explain neutralisation, with an example") == ["Explain neutralisation, with an example"]
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_teach_back_feedback_survives_a_miscounted_judgement(monkeypatch):
+    """Qwen judged two ideas in a one-sentence rubric and the count check failed twice, so the student only ever saw
+    'malformed teach-back feedback'. A persistent miscount now uses the judgements in order instead of failing."""
+    import json
+    from backend.app.services.llm_service import QwenQuestionStudioService
+    service = QwenQuestionStudioService()
+    calls = []
+
+    def fake_generate(prompt, max_new_tokens, output_schema):
+        calls.append(prompt)
+        return json.dumps({"covered": [True, True, False], "misconceptions": [], "strengths": ["clear"], "next_step": "Add an example."})
+    monkeypatch.setattr(service, "_generate_text", fake_generate)
+    monkeypatch.setattr(service, "_statement_is_false", lambda statement, concept: False)
+    feedback = await service.evaluate_teach_back(
+        "Neutralization", "1 mark for understanding the concept of neutralization, 1 mark for explaining how an antacid works.",
+        "An antacid is a base that reacts with stomach acid to form salt and water, which neutralises it.")
+    assert len(calls) == 2  # asked once more before accepting the miscount
+    assert len(feedback.correctly_understood) == 2 and feedback.missing_concepts == []

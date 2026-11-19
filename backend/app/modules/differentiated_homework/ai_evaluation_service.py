@@ -401,8 +401,15 @@ def validate_ai_suggestion(raw: str, *, max_marks: int, has_rubric: bool) -> Bui
     """Parse and validate one AI suggestion against the question's max marks / rubric constraints."""
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise AIInvalidResponse() from exc
+    except json.JSONDecodeError:
+        # The local Qwen model often fences its JSON or nests it under the schema title.
+        from backend.app.services.llm_service import json_payload
+        try:
+            data = json_payload(raw, _WireSuggestion.__name__)
+        except (TypeError, ValueError) as exc:
+            raise AIInvalidResponse() from exc
+    if isinstance(data, dict) and set(data) == {_WireSuggestion.__name__} and isinstance(data[_WireSuggestion.__name__], dict):
+        data = data[_WireSuggestion.__name__]
 
     # Accept either a bare suggestion or {"items":[...]} / {"suggestion":{...}}.
     if isinstance(data, dict) and "items" in data:
@@ -554,7 +561,7 @@ async def _suggest_open_ended(
         rubric_criteria=built.rubric_criteria,
         confidence=built.confidence,
         needs_teacher_attention=built.needs_teacher_attention,
-        source="gemini",
+        source="qwen" if getattr(provider, "name", "") == "qwen" else "gemini",
         model=getattr(provider, "model", None),
     )
 
@@ -616,7 +623,8 @@ async def build_suggestions(
         for question, answer, item in _question_rows(assignment, submission, evaluation)
     }
 
-    # Construct a provider only when at least one open-ended item still needs Gemini.
+    # Construct a provider only when at least one open-ended item still needs the AI model (Gemini unless the
+    # caller passed one, e.g. the local Qwen model).
     open_ended_needed = False
     for position in wanted:
         question, answer, _item = rows[position]

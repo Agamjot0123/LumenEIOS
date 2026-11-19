@@ -215,3 +215,22 @@ async def test_import_never_guesses_owner(db_session):
     assert rep["imported"] == ["b"] and rep["ambiguous"][0]["record"] == "a" and len(rep["ambiguous"][0]["teachers"]) == 2
     rows = (await db_session.execute(select(TeacherLostPeriod).filter_by(school_id="school-l2"))).scalars().all()
     assert [(r.teacher_id, r.lost_date) for r in rows] == [("school-l2-t1", "2026-09-02")]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_lost_days_match_the_recorded_lost_periods(client):
+    """The principal/management dashboards read lost days from /workspace; they must count exactly the dates with an
+    active lost period (the Time-Aware Engine's rule), not a separate disruption register."""
+    from backend.app.db.session import AsyncSessionLocal
+    url = f"{BASE}/user-teacher-2/lost-periods/batch"
+    r = await client.post(url, json={**MATH, "entries": [{"date": "2026-11-24", "periods": [1, 2]}], "reason_code": "Election Duties"},
+                          headers=hdr(*T2))
+    assert r.status_code == 201, r.text
+    async with AsyncSessionLocal() as s:
+        dates = set((await s.execute(select(TeacherLostPeriod.lost_date).filter_by(school_id="school-1", status="active"))).scalars().all())
+    ws = await client.get("/api/v1/workspace", headers=hdr(*P1))
+    assert ws.status_code == 200, ws.text
+    lost = [d for d in ws.json()["disruptions"] if d["schoolId"] == "school-1"]
+    assert {d["date"] for d in lost} == dates and all(d["daysLost"] == 1 for d in lost)
+    day = next(d for d in lost if d["date"] == "2026-11-24")
+    assert day["reason"] == "Election Duties" and day["notes"].startswith("2 periods lost")

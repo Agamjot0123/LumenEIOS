@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../context/AuthContext';
 import { DataProvider } from '../context/DataContext';
@@ -223,8 +223,17 @@ describe('end-to-end planning workflow (browser-only mode)', () => {
   });
 
   it('teachers cannot open Academic Configuration or Curriculum Oversight', () => {
+    // Refused at the route, before the page renders (typing the URL must not open a leadership workspace).
     open('/principal/academic-config', 'teacher');
-    expect(screen.getByText('Requires Admin or Principal access.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument();
+    cleanup();
+    open('/principal/coverage', 'teacher');
+    expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument();
+    for (const path of ['/admin/users', '/admin/audit-logs', '/parent/dashboard']) {
+      cleanup();
+      open(path, 'teacher');
+      expect(screen.getByRole('heading', { name: 'Access Restricted' })).toBeInTheDocument();
+    }
   });
 });
 

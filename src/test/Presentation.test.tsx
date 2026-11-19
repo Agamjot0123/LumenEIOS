@@ -19,6 +19,7 @@ import { resetCalendarStore } from '../features/teacherPlan/calendarStore';
 import { resetPlansStore } from '../features/teacherPlan/plansStore';
 import { resetRequirementsStore } from '../features/teacherPlan/requirementsStore';
 import { signInAs } from './signIn';
+import { demoNoticeFor } from '../components/common/DemoDataNotice';
 
 beforeEach(() => {
   localStorage.clear();
@@ -45,22 +46,24 @@ afterEach(() => setPlanningTransport(undefined));
 
 describe('demonstration-data labelling', () => {
   it.each([
-    ['/teacher/assessments', 'teacher', /no AI model is connected/],
-    ['/admin/schools', 'admin', /Campus profiles are seeded demonstration records/],
-  ])('%s is labelled as demonstration data', (path, role, text) => {
-    const view = open(path, role);
-    expect(screen.getByTestId('demo-data-notice')).toHaveTextContent(text);
-    view.unmount();
+    ['/teacher/assessments', /no AI model is connected/],
+    ['/admin/schools', /Campus profiles are seeded demonstration records/],
+    ['/principal/teachers', /reassignments are kept in this browser only/],
+  ])('offline demo build labels %s as demonstration data', (path, text) => {
+    expect(demoNoticeFor(path, true)).toMatch(text);
   });
 
   it.each([
+    ['/teacher/assessments', 'teacher'],
+    ['/admin/schools', 'admin'],
+    ['/principal/teachers', 'principal'],
+    ['/teacher/remediation', 'teacher'],
     ['/teacher/time-aware', 'teacher'],
     ['/teacher/curriculum-180', 'teacher'],
     ['/principal/curriculum', 'principal'],
     ['/principal/academic-config', 'principal'],
     ['/teacher/dashboard', 'teacher'],
     ['/upload', 'teacher'],
-    ['/upload-beta', 'teacher'],
   ])('live page %s carries no demo notice', (path, role) => {
     const view = open(path, role);
     expect(screen.queryByTestId('demo-data-notice')).toBeNull();

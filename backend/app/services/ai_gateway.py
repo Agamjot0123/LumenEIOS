@@ -44,6 +44,11 @@ class AIProviderError(AIGatewayError):
     public_message = "The AI service returned an error. Try again in a moment."
 
 
+class AIProviderBusy(AIProviderError):
+    public_message = ("Gemini is overloaded right now (Google's service is busy). Try again in a minute, "
+                      "or choose Qwen to run it on this server.")
+
+
 class AIInvalidResponse(AIGatewayError):
     public_message = "The AI response could not be understood. Try generating again."
 
@@ -91,29 +96,62 @@ class GeminiProvider:
             types.GenerateContentConfig(system_instruction=system),
         )
 
+    # Google answers 429/5xx when the model is overloaded; these usually clear within seconds.
+    TRANSIENT_CODES = {429, 500, 502, 503, 504}
+    RETRY_DELAYS = (2.0, 5.0)
+
     async def _generate(self, contents, config) -> str:
         from google.genai import errors
 
-        try:
-            response = await asyncio.wait_for(
-                self._client.aio.models.generate_content(model=self.model, contents=contents, config=config),
-                timeout=self._timeout,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Gemini request timed out (model=%s).", self.model)
-            raise AIProviderTimeout() from None
-        except errors.APIError as exc:
-            # Log only the status code; messages can contain request details.
-            logger.warning("Gemini API error (model=%s, code=%s).", self.model, getattr(exc, "code", "?"))
-            raise AIProviderError() from None
-        except Exception as exc:  # network/transport errors from the SDK
-            logger.warning("Gemini request failed (model=%s, %s).", self.model, type(exc).__name__)
-            raise AIProviderError() from None
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        for attempt in range(len(self.RETRY_DELAYS) + 1):
+            remaining = self._timeout - (loop.time() - started)
+            try:
+                response = await asyncio.wait_for(
+                    self._client.aio.models.generate_content(model=self.model, contents=contents, config=config),
+                    timeout=max(0.01, remaining),
+                )
+                break
+            except asyncio.TimeoutError:
+                logger.warning("Gemini request timed out (model=%s).", self.model)
+                raise AIProviderTimeout() from None
+            except errors.APIError as exc:
+                code = getattr(exc, "code", None)
+                # Log only the status code; messages can contain request details.
+                logger.warning("Gemini API error (model=%s, code=%s, attempt %d).", self.model, code if code else "?", attempt + 1)
+                if code not in self.TRANSIENT_CODES:
+                    raise AIProviderError() from None
+                delay = self.RETRY_DELAYS[attempt] if attempt < len(self.RETRY_DELAYS) else None
+                if delay is None or (loop.time() - started) + delay >= self._timeout:
+                    raise (AIProviderBusy() if code in (429, 503) else AIProviderError()) from None
+                await asyncio.sleep(delay)
+            except Exception as exc:  # network/transport errors from the SDK
+                logger.warning("Gemini request failed (model=%s, %s).", self.model, type(exc).__name__)
+                raise AIProviderError() from None
         text = getattr(response, "text", None)
         if not text:
             logger.warning("Gemini returned no text (model=%s).", self.model)
             raise AIInvalidResponse()
         return text
+
+
+def _inline_schema_refs(schema: dict) -> dict:
+    """The same JSON schema with every "$ref" replaced by its definition and no "$defs" section. The small local Qwen
+    model copied the "$defs" key into its answers (wrapping each question in it), which made them unusable."""
+    defs = schema.get("$defs", {})
+
+    def resolve(node, depth=0):
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/") and depth < 10:
+                return resolve(defs.get(ref.split("/")[-1], {}), depth + 1)
+            return {k: resolve(v, depth) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(v, depth) for v in node]
+        return node
+
+    return resolve(schema)
 
 
 def _gemini_json_schema(schema: Type[BaseModel]) -> dict:
@@ -167,7 +205,7 @@ class QwenTextProvider:
         instruction = (
             f"{system}\n\n{prompt}\n\n"
             "Return only one JSON object matching this schema:\n"
-            + json.dumps(_gemini_json_schema(schema))
+            + json.dumps(_inline_schema_refs(_gemini_json_schema(schema)))
         )
         try:
             from backend.app.services.ocr_service import (

@@ -63,7 +63,7 @@ export const TeacherDashboard: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button variant="outline" size="sm" onClick={() => navigate('/upload-beta')} icon={<ScanLine className="w-4 h-4 text-teal-600" />}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/upload')} icon={<ScanLine className="w-4 h-4 text-teal-600" />}>
             Evaluate uploads{pendingTotal ? ` (${pendingTotal})` : ''}
           </Button>
           <Button variant="primary" size="sm" onClick={() => navigate('/teacher/homework')} icon={<Sparkles className="w-4 h-4" />}>
@@ -93,7 +93,7 @@ export const TeacherDashboard: React.FC = () => {
           subtitle={latest ? `${subjectName(latest.assessment.subjectId)} · highest ${latest.highest}% · lowest ${latest.lowest}%` : 'No graded work yet'}
           icon={<FileCheck className="w-5 h-5 text-amber-600" />} iconBg="bg-amber-50" />
         <KPICard title="To evaluate" value={pendingTotal} subtitle="Handwritten uploads waiting for marks"
-          icon={<ScanLine className="w-5 h-5 text-indigo-600" />} iconBg="bg-indigo-50" onClick={() => navigate('/upload-beta')} />
+          icon={<ScanLine className="w-5 h-5 text-indigo-600" />} iconBg="bg-indigo-50" onClick={() => navigate('/upload')} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -148,7 +148,7 @@ export const TeacherDashboard: React.FC = () => {
               <CardHeader title="Open assignments" subtitle="Students upload handwritten answers" />
               <CardBody className="space-y-2">
                 {open.length === 0 ? <p className="text-sm text-content-secondary">Nothing open.</p> : open.map(a => (
-                  <button key={a.id} onClick={() => navigate(`/upload-beta?assignment=${a.id}`)}
+                  <button key={a.id} onClick={() => navigate(`/upload?assignment=${a.id}`)}
                     className="flex w-full items-center justify-between gap-3 rounded-xl border border-surface-border px-3 py-2 text-left text-sm hover:border-teal-400">
                     <span className="min-w-0"><span className="block truncate font-medium">{a.title}</span>
                       <span className="text-xs text-content-secondary"><Clock className="mr-1 inline h-3 w-3" />Due {formatDay(a.date)} · {workspace?.uploadedCounts?.[a.id] ?? 0} uploaded</span></span>
@@ -172,7 +172,7 @@ export const TeacherDashboard: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[{ to: '/teacher/assessments-beta', title: 'AI Question Studio Beta', text: 'Generate questions from a chapter PDF', icon: <BookOpen className="w-5 h-5" /> },
+            {[{ to: '/teacher/assessments', title: 'AI Question Studio', text: 'Generate questions from a chapter PDF', icon: <BookOpen className="w-5 h-5" /> },
               { to: '/teacher/time-aware', title: 'Time-Aware Engine', text: 'Syllabus coverage and lost periods', icon: <Clock className="w-5 h-5" /> }].map(l => (
               <div key={l.to} onClick={() => navigate(l.to)} role="link" tabIndex={0} onKeyDown={e => e.key === 'Enter' && navigate(l.to)}
                 className="p-4 bg-white rounded-xl border border-surface-border hover:border-teal-400 hover:shadow-card cursor-pointer transition-all flex items-center justify-between">

@@ -24,6 +24,22 @@ function message(err: unknown) {
   return err instanceof ApiError ? err.message : 'Could not save.';
 }
 
+/** First (source, target) pair with no link either way and no path back from target to source. */
+function linkablePair(concepts: Array<{ id: string }>, links: Array<{ source_id: string; target_id: string }>): [string, string] {
+  const next = new Map<string, string[]>();
+  links.forEach((l) => next.set(l.source_id, [...(next.get(l.source_id) ?? []), l.target_id]));
+  const reaches = (from: string, to: string) => {
+    const seen = new Set<string>(); const stack = [from];
+    while (stack.length) { const id = stack.pop()!; if (id === to) return true; if (seen.has(id)) continue; seen.add(id); stack.push(...(next.get(id) ?? [])); }
+    return false;
+  };
+  const linked = (a: string, b: string) => links.some((l) => (l.source_id === a && l.target_id === b) || (l.source_id === b && l.target_id === a));
+  for (const a of concepts) for (const b of concepts) {
+    if (a.id !== b.id && !linked(a.id, b.id) && !reaches(b.id, a.id)) return [a.id, b.id];
+  }
+  return [concepts[0]?.id || '', concepts[1]?.id || concepts[0]?.id || ''];
+}
+
 function sameText(left: string, right: string) {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
@@ -47,6 +63,7 @@ export function KnowledgeComponentsPage() {
 }
 
 function Catalogue() {
+  const { currentUser } = useAuth();
   const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
   const [subjectId, setSubjectId] = useState('');
   const [components, setComponents] = useState<ComponentRow[]>([]);
@@ -89,12 +106,11 @@ function Catalogue() {
   const subjectName = subjects.find((subject) => subject.id === subjectId)?.name ?? '';
   const samples = samplesFor(subjectName);
 
+  // Start each subject with an empty form; the name field suggests the sample concepts not added yet.
   useEffect(() => {
-    const first = samples.concepts[0];
-    if (!first) return;
-    setName(first.name);
-    setTopic(first.topic);
-    setDescription(first.description);
+    setName('');
+    setTopic('');
+    setDescription('');
   }, [subjectId, subjectName]);
 
   useEffect(() => {
@@ -143,8 +159,10 @@ function Catalogue() {
         if (!active) return;
         setComponents(concepts);
         setRelationships(links);
-        setSourceId((current) => concepts.some((item) => item.id === current) ? current : concepts[0]?.id || '');
-        setTargetId((current) => concepts.some((item) => item.id === current) ? current : concepts[1]?.id || concepts[0]?.id || '');
+        // Open the link form on a pair that is not linked yet and would not form a cycle, so it can be saved as is.
+        const [firstSource, firstTarget] = linkablePair(concepts, links);
+        setSourceId((current) => concepts.some((item) => item.id === current) ? current : firstSource);
+        setTargetId((current) => concepts.some((item) => item.id === current) ? current : firstTarget);
       } catch (err) {
         if (active) setError(message(err));
       }
@@ -171,7 +189,9 @@ function Catalogue() {
     }
   });
   const topics = uniqueSamples(choices, 'topic');
-  const descriptions = uniqueSamples(choices, 'description');
+  // Sample concepts the subject does not have yet (the name field suggests these).
+  const unsaved = samples.concepts.filter((sample) => !components.some(
+    (item) => sameText(item.name, sample.name) && sameText(item.topic, sample.topic)));
 
   function chooseConcept(nextName: string) {
     const match = choices.find((item) => item.name === nextName);
@@ -195,6 +215,7 @@ function Catalogue() {
         topic: topic.trim(),
       });
       setRevision((value) => value + 1);
+      setName(''); setTopic(''); setDescription('');
       setNotice('Concept saved. It now appears on this page and on the student graph.');
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -246,7 +267,9 @@ function Catalogue() {
             </label>
           )}
           <p className="text-xs text-content-secondary">
-            Step 1. This graph is what the student persona sees for the subject. Grey concepts are not marked yet. Open <Link className="font-semibold text-teal-700 underline" to="/upload">Upload</Link> and evaluate the sample answer to colour them in.
+            Step 1. This graph is what the student persona sees for the subject. Grey concepts are not marked yet. {currentUser?.role === 'teacher' || currentUser?.role === 'developer'
+              ? <>Open <Link className="font-semibold text-teal-700 underline" to="/upload">Upload</Link> and evaluate the sample answer to colour them in.</>
+              : 'A teacher colours them in by evaluating the sample answer on Upload.'}
           </p>
         </CardBody>
       </Card>
@@ -270,22 +293,28 @@ function Catalogue() {
             <form onSubmit={addConcept} className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium text-navy-900">
                 Name
-                <select className={inputClass} value={name} onChange={(event) => chooseConcept(event.target.value)} required>
-                  {choices.map((item) => <option key={`${item.name}-${item.topic}`} value={item.name}>{item.name}</option>)}
-                </select>
+                <input className={inputClass} value={name} list="kc-name-suggestions" required maxLength={255}
+                  placeholder="e.g. Fractions" onChange={(event) => chooseConcept(event.target.value)} />
+                <datalist id="kc-name-suggestions">
+                  {unsaved.map((item) => <option key={`${item.name}-${item.topic}`} value={item.name} />)}
+                </datalist>
               </label>
               <label className="text-sm font-medium text-navy-900">
                 Topic
-                <select className={inputClass} value={topic} onChange={(event) => setTopic(event.target.value)} required>
-                  {topics.map((item) => <option key={item.topic} value={item.topic}>{item.topic}</option>)}
-                </select>
+                <input className={inputClass} value={topic} list="kc-topic-suggestions" required maxLength={255}
+                  placeholder="e.g. Number system" onChange={(event) => setTopic(event.target.value)} />
+                <datalist id="kc-topic-suggestions">
+                  {topics.map((item) => <option key={item.topic} value={item.topic} />)}
+                </datalist>
               </label>
               <label className="text-sm font-medium text-navy-900 sm:col-span-2">
                 Description
-                <select className={inputClass} value={description} onChange={(event) => setDescription(event.target.value)}>
-                  {descriptions.map((item) => <option key={item.description} value={item.description}>{item.description}</option>)}
-                </select>
+                <textarea className={inputClass} rows={2} value={description} maxLength={1000}
+                  placeholder="What a student should understand about this concept"
+                  onChange={(event) => setDescription(event.target.value)} />
               </label>
+              {unsaved.length > 0 && <p className="text-xs text-content-secondary sm:col-span-2">
+                Suggestions not yet added: {unsaved.map((item) => item.name).join(', ')}.</p>}
               <div>
                 <Button type="submit" variant="teal" loading={saving} disabled={saving}>Add concept</Button>
               </div>

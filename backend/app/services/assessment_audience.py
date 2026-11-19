@@ -21,7 +21,7 @@ async def upload_assignments(
     db: AsyncSession, actor: User, assessment_id: str | None = None,
 ) -> tuple[Student | None, list[tuple[Assessment, ClassSection, Subject]]]:
     if actor.role not in {"student", "teacher"}:
-        raise HTTPException(status_code=403, detail="Upload Beta is available to students and teachers.")
+        raise HTTPException(status_code=403, detail="Upload is available to students and teachers.")
     student = await require_linked_student(db, actor) if actor.role == "student" else None
     query = (
         select(Assessment, ClassSection, Subject)

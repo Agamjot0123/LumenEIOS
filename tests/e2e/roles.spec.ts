@@ -8,14 +8,14 @@ const ROLES: { who: string; email: string; landing: RegExp; pages: { path: strin
     { path: '/teacher/classes', heading: /Classroom Roster/ },
     { path: '/teacher/time-aware', heading: /Time-Aware Engine/ },
     { path: '/teacher/homework', heading: /Differentiated Homework/ },
-    { path: '/teacher/assessments-beta', heading: /AI Question Studio Beta/ },
-    { path: '/upload-beta', heading: /Upload Beta/ },
+    { path: '/teacher/assessments', heading: /AI Question Studio/ },
+    { path: '/upload', heading: /Upload/ },
     { path: '/learnsphere/journey', heading: /LearnSphere/ },
   ] },
   { who: 'student', email: 'gurleen.kaur@sps.lumeneios.demo', landing: /\/student\/dashboard/, pages: [
     { path: '/student/progress', heading: /Unified Student Progress/ },
     { path: '/student/homework', heading: /Differentiated Homework/ },
-    { path: '/upload-beta', heading: /Upload Beta/ },
+    { path: '/upload', heading: /Upload/ },
   ] },
   { who: 'parent', email: 'harpreet.kaur@sps.lumeneios.demo', landing: /\/parent\/dashboard/, pages: [
     { path: '/parent/homework', heading: /Differentiated Homework/ },

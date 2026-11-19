@@ -19,7 +19,6 @@ import {
   Sparkles,
   BarChart3,
   Award,
-  HeartHandshake,
   Settings,
   PlusCircle,
   History,
@@ -70,23 +69,11 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     badge: 'OCR',
   };
 
-  const uploadBetaItem: NavItem = {
-    label: 'Upload Beta',
-    path: '/upload-beta',
-    icon: <ScanLine className="w-4 h-4" />,
-  };
-
   const questionStudioItem: NavItem = {
     label: 'AI Question Studio',
     path: '/teacher/assessments',
-    icon: <BookOpen className="w-4 h-4" />,
-    badge: 'AI',
-  };
-
-  const questionStudioBetaItem: NavItem = {
-    label: 'AI Question Studio Beta',
-    path: '/teacher/assessments-beta',
     icon: <Sparkles className="w-4 h-4" />,
+    badge: 'AI',
   };
 
   const differentiatedHomework: NavItem = {
@@ -186,16 +173,8 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           knowledgeComponentsItem,
           centralLogs,
           questionStudioItem,
-          questionStudioBetaItem,
           differentiatedHomework,
-          {
-            label: 'Student Homework',
-            path: '/teacher/student-homework',
-            icon: <FileSpreadsheet className="w-4 h-4" />,
-            badge: 'Demo',
-          },
           uploadItem,
-          uploadBetaItem,
         ];
 
       case 'student':
@@ -206,7 +185,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'History', path: '/student/history', icon: <History className="w-4 h-4" /> },
           { label: 'Profile', path: '/student/profile', icon: <UserRound className="w-4 h-4" /> },
           uploadItem,
-          uploadBetaItem,
         ];
 
       case 'parent':
@@ -214,7 +192,6 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
           { label: 'Family Progress', path: '/parent/dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: 'Unified Progress', path: '/parent/progress', icon: <BarChart3 className="w-4 h-4" /> },
           { label: 'Differentiated Homework', path: '/parent/homework', icon: <Sparkles className="w-4 h-4" /> },
-          { label: 'Home Learning Guide', path: '/parent/dashboard', icon: <HeartHandshake className="w-4 h-4" /> },
         ];
 
       default:
@@ -226,9 +203,8 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
   const baseItems = getNavItems();
   if (role !== 'developer' && baseItems.length) baseItems.splice(1, 0, { label: 'Calendar', path: '/calendar', icon: <CalendarDays className="w-4 h-4" /> });
   const navItems = baseItems.concat({ label: 'LearnSphere', path: '/learnsphere', icon: <BookOpen className="w-4 h-4" /> }).filter((item) => {
-    if (item.path === '/teacher/assessments-beta' && !flags.questionStudio) return false;
-    if (item.path === '/upload-beta' && !flags.uploadBeta) return false;
-    if (item.path === '/student/answer-sheets' && !flags.answerSheetOcr) return false;
+    if (item.path === '/teacher/assessments' && !flags.questionStudio) return false;
+    if (item.path === '/upload' && !flags.uploadBeta) return false;
     return true;
   });
 

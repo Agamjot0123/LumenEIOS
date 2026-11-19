@@ -1,6 +1,7 @@
 import React, {useEffect,useState} from 'react';
 import { MathText } from './MathText';
 import {useAuth} from '../../context/AuthContext';
+import {useData} from '../../context/DataContext';
 import {assessmentResults} from '../../lib/assessmentResults';
 import {learnsphere} from '../../lib/learnsphere';
 import type {AssessmentResult} from '../../types/assessmentResults';
@@ -56,9 +57,11 @@ function Review({result,onSaved}:{result:AssessmentResult;onSaved:(r:AssessmentR
 }
 function Panel(){
   const [results,setResults]=useState<AssessmentResult[]>();const [error,setError]=useState('');
+  // Results carry only the student ID; the reviewer's workspace roster supplies the name.
+  const {students}=useData();const studentName=(id:string)=>students.find(s=>s.id===id)?.name??id;
   useEffect(()=>{let active=true;assessmentResults.forReview().then(r=>active&&setResults(r)).catch(e=>active&&setError(e.message));return()=>{active=false;};},[]);
   const evaluating=results?.some(r=>['pending','running'].includes(r.panchapadi?.status||''));
   useEffect(()=>{if(!evaluating)return;let active=true;const timer=setInterval(()=>assessmentResults.forReview().then(r=>active&&setResults(r)).catch(e=>active&&setError(e.message)),5000);return()=>{active=false;clearInterval(timer);};},[evaluating]);
-  return <Card><CardHeader title="Review submitted assessment answers"/><CardBody className="space-y-4">{error&&<p role="alert">{error}</p>}{!results&&!error&&<p role="status">Loading submitted answers…</p>}{results?.length===0&&<p>No student assessment responses are awaiting review.</p>}{results?.map(r=><details key={r.id} className="border rounded-xl p-3"><summary className="font-semibold">{r.assessment_title} · {r.student_id}</summary><Review key={`${r.id}:${r.version}`} result={r} onSaved={saved=>setResults(current=>current?.map(x=>x.id===saved.id?saved:x))}/></details>)}</CardBody></Card>;
+  return <Card><CardHeader title="Review submitted assessment answers"/><CardBody className="space-y-4">{error&&<p role="alert">{error}</p>}{!results&&!error&&<p role="status">Loading submitted answers…</p>}{results?.length===0&&<p>No student assessment responses are awaiting review.</p>}{results?.map(r=><details key={r.id} className="border rounded-xl p-3"><summary className="font-semibold">{r.assessment_title} · {studentName(r.student_id)}</summary><Review key={`${r.id}:${r.version}`} result={r} onSaved={saved=>setResults(current=>current?.map(x=>x.id===saved.id?saved:x))}/></details>)}</CardBody></Card>;
 }
 export function AssessmentResultsReview(){const {currentUser}=useAuth();return <Panel key={`${currentUser?.id}:${currentUser?.schoolId}`}/>;}

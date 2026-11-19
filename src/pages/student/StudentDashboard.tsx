@@ -70,7 +70,7 @@ function StudentDashboardContent({ student }: { student: Student }) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => navigate('/upload-beta')} className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border bg-white px-3 py-2 text-sm font-semibold text-navy-900 hover:border-teal-400"><UploadCloud className="h-4 w-4" />Upload answers</button>
+            <button onClick={() => navigate('/upload')} className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border bg-white px-3 py-2 text-sm font-semibold text-navy-900 hover:border-teal-400"><UploadCloud className="h-4 w-4" />Upload answers</button>
             <button onClick={() => navigate('/student/homework')} className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700"><Sparkles className="h-4 w-4" />My homework</button>
           </div>
         </div>

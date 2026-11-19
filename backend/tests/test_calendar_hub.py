@@ -6,10 +6,10 @@ import pytest_asyncio
 
 from backend.app.core.security import create_access_token
 from backend.app.models.entities import (
-    Assessment, ClassSection, InstructionalDisruption, ParentStudentLink, School, SchoolMembership, Student,
+    Assessment, ClassSection, ParentStudentLink, School, SchoolMembership, Student,
     Subject, TeacherAssignment, User,
 )
-from backend.app.models.teacher_planning import SchoolPlanCalendar
+from backend.app.models.teacher_planning import SchoolPlanCalendar, TeacherLostPeriod
 from backend.app.modules.differentiated_homework.models import HomeworkAssignmentRecord, StudentAccountLink
 
 SID, OTHER = "cal-school", "cal-other"
@@ -55,6 +55,7 @@ async def _seed(db):
                 user("c-admin", "admin", SID)])
     db.add(SchoolMembership(user_id="c-principal", school_id=SID, role="principal"))
     db.add(Subject(id="c-sub", name="Mathematics", code="MATH-C", grade=7))
+    db.add(Subject(id="c-sub-eng", name="English", code="ENG-C", grade=7))
     for cid, tid in (("c-class-a", "c-teacher"), ("c-class-b", "c-other-teacher")):
         sid = SID if cid == "c-class-a" else OTHER
         db.add(ClassSection(id=cid, school_id=sid, grade=7, section="A" if cid.endswith("a") else "B", name="Class 7-" + cid[-1].upper(),
@@ -68,8 +69,18 @@ async def _seed(db):
                 TeacherAssignment(school_id=SID, teacher_id="c-teacher", class_id="c-class-a", subject_id="c-sub")])
     db.add_all([Assessment(id="c-as1", school_id=SID, class_id="c-class-a", subject_id="c-sub", title="Unit Test 1", date="2026-12-03", status="scheduled"),
                 Assessment(id="c-as-draft", school_id=SID, class_id="c-class-a", subject_id="c-sub", title="Secret Draft", date="2026-12-04", status="draft"),
+                # Another teacher's subject in c-teacher's homeroom: the published quiz shows, the draft does not.
+                Assessment(id="c-as-eng-draft", school_id=SID, class_id="c-class-a", subject_id="c-sub-eng", title="English Draft", date="2026-12-04", status="draft"),
+                Assessment(id="c-as-eng-quiz", school_id=SID, class_id="c-class-a", subject_id="c-sub-eng", title="English Quiz", date="2026-12-06", status="scheduled"),
                 Assessment(id="c-as-other", school_id=OTHER, class_id="c-class-b", subject_id="c-sub", title="Other Class Test", date="2026-12-05", status="scheduled")])
-    db.add_all([InstructionalDisruption(school_id=SID, date="2026-12-09", reason="Heavy rain", days_lost=1, recorded_by="t"),
+    # Lost teaching days come from lost periods recorded in the Time-Aware Engine (the dashboards use the same rows).
+    lost = dict(school_id=SID, teacher_id="c-teacher", academic_year="2026-2027", grade=7, subject="Mathematics", recorded_by="c-teacher")
+    db.add_all([TeacherLostPeriod(**lost, lost_date="2026-12-09", period_number=1, reason_code="Heavy rain"),
+                TeacherLostPeriod(**lost, lost_date="2026-12-09", period_number=2, reason_code="Heavy rain"),
+                TeacherLostPeriod(**lost, lost_date="2026-12-10", period_number=1, reason_code="Withdrawn storm", status="withdrawn"),
+                # Another teacher's loss in another grade: only leadership sees it.
+                TeacherLostPeriod(**{**lost, "teacher_id": "c-other-teacher", "grade": 6}, lost_date="2026-12-14", period_number=1,
+                                  reason_code="Grade six trip"),
                 HomeworkAssignmentRecord(id="c-hw1", draft_id="c-draft-1", student_id="c-stu1", school_id=SID, subject_id="c-sub",
                                          assigned_by="c-teacher", due_at=datetime(2026, 12, 12, 17, 0)),
                 HomeworkAssignmentRecord(id="c-hw2", draft_id="c-draft-2", student_id="c-stu2", school_id=OTHER, subject_id="c-sub",
@@ -94,6 +105,10 @@ async def test_student_sees_school_calendar_class_tests_and_own_homework(world):
     assert {"Winter Festival", "Winter Break", "Half-yearly Exams", "Sports Day", "Unit Test 1", "Teaching disrupted: Heavy rain"} <= got
     assert "Homework due: Mathematics" in got
     assert "Secret Draft" not in got and "Other Class Test" not in got and "Other School Holiday" not in got
+    assert "Teaching disrupted: Withdrawn storm" not in got  # a corrected (withdrawn) loss is not a lost day
+    assert "Teaching disrupted: Grade six trip" not in got  # another grade's loss is not this student's
+    rain = [e for e in data["events"] if e["title"] == "Teaching disrupted: Heavy rain"]
+    assert len(rain) == 1 and rain[0]["category"] == "lost" and rain[0]["detail"].startswith("2 periods lost")
     cats = {e["title"]: e["category"] for e in data["events"]}
     assert cats["Winter Festival"] == "holiday" and cats["Winter Break"] == "vacation" and cats["Half-yearly Exams"] == "exam"
     assert cats["Sports Day"] == "event" and cats["Homework due: Mathematics"] == "deadline" and cats["Unit Test 1"] == "exam"
@@ -125,14 +140,25 @@ async def test_parent_sees_child_deadline_labelled_with_the_childs_name(world):
 @pytest.mark.asyncio
 async def test_teacher_sees_own_class_and_assigned_homework_only(world):
     got = titles(await feed(world, "c-teacher", "teacher"))
-    assert {"Unit Test 1 · 7-A", "Secret Draft · 7-A", "Homework due: Mathematics"} <= got  # staff see the class name
+    assert {"7-A · Unit Test 1", "7-A · Secret Draft", "Homework due: Mathematics"} <= got  # staff see the class name
     assert "Other Class Test" not in got and "Other School Holiday" not in got
+    # Their own subject's drafts show; another subject's draft in their homeroom does not, its published quiz does.
+    assert "7-A · English Quiz" in got and "7-A · English Draft" not in got
+    assert "Teaching disrupted: Heavy rain" in got and "Teaching disrupted: Grade six trip" not in got  # own losses only
+
+
+@pytest.mark.asyncio
+async def test_leadership_calendar_lists_published_assessments_not_drafts(world):
+    got = titles(await feed(world, "c-principal", "principal"))
+    assert {"7-A · Unit Test 1", "7-A · English Quiz"} <= got
+    assert not {"7-A · Secret Draft", "7-A · English Draft"} & got
+    assert {"Teaching disrupted: Heavy rain", "Teaching disrupted: Grade six trip"} <= got  # the whole school
 
 
 @pytest.mark.asyncio
 async def test_principal_sees_school_wide_assessments_but_not_other_schools(world):
     got = titles(await feed(world, "c-principal", "principal"))
-    assert {"Unit Test 1 · 7-A", "Winter Festival"} <= got
+    assert {"7-A · Unit Test 1", "Winter Festival"} <= got
     assert "Other Class Test" not in got and "Other School Holiday" not in got
 
 
@@ -191,7 +217,7 @@ async def test_assistant_gets_the_same_scoped_calendar(world, db_session, monkey
     assert got["Winter Break"]["date"] == "2026-12-28 to 2027-01-02" and got["Homework due: Mathematics"]["type"] == "deadline"
     assert "Secret Draft" not in got and "Other Class Test" not in got and "Other School Holiday" not in got
     teacher = await db_session.get(User, "c-teacher")
-    assert "Secret Draft · 7-A" in {i["title"] for i in await svc.upcoming_for_assistant(db_session, teacher, SID, days=30)}
+    assert "7-A · Secret Draft" in {i["title"] for i in await svc.upcoming_for_assistant(db_session, teacher, SID, days=30)}
 
 
 def test_assistant_highlights_pick_the_next_of_each_kind_and_the_coming_week():
@@ -210,3 +236,36 @@ def test_assistant_highlights_pick_the_next_of_each_kind_and_the_coming_week():
     assert got["next_holiday"] == "Christmas on 2026-12-25" and "next_personal_task" not in got
     assert got["next_vacation"] == "Winter Break on 2026-12-28 to 2027-01-02"
     assert got["next_7_days"] == ["2026-12-03: Unit Test 1 (exam)", "2026-12-05: Homework due: Mathematics (deadline)"]
+
+
+def test_calendar_questions_are_recognised_and_performance_questions_are_not():
+    from backend.app.services.calendar_hub_service import calendar_intent
+    assert calendar_intent("When is my next exam?") == "exam"
+    assert calendar_intent("Is there a test tomorrow?") == "exam"
+    assert calendar_intent("Do I have any homework due this week?") == "deadline"
+    assert calendar_intent("When is the next holiday?") == "holiday"
+    assert calendar_intent("When is sports day?") == "event"
+    assert calendar_intent("What's on this week?") == "week"
+    for not_calendar in ("How did I do in the last test?", "What are my marks in the exam?",
+                         "Which students need support?", "How do I grade handwritten work?"):
+        assert calendar_intent(not_calendar) is None, not_calendar
+
+
+def test_calendar_answers_name_the_date_and_say_when_nothing_is_scheduled():
+    from datetime import date
+    from backend.app.services.calendar_hub_service import calendar_answer
+    items = [{"date": "2026-11-20", "type": "exam", "title": "Worksheet A", "detail": ""},
+             {"date": "2026-11-20", "type": "exam", "title": "Worksheet B", "detail": ""},
+             {"date": "2026-11-21", "type": "lost", "title": "Teaching disrupted: Rain", "detail": ""},
+             {"date": "2026-11-25", "type": "deadline", "title": "Homework due: Science", "detail": ""},
+             {"date": "2026-12-08 to 2026-12-12", "type": "exam", "title": "Periodic Test 2", "detail": ""}]
+    today = date(2026, 11, 19)
+    exam = calendar_answer("exam", items, today)
+    assert "Worksheet A and Worksheet B, on Fri, 20 Nov 2026" in exam and "Periodic Test 2 (Tue, 8 Dec 2026 to Sat, 12 Dec 2026)" in exam
+    assert calendar_answer("deadline", items, today) == "Your next homework or deadline: Homework due: Science, on Wed, 25 Nov 2026."
+    assert calendar_answer("holiday", items, today).startswith("There is no holiday or vacation on your calendar")
+    twice = items + [{"date": "2026-11-25", "type": "deadline", "title": "Homework due: Science", "detail": ""}]
+    assert calendar_answer("deadline", twice, today) == "Your next homework or deadline: Homework due: Science (2), on Wed, 25 Nov 2026."
+    assert calendar_answer("deadline", items, today, "parent").startswith("Your child's next homework or deadline:")
+    week = calendar_answer("week", items, today)
+    assert "Worksheet A" in week and "Homework due: Science" in week and "Rain" not in week and "Periodic" not in week

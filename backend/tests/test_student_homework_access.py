@@ -155,7 +155,7 @@ async def test_student_sees_only_their_own_assignments_newest_first(client, worl
     assert [a["id"] for a in body] == [world["a_alice_new"], world["a_alice_old"]]
     first = body[0]
     assert set(first) == {"id", "subject_id", "subject_name", "status", "assigned_at", "due_at",
-                          "question_count", "total_marks"}
+                          "question_count", "total_marks", "submission_status", "result_released"}
     assert first["subject_name"] == "Student Access Maths" and first["status"] == "assigned"
     assert first["question_count"] == 2 and first["total_marks"] == 5
     assert first["assigned_at"].endswith("Z") or first["assigned_at"].endswith("+00:00")

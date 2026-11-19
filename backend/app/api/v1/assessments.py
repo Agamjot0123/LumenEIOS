@@ -665,7 +665,7 @@ async def generate_questions_beta(
             timestamp=utc_now().strftime("%Y-%m-%d %H:%M"),
             user_id=educator.id,
             user_name=educator.name,
-            action="AI Question Studio Beta Generated Questions",
+            action="AI Question Studio Generated Questions",
             details=(
                 f"Generated {req.mcq_count} MCQs and {req.theory_count} Theory items "
                 f"(Bloom: {req.bloom_level}) from {', '.join(source_names)} using "
@@ -813,7 +813,7 @@ async def delete_question_endpoint(
     return {"status": "deleted", "id": question_id}
 
 
-# --- AI (Gemini) question generation: preview, then explicit educator approval -------------
+# --- AI question generation (local Qwen or Gemini): preview, then explicit educator approval ---
 # Generation never writes to the bank. Approved (optionally edited) questions are saved through
 # the save endpoint below as ordinary QuestionBankItem rows flagged is_ai_generated=True, so the
 # existing bank, homework selection and frozen draft snapshots work unchanged.
@@ -841,9 +841,10 @@ async def ai_generate_questions_preview(
         db.add(AuditEvent(timestamp=utc_now().strftime("%Y-%m-%d %H:%M"), user_id=educator.id,
                           user_name=educator.name, action=action, details=details, category="assessment"))
 
-    scope = f"{req.subject_id}, grade {req.grade}, {req.competency}/{req.bloom_level}/{req.question_type}, requested {req.count}"
+    scope = (f"{req.subject_id}, grade {req.grade}, {req.competency}/{req.bloom_level}/{req.question_type}, "
+             f"requested {req.count}, model {req.provider}")
     try:
-        provider = ai_gateway.get_ai_provider()
+        provider = ai_gateway.QwenTextProvider() if req.provider == "qwen" else ai_gateway.get_ai_provider()
         preview = await generate_question_preview(provider, req, subject.name, existing_texts)
     except AIGatewayError as exc:
         code = 503 if isinstance(exc, AINotConfigured) else 504 if isinstance(exc, AIProviderTimeout) else 502

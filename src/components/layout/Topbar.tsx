@@ -140,7 +140,7 @@ export const Topbar: React.FC = () => {
       </div>
 
       {/* Right Controls: Notifications, Reset Demo Data, User Profile */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
         <FontSizeControl />
         <ThemeMenu />
 

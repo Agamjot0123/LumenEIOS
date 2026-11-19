@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { marksLabel } from '../../lib/utils';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ScanGrading } from './ScanGrading';
 import { useData } from '../../context/DataContext';
@@ -53,11 +54,12 @@ function printOcrExtract(
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const MAX_FILES = 50;
 
-export function ScanReview({ beta = false }: { beta?: boolean }) {
+/** Upload: students upload handwritten answers to an assigned worksheet; teachers OCR and grade them. */
+export function ScanReview() {
   const { currentUser } = useAuth();
   if (!currentUser || !['student', 'teacher'].includes(currentUser.role)) return <UnauthorizedPage />;
   const key = `${currentUser.id}:${currentUser.schoolId}`;
-  return beta ? <UploadBeta key={key} /> : <UploadPage key={key} />;
+  return <UploadBeta key={key} />;
 }
 
 function UploadBeta() {
@@ -100,7 +102,7 @@ function UploadBeta() {
   return (
     <section className="space-y-4">
       <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
-        <h1 className="text-xl font-bold text-navy-900">Upload Beta</h1>
+        <h1 className="text-xl font-bold text-navy-900">Upload</h1>
         <p className="mt-2 text-sm text-content-secondary">
           {isStudent ? 'Open an assignment for your class and subject.' : 'Open an assignment in your school to preview OCR.'}
         </p>
@@ -185,7 +187,9 @@ function UploadPage({ assignment, onBack, onProcessed }: {
     for (const file of Array.from(selected)) {
       if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
         errors.push(`${file.name}: use PDF, JPG, JPEG, or PNG.`);
-      } else if (file.size === 0 || file.size > MAX_FILE_SIZE) {
+      } else if (file.size === 0) {
+        errors.push(`${file.name}: the file is empty.`);
+      } else if (file.size > MAX_FILE_SIZE) {
         errors.push(`${file.name}: file must be no larger than 15 MB.`);
       } else if (existing.has(`${file.name}-${file.size}-${file.lastModified}`)) {
         errors.push(`${file.name}: already selected.`);
@@ -245,7 +249,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
       <header className="rounded-2xl border border-surface-border bg-white p-5 shadow-subtle">
         <div className="flex items-center gap-2">
           <ScanLine className="h-5 w-5 text-teal-600" />
-          <h1 className="text-xl font-bold tracking-tight text-navy-900">{assignment ? 'Upload Beta' : 'Upload'}</h1>
+          <h1 className="text-xl font-bold tracking-tight text-navy-900">Upload</h1>
           <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[11px] font-semibold text-teal-700">
             {modelProvider === 'qwen' ? 'Qwen' : 'Gemini'}
           </span>
@@ -253,9 +257,6 @@ function UploadPage({ assignment, onBack, onProcessed }: {
         <p className="mt-2 text-sm text-content-secondary">
           Upload a photo or PDF to extract text with {modelProvider === 'qwen' ? 'Qwen' : 'Gemini'}.
           {!isStudent && ' Review the extracted answers and evaluate them against an assignment.'}
-          {isStudent && !assignment && (
-            <> Open <Link to="/upload-beta" className="text-teal-700 underline">Upload Beta</Link> for assigned work.</>
-          )}
         </p>
         {isStudent && (
           <p className="mt-2 text-sm text-content-secondary">
@@ -277,7 +278,7 @@ function UploadPage({ assignment, onBack, onProcessed }: {
           <ol className="mt-3 space-y-3">
             {assignment.questions.map((question, index) => (
               <li key={index} className="text-sm text-navy-900">
-                <p><strong>Q{index + 1}.</strong> <MathText text={question.text} /> ({question.marks} marks)</p>
+                <p><strong>Q{index + 1}.</strong> <MathText text={question.text} /> ({marksLabel(question.marks)})</p>
                 {!!question.options?.length && (
                   <ul className="mt-1 space-y-1 pl-4 text-content-secondary">
                     {question.options.map((option, optionIndex) => <li key={optionIndex}><MathText text={option} /></li>)}

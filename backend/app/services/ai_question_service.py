@@ -20,7 +20,7 @@ from backend.app.services.ai_gateway import AIGatewayError, AIInvalidResponse, A
 
 
 class AIAllDuplicates(AIInvalidResponse):
-    public_message = ("Gemini only produced questions that already exist in this subject's question bank. "
+    public_message = ("The AI model only produced questions that already exist in this subject's question bank. "
                       "Try a more specific topic or add teacher instructions, then generate again.")
 
 Competency = Literal["LU", "CU", "AU", "CT"]
@@ -56,6 +56,8 @@ class AIQuestionRequest(BaseModel):
     # Questions already on the teacher's screen (when regenerating one). Used only for the
     # duplicate check; never sent to the AI provider.
     avoid_texts: List[str] = Field(default_factory=list, max_length=20)
+    # Which model writes the questions: the local Qwen model (works offline) or Gemini.
+    provider: Literal["gemini", "qwen"] = "gemini"
 
     @field_validator("topic", "language", "instructions")
     @classmethod
@@ -256,15 +258,52 @@ def shuffle_options(question: "AIGeneratedQuestion", rng: Optional[random.Random
     return question.model_copy(update={"options": options})
 
 
+def _unwrap_schema_keys(item):
+    """Small local models sometimes copy the schema's "$defs" key and put the question inside it."""
+    if isinstance(item, dict) and isinstance(item.get("$defs"), dict):
+        inner = item["$defs"]
+        return {**{k: v for k, v in item.items() if k != "$defs"}, **inner}
+    return item
+
+
+def _salvage_questions(text: str) -> list:
+    """Recover complete question objects from a reply whose outer brackets do not balance."""
+    decoder, found, i = json.JSONDecoder(), [], 0
+    while True:
+        i = text.find("{", i)
+        if i < 0:
+            return found
+        try:
+            obj, end = decoder.raw_decode(text, i)
+        except ValueError:
+            i += 1
+            continue
+        obj = _unwrap_schema_keys(obj)
+        if isinstance(obj, dict) and "text" in obj and ("question_type" in obj or "correct_answer" in obj):
+            found.append(obj); i = end
+        else:
+            i += 1
+
+
 def parse_items(raw_json: str) -> list:
+    # json_payload also accepts what the small local Qwen model tends to return: fenced JSON, the object nested
+    # under the schema title, or copied schema fragments. Gemini's structured output parses on the first try.
+    from backend.app.services.llm_service import json_payload, json_object_text, repair_latex_json
+    data = None
     try:
         data = json.loads(raw_json)
+        if isinstance(data, dict) and "questions" not in data:
+            data = json_payload(raw_json, _WireResponse.__name__)
     except (TypeError, ValueError):
-        raise AIInvalidResponse() from None
+        repaired = repair_latex_json(json_object_text(raw_json or ""))
+        try:
+            data = json_payload(repaired, _WireResponse.__name__)
+        except (TypeError, ValueError):
+            data = _salvage_questions(repaired) or None
     items = data.get("questions") if isinstance(data, dict) else data if isinstance(data, list) else None
     if not isinstance(items, list):
         raise AIInvalidResponse()
-    return items[:MAX_QUESTIONS]
+    return [_unwrap_schema_keys(item) for item in items[:MAX_QUESTIONS]]
 
 
 def check_question(item, req: AIQuestionRequest, existing: List[str], accepted: List[str]):
@@ -297,6 +336,34 @@ def validate_generated(raw_json: str, req: AIQuestionRequest, existing: Optional
     return valid, rejected
 
 
+def _fit_local_model_item(item, req: "AIQuestionRequest"):
+    """Tidy a question from the small local Qwen model before validation. Returns (item, answer_was_added).
+
+    - The settings the teacher chose (competency, Bloom level, marks) are echoed back by the model and often
+      dropped or garbled; they are set from the request. The question type is still checked strictly.
+    - Qwen frequently computes the right answer but leaves it out of its own four options. Then the answer
+      replaces the last distractor (options are shuffled afterwards) and the preview warns the teacher.
+    Gemini's questions are never changed this way."""
+    if not isinstance(item, dict):
+        return item, False
+    item = {**item, "competency": req.competency, "bloom_level": req.bloom_level, "marks": req.marks}
+    options, answer = item.get("options"), item.get("correct_answer")
+    if item.get("question_type") != "mcq" or not isinstance(options, list) or not isinstance(answer, str) or not answer.strip():
+        return item, False
+    texts = [str(o).strip() for o in options if str(o).strip()]
+    answer = answer.strip()
+    letter = answer.rstrip(").:").upper()
+    if answer.lower() in {t.lower() for t in texts} or (len(letter) == 1 and "A" <= letter <= "D" and len(texts) == 4):
+        return item, False
+    if len(texts) == 4:
+        texts[-1] = answer
+    elif len(texts) == 3:
+        texts.append(answer)
+    else:
+        return item, False
+    return {**item, "options": texts}, True
+
+
 async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest, subject_name: str,
                                     existing_texts: List[str]) -> AIGenerationPreview:
     """Ask the provider for NEW questions. Every returned question comes from the provider during
@@ -306,7 +373,9 @@ async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest
     accepted: List[AIGeneratedQuestion] = []
     counts = {"invalid": 0, "mismatch": 0, "bank_duplicate": 0, "repeat": 0}
     details: List[str] = []
-    attempts = received = 0
+    attempts = received = unreadable = 0
+    local_model = getattr(provider, "name", "") == "qwen"
+    answers_added: List[int] = []  # positions (1-based) where Qwen's answer had to be added to its options
     while len(accepted) < req.count and attempts < MAX_ATTEMPTS:
         needed = req.count - len(accepted)
         attempts += 1
@@ -314,6 +383,10 @@ async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest
             raw = await provider.generate_json(system=SYSTEM_PROMPT, schema=_WireResponse,
                                                prompt=build_prompt(req, subject_name, needed, retry=attempts > 1))
             items = parse_items(raw)
+        except AIInvalidResponse:
+            # An unreadable reply (e.g. the small local model echoing the schema) is one failed attempt: ask again.
+            unreadable += 1
+            continue
         except AIGatewayError:
             if not accepted:
                 raise  # nothing generated: report the failure, never substitute other questions
@@ -323,9 +396,14 @@ async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest
         if not items:
             break  # the provider returned nothing; repeating the same request is unlikely to help
         for item in items[:needed]:
+            added = False
+            if local_model:
+                item, added = _fit_local_model_item(item, req)
             q, why = check_question(item, req, existing_texts, [a.text for a in accepted] + list(req.avoid_texts))
             if q:
                 accepted.append(shuffle_options(q).model_copy(update={"topic": req.topic}))
+                if added:
+                    answers_added.append(len(accepted))
             else:
                 counts[why[0]] += 1
                 if why[0] == "invalid":
@@ -335,19 +413,31 @@ async def generate_question_preview(provider: AIProvider, req: AIQuestionRequest
     if not accepted:
         if counts["bank_duplicate"] or counts["repeat"]:
             raise AIAllDuplicates()
-        raise AIInvalidResponse()
+        failure = AIInvalidResponse()
+        if local_model:
+            failure.public_message = (f"Qwen did not produce a usable question in {attempts} attempt(s). Try again, "
+                                      "make the topic more specific, or choose Gemini.")
+        raise failure
     warnings = []
+    model_label = "Qwen" if getattr(provider, "name", "") == "qwen" else "Gemini"
     duplicates = counts["bank_duplicate"] + counts["repeat"]
     if len(accepted) < req.count:
         reasons = [f"{n} {label}" for n, label in ((counts["bank_duplicate"], "duplicated existing question-bank questions"),
                                                    (counts["repeat"], "repeated another generated question"),
                                                    (counts["invalid"], "failed validation"),
                                                    (counts["mismatch"], "did not match the requested settings")) if n]
-        warnings.append(f"Gemini produced {len(accepted)} of {req.count} requested valid, new questions after "
+        warnings.append(f"{model_label} produced {len(accepted)} of {req.count} requested valid, new questions after "
                         f"{attempts} request(s). " + (f"Rejected: {'; '.join(reasons)}." if reasons
                                                        else "The AI returned fewer questions than requested."))
     elif duplicates:
-        warnings.append(f"{duplicates} duplicate question(s) were rejected and replaced with new ones from Gemini.")
+        warnings.append(f"{duplicates} duplicate question(s) were rejected and replaced with new ones from {model_label}.")
+    if unreadable:
+        warnings.append(f"{unreadable} {model_label} repl{'y' if unreadable == 1 else 'ies'} could not be read and "
+                        f"{'was' if unreadable == 1 else 'were'} requested again.")
+    if answers_added:
+        listed = ", ".join(str(n) for n in answers_added)
+        warnings.append(f"Check question(s) {listed}: Qwen left its own answer out of the options, so the answer was "
+                        "added as one of the four options. Confirm the answer and the other options before saving.")
     return AIGenerationPreview(
         provider=provider.name, model=provider.model, source="ai_generated", requested=req.count,
         generated=len(accepted), attempts=attempts, received=received, checked_against=len(existing_texts),

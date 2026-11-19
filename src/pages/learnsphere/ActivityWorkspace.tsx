@@ -58,7 +58,7 @@ function AssignmentCard({assignment, refresh}: {assignment: Assignment; refresh:
   const [key, setKey] = useState(crypto.randomUUID());
   const s = assignment.snapshot;
   return <Card><CardBody><div className="space-y-3"><h3 className="text-lg font-semibold">{s.title}</h3><p>{s.topic_title} · {s.competency} · {s.stage} · version {s.version}</p><p className="whitespace-pre-wrap">{s.instructions}</p><details><summary>Evaluation rubric</summary><p className="whitespace-pre-wrap">{s.rubric}</p></details>
-    {s.assessment_result_id&&<p className="text-sm">{s.generation==='automatic_provisional'?'Automatically generated AI follow-up — not teacher-verified':'Teacher-approved follow-up'} to assessment questions {s.evidence_positions?.map(p=>p+1).join(', ')}. The assessment result and this activity are recorded separately.</p>}
+    {s.assessment_result_id&&<p className="text-sm">{s.generation==='automatic_provisional'?'Automatically generated AI follow-up':'Teacher-approved follow-up'} to assessment question{s.evidence_positions?.length===1?'':'s'} {s.evidence_positions?.map(p=>p+1).join(', ')}{s.generation==='automatic_provisional'?' (not teacher-verified)':''}. The assessment result and this activity are recorded separately.</p>}
     <p className="text-sm">Assigned {new Date(assignment.assigned_at).toLocaleDateString()}{assignment.due_at && ` · Due ${new Date(assignment.due_at).toLocaleString()}`}{assignment.intervention_for && ' · Follow-up intervention'}</p>
     {assignment.attempts.map(at => <AttemptCard key={`${at.id}:${at.version}`} attempt={at} educator={educator} student={student} kind={s.kind} refresh={refresh} />)}
     {!assignment.attempts.length && <p>No responses submitted yet.</p>}

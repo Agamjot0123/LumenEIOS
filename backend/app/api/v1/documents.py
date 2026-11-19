@@ -129,6 +129,16 @@ async def upload_studio_pdf(
             detail="The uploaded PDF could not be opened.",
         ) from exc
 
+    # The same chapter uploaded again (same school and subject) reuses the stored copy instead of listing it twice.
+    import hashlib
+    digest = hashlib.sha256(content).hexdigest()
+    existing = (await db.execute(select(Document).filter(
+        Document.school_id == school_id, Document.content_hash == digest,
+        Document.subject_id == subject_id, Document.doc_type == "source_material",
+    ).order_by(Document.created_at))).scalars().first()
+    if existing is not None:
+        return existing
+
     await file.seek(0)
     # Call the shared upload helper directly (not via FastAPI DI), so school_id must be passed in.
     return await upload_document(file, subject_id, "source_material", db, current_user, school_id)
