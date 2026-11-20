@@ -4,6 +4,14 @@
 > Aligned with India's National Education Policy (NEP 2020) Competency-Based Education framework.
 
 ---
+##WORKING PROJECT:
+https://lumeneios.vercel.app/
+
+LOGIN /PASSWORD
+<img width="736" height="622" alt="image" src="https://github.com/user-attachments/assets/d146b779-9a04-449f-9f77-ea38e1c98412" />
+<img width="805" height="441" alt="image" src="https://github.com/user-attachments/assets/9796bc3d-0996-48e9-b22f-90da1571b2a2" />
+
+<img width="667" height="316" alt="image" src="https://github.com/user-attachments/assets/5d338895-6855-4491-867d-67da9b7f16e1" />
 
 ## 1. Executive Summary & Vision
 
