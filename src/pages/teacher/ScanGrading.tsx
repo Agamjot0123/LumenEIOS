@@ -101,8 +101,9 @@ function StudentGrader({ data, student, onPublished }: { data: AssignmentUploads
         ? `Draft from ${provider === 'qwen' ? 'Qwen' : 'Gemini'} - review required: ${result.scoring_summary.review_reasons.join('; ') || 'check flagged answers'}`
         : `Draft marks from ${provider === 'qwen' ? 'Qwen' : 'Gemini'}. Check them, adjust anything, then publish.`);
     } catch (e) {
-      setError((e instanceof ApiError ? e.message : 'The evaluator is unavailable.')
-        + (provider === 'qwen' ? ' Try Gemini (fallback), or mark manually.' : ' You can mark manually.'));
+      const message = e instanceof ApiError ? e.message : 'The evaluator is unavailable.';
+      const paperProblem = /answer key or rubric|no questions to evaluate/i.test(message);
+      setError(paperProblem ? message : message + (provider === 'qwen' ? ' Try Gemini (fallback), or mark manually.' : ' You can mark manually.'));
     } finally { setBusy(''); }
   };
   const publish = async () => {

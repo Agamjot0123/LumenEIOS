@@ -249,15 +249,28 @@ async def _drop_unused_name_collisions(db: AsyncSession, subject_id: str, kept: 
     await db.flush()
 
 
+def _published_questions(paper: dict) -> list[dict]:
+    """Questions the upload evaluator can mark. Each one keeps the sample answer as its key."""
+    return [
+        {
+            "id": item["id"],
+            "text": item["text"],
+            "type": "short",
+            "marks": 2,
+            "competency": item["competency"],
+            "correct_answer": item["answer"],
+            "marking_rubric": f"Award 2 marks when the answer matches: {item['answer']}",
+        }
+        for item in paper["questions"]
+    ]
+
+
 async def _ensure_paper(
     db: AsyncSession, *, school_id: str, section: ClassSection, subject: Subject, paper: dict, student: Student,
 ) -> tuple[Assessment, StudentOcrHistory]:
     assessment_id = f"demo-kc-{subject.id}"
     assessment = await db.get(Assessment, assessment_id)
-    questions = [
-        {"id": item["id"], "text": item["text"], "type": "short", "marks": 2, "competency": item["competency"]}
-        for item in paper["questions"]
-    ]
+    questions = _published_questions(paper)
     if assessment is None:
         assessment = Assessment(
             id=assessment_id,
@@ -274,6 +287,9 @@ async def _ensure_paper(
         )
         db.add(assessment)
         await db.flush()
+    else:
+        assessment.questions_json = questions
+        assessment.total_marks = 2 * len(questions)
     history_id = f"demo-kc-history-{subject.id}"
     history = await db.get(StudentOcrHistory, history_id)
     text = _script(paper)

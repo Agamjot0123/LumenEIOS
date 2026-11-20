@@ -20,6 +20,7 @@ from backend.app.services.kc_graph_service import (
     recommendations_for,
 )
 from backend.app.services import kc_graph_service
+from backend.app.services.kc_demo_walkthrough import paper_for
 from backend.app.api.v1 import ocr as ocr_api
 
 
@@ -296,7 +297,7 @@ async def test_evaluation_updates_only_the_linked_student_graph(client, db_sessi
 
 
 @pytest.mark.asyncio
-async def test_sample_walkthrough_updates_the_student_persona(client, teacher_token, student_token):
+async def test_sample_walkthrough_updates_the_student_persona(client, db_session, teacher_token, student_token):
     teacher = {"Authorization": f"Bearer {teacher_token}"}
     student = {"Authorization": f"Bearer {student_token}"}
     old = await client.post("/api/v1/knowledge-components", headers=teacher, json={
@@ -309,6 +310,12 @@ async def test_sample_walkthrough_updates_the_student_persona(client, teacher_to
     )
     assert preview.status_code == 200, preview.text
     assert preview.json()["evaluated"] is False
+    paper = await db_session.get(Assessment, "demo-kc-sub-math")
+    await db_session.refresh(paper)
+    first = paper.questions_json[0]
+    assert first["correct_answer"].strip()
+    assert first["marks"] > 0
+    assert first["competency"] in {"LU", "CU", "AU", "CT"}
     preview_names = [node["name"] for node in preview.json()["graph"]["nodes"]]
     assert preview_names.count("Expressions") == 1
     assert any(node["name"] == "Units" and node["learning_status"] == "not_assessed" for node in preview.json()["graph"]["nodes"])
@@ -340,6 +347,54 @@ async def test_sample_walkthrough_updates_the_student_persona(client, teacher_to
         headers=student,
         params={"subject_id": "sub-math"},
     )).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_ocr_evaluation_marks_the_sample_paper(client, monkeypatch, teacher_token):
+    teacher = {"Authorization": f"Bearer {teacher_token}"}
+    preview = await client.get(
+        "/api/v1/knowledge-components/demo-walkthrough", headers=teacher, params={"subject_id": "sub-math"},
+    )
+    assert preview.status_code == 200, preview.text
+    paper = paper_for("Mathematics")
+
+    class FakeProvider:
+        async def generate_json(self, *, system, prompt, schema):
+            if schema.__name__ == "KcMappingResponse":
+                return json.dumps({"questions": []})
+            evaluations = [
+                {
+                    "question_id": str(index),
+                    "question_index": index,
+                    "question_text": item["text"],
+                    "competency": item["competency"],
+                    "max_marks": 2,
+                    "awarded_marks": item["awarded"],
+                    "competency_score": item["score"],
+                    "student_answer_extracted": item["answer"],
+                    "status": "attempted",
+                    "feedback": "Sample marking.",
+                }
+                for index, item in enumerate(paper["questions"], start=1)
+            ]
+            return json.dumps({
+                "question_evaluations": evaluations,
+                "scoring_summary": {"total_marks_obtained": 1, "max_possible_marks": 14, "percentage": 1},
+            })
+
+    monkeypatch.setattr(ocr_api, "QwenTextProvider", lambda: FakeProvider())
+    monkeypatch.setattr(kc_graph_service, "QwenTextProvider", lambda: FakeProvider())
+    response = await client.post("/api/v1/ocr/evaluate-scan", headers=teacher, json={
+        "assessment_id": "demo-kc-sub-math",
+        "extracted_text": preview.json()["extracted_text"],
+        "provider": "qwen",
+        "history_id": "demo-kc-history-sub-math",
+    })
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["question_evaluations"]) == 7
+    assert body["scoring_summary"]["max_possible_marks"] == 14
+    assert body["question_evaluations"][0]["awarded_marks"] > 0
 
 
 @pytest.mark.asyncio
