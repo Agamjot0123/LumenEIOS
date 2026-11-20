@@ -123,7 +123,7 @@ async def test_empty_bank_does_not_bypass_roles(client, world, role):
 async def test_bank_mutations_cannot_bypass_key_scope(client, world, role, method, suffix, body):
     response = await client.request(method, "/api/v1/assessments/questions/" + world["questions"][1].id + suffix,
                                     json=body, headers=auth(world["users"][role]) if role else {})
-    expected = 401 if role is None else 403 if role in {"student","parent"} else 200 if method == "delete" else 404
+    expected = 401 if role is None else 403 if role in {"student","parent"} else 404
     assert response.status_code == expected, response.text
     assert "SECRET" not in response.text
 

@@ -132,7 +132,7 @@ def reviewed_stage_view(result):
     return evaluation
 
 
-def saved_question_guidance(result, outcomes=None, mapping=None):
+def saved_question_guidance(result, outcomes=None, mapping=None, competencies=None):
     """Reuse only identical frozen responses, evaluated marks and stage demands.
 
     A revision ID alone is not an evidence change. All attempts belong to this
@@ -152,7 +152,13 @@ def saved_question_guidance(result, outcomes=None, mapping=None):
     latest=result.reviews_json[-1] if result.reviews_json else {}
     demands=stages(mapping,bool(latest.get("panchapadi")))
     found={}
+    from backend.app.modules.learnsphere.automation import current_competencies
+    labels = {m["position"]:m["label"] for m in (competencies if competencies is not None else current_competencies(result))}
+    original_labels = {q["position"]:q.get("competency") for q in result.questions_json}
     for attempt in reversed((result.panchapadi_json or {}).get("attempts",[])):
+        from backend.app.modules.learnsphere.automation import review_revision
+        if attempt.get("competency_review_revision_id") != review_revision(result):
+            continue
         prior={o["position"]:o for o in attempt.get("outcomes",[])}
         reviewed=next((r for r in result.reviews_json if r["revision_id"]==attempt.get("review_revision_id")),{})
         old_demands=stages(attempt.get("mapping",[]),bool(reviewed.get("panchapadi")))
@@ -160,7 +166,9 @@ def saved_question_guidance(result, outcomes=None, mapping=None):
             position=advice["position"]
             if position in found or position not in prior or position not in expected:
                 continue
-            if any(prior[position].get(k)!=expected[position].get(k) for k in ("score","maximum","correct","competency")):
+            if labels.get(position) is not None and advice.get("competency", original_labels.get(position)) != labels[position]:
+                continue
+            if any(prior[position].get(k)!=expected[position].get(k) for k in ("score","maximum","correct","competency","feedback")):
                 continue
             if old_demands.get(position)!=demands.get(position):
                 continue
@@ -169,7 +177,9 @@ def saved_question_guidance(result, outcomes=None, mapping=None):
 
 
 def guidance_missing(result):
-    return set(saved_question_guidance(result))!={q["position"] for q in result.questions_json}
+    from backend.app.modules.learnsphere.automation import current_competencies
+    return (set(saved_question_guidance(result))!={q["position"] for q in result.questions_json}
+        or any(m["status"] == "pending" for m in current_competencies(result)))
 
 
 def drafts_target_gaps(drafts, outcomes):
@@ -194,6 +204,9 @@ def redact_educational(value, student_name):
 
 
 async def _cas(db, record_id, version, payload):
+    metadata = await db.scalar(select(AssessmentResultRecord.panchapadi_json).where(
+        AssessmentResultRecord.id == record_id, func.coalesce(AssessmentResultRecord.panchapadi_version, 0) == version))
+    payload = {**copy.deepcopy(metadata or {}), **payload}
     result = await db.execute(update(AssessmentResultRecord).where(AssessmentResultRecord.id == record_id,
         func.coalesce(AssessmentResultRecord.panchapadi_version, 0) == version)
         .values(panchapadi_json=payload, panchapadi_version=version + 1).execution_options(synchronize_session=False))
@@ -213,6 +226,8 @@ async def _checkpoint(record_id, attempt_id, patch):
         if not attempts or attempts[-1]["attempt_id"]!=attempt_id:return False
         revision=record.reviews_json[-1]["revision_id"] if record.reviews_json else None
         if attempts[-1].get("review_revision_id")!=revision:return False
+        from backend.app.modules.learnsphere.automation import review_revision
+        if attempts[-1].get("competency_review_revision_id") != review_revision(record):return False
         attempts[-1].update(copy.deepcopy(patch),heartbeat_at=utc_now().isoformat())
         return await _cas(db,record_id,record.panchapadi_version or 0,payload)
 
@@ -223,9 +238,11 @@ def _retry_due(record):
     if not attempts:return True
     latest=attempts[-1]
     revision=record.reviews_json[-1]["revision_id"] if record.reviews_json else None
-    if latest.get("review_revision_id")!=revision:return True
+    from backend.app.modules.learnsphere.automation import review_revision
+    competency_revision = review_revision(record)
+    if latest.get("review_revision_id")!=revision or latest.get("competency_review_revision_id") != competency_revision:return True
     # The cap applies to finished attempts; an expired "running" lease (a process stopped mid-job) is always recovered.
-    if latest["status"]!="running" and sum(1 for a in attempts if a.get("review_revision_id")==revision)>=GUIDANCE_MAX_AUTOMATIC_ATTEMPTS:return False
+    if latest["status"]!="running" and sum(1 for a in attempts if a.get("review_revision_id")==revision and a.get("competency_review_revision_id") == competency_revision)>=GUIDANCE_MAX_AUTOMATIC_ATTEMPTS:return False
     stamp=datetime.fromisoformat(latest.get("heartbeat_at",latest["date"]))
     if stamp.tzinfo is None:stamp=stamp.replace(tzinfo=timezone.utc)
     delay=1800 if latest["status"]=="running" else min(900,30*2**min(len(attempts)-1,5))
@@ -287,6 +304,7 @@ async def run_guidance_recovery():
 async def evaluate_saved_result(record_id, refresh_guidance=False):
     """Post-response worker: responses are committed first; no transaction spans inference."""
     from backend.app.services.llm_service import qwen_question_studio
+    from backend.app.modules.learnsphere.automation import current_competencies, classify_competencies, review_revision
     async with AsyncSessionLocal() as db:
         record = await db.get(AssessmentResultRecord, record_id)
         if not record:
@@ -302,10 +320,13 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
             topic = await db.get(LearningTopic, topic_id)
             if topic and (topic.school_id,topic.class_id,topic.subject_id)==(record.school_id,record.class_id,record.subject_id):
                 verified_topics.append(topic.title)
-        safe_questions = redact_educational([{k:q.get(k) for k in ("position","text","type","options","marks","correct_answer","marking_rubric","competency","bloom_level")} for q in questions], student.name if student else "")
+        safe_questions = redact_educational([{k:q.get(k) for k in ("position","text","type","options","marks","correct_answer","marking_rubric","competency","bloom_level","learning_objective","topic")} for q in questions], student.name if student else "")
         safe_answers = redact_educational(answers, student.name if student else "")
         base_outcomes=review["outcomes"] if review else record.automatic_json
-        fingerprint = hashlib.sha256(json.dumps([2, questions, answers, base_outcomes, review], sort_keys=True).encode()).hexdigest()
+        competencies = current_competencies(record)
+        competency_revision = review_revision(record)
+        teacher_mappings = {m["position"]: copy.deepcopy(m) for m in competencies if m["status"].startswith("teacher_")}
+        fingerprint = hashlib.sha256(json.dumps([3, questions, answers, base_outcomes, review, competency_revision], sort_keys=True).encode()).hexdigest()
         attempts = copy.deepcopy((record.panchapadi_json or {}).get("attempts", []))
         reusable = None
         if attempts:
@@ -319,6 +340,7 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
                 outcomes = copy.deepcopy(current.get("outcomes", outcomes))
         attempt_id = uuid.uuid4().hex
         current = {"attempt_id": attempt_id, "fingerprint": fingerprint, "date": utc_now().isoformat(),
+            "competency_review_revision_id": competency_revision, "competency_mappings": competencies,
             "heartbeat_at":utc_now().isoformat(),
             "review_revision_id":review["revision_id"] if review else None,
             "status": "running", "mapping": reusable["mapping"] if reusable else [],
@@ -327,6 +349,22 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
         if not await _cas(db, record_id, record.panchapadi_version or 0, {"attempts": attempts}):
             return
     errors = []
+    if any(m["status"] == "pending" for m in competencies) or (refresh_guidance and len(teacher_mappings) < len(questions)):
+        try:
+            competencies = await classify_competencies(safe_questions, subject.name if subject else None, verified_topics)
+        except Exception as exc:
+            logger.warning("Competency analysis unavailable (%s)", type(exc).__name__)
+            errors.append("Automatic competency mapping is unavailable; unmapped questions need teacher review.")
+    from backend.app.modules.learnsphere.automation import question_fingerprint
+    original_questions = {q["position"]: q for q in questions}
+    for item in competencies:
+        item["question_fingerprint"] = question_fingerprint(original_questions[item["position"]])
+        item["question_id"] = original_questions[item["position"]].get("id")
+    competencies = [teacher_mappings.get(m["position"], m) for m in competencies]
+    effective = {m["position"]: m["label"] for m in competencies}
+    for question in safe_questions:
+        question["competency"] = effective.get(question["position"]) or "unmapped"
+    if not await _checkpoint(record_id, attempt_id, {"competency_mappings": competencies}):return
     if not review:
         for question, safe_question in zip(questions, safe_questions):
             if question["type"] == "mcq":
@@ -342,6 +380,9 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
                 mark = await qwen_question_studio.mark_written_answer(safe_question, answer.get("answer_text"))
                 outcome.update(score=mark.score, correct=mark.correct, feedback=mark.feedback,
                     explanation=mark.explanation, provenance="ai_written_unverified")
+                outcome["concept_evidence"] = {"demonstrated":mark.demonstrated_concepts,
+                    "partial":mark.partial_concepts, "missing":mark.missing_concepts,
+                    "status":"provisional", "reason":mark.explanation}
             except Exception as exc:
                 logger.warning("Written evaluation unavailable (%s)", type(exc).__name__)
                 errors.append("Written marking unavailable for Q"+str(question["position"]+1)+"; teacher review is available.")
@@ -361,10 +402,11 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
         completion = {"status": "failed", "error": "Automatic stage evaluation unavailable or invalid. Your answers are saved; retry or ask the teacher to map stages.",
             "mapping": [], "stages": calculate_stages(questions, outcomes, empty_mapping(questions))}
     completion["outcomes"] = outcomes
+    completion["competency_mappings"] = competencies
     completion["review_revision_id"] = review["revision_id"] if review else None
     if not await _checkpoint(record_id,attempt_id,{**completion,"status":"running"}):return
     question_guidance=[]
-    old_guidance={} if refresh_guidance else saved_question_guidance(record,outcomes,completion["mapping"])
+    old_guidance={} if refresh_guidance else saved_question_guidance(record,outcomes,completion["mapping"],competencies)
     for question,safe_question in zip(questions,safe_questions):
         position=question["position"]
         outcome=next(o for o in outcomes if o["position"]==position)
@@ -376,8 +418,11 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
             continue
         try:
             advice=await qwen_question_studio.assessment_question_guidance(safe_question,response,
-                {k:outcome.get(k) for k in ("score","maximum","correct","competency","provenance")},stages)
-            question_guidance.append({"position":position,**advice.model_dump(),"status":"provisional"})
+                {**{k:outcome.get(k) for k in ("score","maximum","correct","provenance")},
+                 "competency":effective.get(position),
+                 "feedback":redact_educational(outcome.get("feedback"), student.name if student else "")},stages)
+            question_guidance.append({"position":position,**advice.model_dump(),"status":"provisional",
+                "competency":effective.get(position)})
         except Exception as exc:
             logger.warning("Question guidance unavailable (%s)",type(exc).__name__)
             errors.append("Question-wise guidance is temporarily unavailable for Q"+str(position+1)+"; automatic recovery will retry it.")
@@ -418,13 +463,16 @@ async def evaluate_saved_result(record_id, refresh_guidance=False):
         if not attempts or attempts[-1]["attempt_id"] != attempt_id:
             return
         latest_review_id = record.reviews_json[-1]["revision_id"] if record.reviews_json else None
-        if latest_review_id != (review["revision_id"] if review else None):
+        if latest_review_id != (review["revision_id"] if review else None) or review_revision(record) != competency_revision:
             completion.update(status="superseded", learning_drafts=[])
         elif completion.get("guidance_status")=="complete":
             from backend.app.services.assessment_learning import assign_automatic_learning
             completion["automatic_assignments"]=await assign_automatic_learning(db,record,completion)
             if len(completion["automatic_assignments"])<2:
-                completion["evaluation_warnings"].append("Automatic activity assignment needs a valid current enrollment and authorized class teacher. Saved guidance remains available.")
+                completion["evaluation_warnings"].append(
+                    "Automatic activities need a reliable competency mapping for their source questions; review the unmapped competencies."
+                    if any(m["label"] is None for m in competencies) else
+                    "Automatic activity assignment needs a valid current enrollment and authorized class teacher. Saved guidance remains available.")
         attempts[-1].update(completion, date=utc_now().isoformat(),heartbeat_at=utc_now().isoformat())
         await _cas(db, record_id, record.panchapadi_version or 0, {"attempts": attempts})
 

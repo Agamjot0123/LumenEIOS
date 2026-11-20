@@ -1,3 +1,5 @@
+import { ManualQuestionForm } from '../../components/common/ManualQuestionForm';
+import { COMPETENCIES, distributeQuestions, distributionError, type CompetencyDistribution } from '../../lib/questionStudio';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
@@ -94,11 +96,22 @@ export const AssessmentBuilder: React.FC = () => {
   const [targetError, setTargetError] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
   const [studioPdfFile, setStudioPdfFile] = useState<File | null>(null);
+  const [savedBank, setSavedBank] = useState<Question[]>();
+  const [bankError, setBankError] = useState('');
+  const [bankRefresh, setBankRefresh] = useState(0);
+  const [manualBusy, setManualBusy] = useState(false);
+  useEffect(() => {
+    let active = true; setSavedBank(undefined); setBankError('');
+    if (genSubjectId) apiClient.assessments.getQuestionBank(genSubjectId).then(items => {if(active) setSavedBank(items);}).catch(error => {if(active) setBankError(error.message);});
+    return () => { active = false; };
+  }, [genSubjectId, bankRefresh]);
   const [studioError, setStudioError] = useState('');
   const [uploadedStudioPdf, setUploadedStudioPdf] = useState<SourceDocument | null>(null);
   const [isUploadingStudioPdf, setIsUploadingStudioPdf] = useState(false);
   const [mcqCount, setMcqCount] = useState<number>(3);
   const [theoryCount, setTheoryCount] = useState<number>(2);
+  const [competencyCounts, setCompetencyCounts] = useState<CompetencyDistribution>({LU:2,CU:1,AU:1,CT:1});
+  const countError = distributionError(competencyCounts, mcqCount + theoryCount);
   const [bloomIndex, setBloomIndex] = useState<number>(3); // 'Analyze'
   const [topicHint, setTopicHint] = useState<string>('');
   // Chapter name the generated questions are filed under in the question bank (used by Differentiated
@@ -226,6 +239,10 @@ export const AssessmentBuilder: React.FC = () => {
 
   const handleGenerateQuestions = async () => {
     if (!targetSubject) return;
+    if (countError) {
+      setStudioError(countError);
+      return;
+    }
     if (mcqCount + theoryCount <= 0) {
       showToast('Please specify at least 1 MCQ or 1 Theory question to generate.', 'warning');
       return;
@@ -263,11 +280,13 @@ export const AssessmentBuilder: React.FC = () => {
         sourceUrls: studioLinks,
         mcqCount,
         theoryCount,
+        competencyDistribution: competencyCounts,
         bloomLevel: currentBloomLevel,
         topicHint: topicHint.trim() || undefined,
         bankTopic: bankTopic.trim() || undefined,
         saveToBank: true,
       }, recordStep);
+      setBankRefresh(value => value + 1);
       setGeneratedQuestions(response.questions);
       addQuestionsToBank(response.questions);
       showToast(
@@ -291,13 +310,14 @@ export const AssessmentBuilder: React.FC = () => {
         sourceUrls: (q.sourceDocumentNames ?? []).filter((name) => /^https?:\/\//i.test(name)),
         mcqCount: q.type === 'mcq' ? 1 : 0,
         theoryCount: q.type === 'mcq' ? 0 : 1,
+        competencyDistribution: Object.fromEntries(COMPETENCIES.map(code => [code, code === q.competency ? 1 : 0])) as CompetencyDistribution,
         bloomLevel: currentBloomLevel,
         topicHint: (topicHint.trim() || 'Use the supplied sources') + '. Write a different question from: ' + q.text,
         saveToBank: false,
       });
       const updated: Question = { ...result.questions[0], id: q.id };
+      await updateBankQuestion(q.id, updated);
       setGeneratedQuestions((prev) => prev.map((item) => (item.id === q.id ? updated : item)));
-      updateBankQuestion(q.id, updated);
       showToast(`Regenerated question with fresh ${currentBloomLevel}-level framing!`);
     } catch (error) {
       setStudioError(error instanceof Error ? error.message : 'Question regeneration failed.');
@@ -319,19 +339,24 @@ export const AssessmentBuilder: React.FC = () => {
     });
   };
 
-  const handleSaveEditQuestion = (id: string) => {
-    setGeneratedQuestions((prev) =>
-      prev.map((q) => (q.id === id ? { ...q, ...editDraft } : q))
-    );
-    updateBankQuestion(id, editDraft);
-    setEditingQuestionId(null);
-    showToast('Saved question edits to Question Bank.');
+  const handleSaveEditQuestion = async (id: string) => {
+    try {
+      await updateBankQuestion(id, editDraft);
+      setGeneratedQuestions((prev) => prev.map((q) => q.id === id ? { ...q, ...editDraft } : q));
+      setEditingQuestionId(null);
+      setBankRefresh(value => value + 1);
+      showToast('Saved question edits to Question Bank.');
+    } catch (error) { setStudioError(error instanceof Error ? error.message : 'Question save failed.'); }
   };
 
-  const handleDeleteGeneratedQuestion = (id: string) => {
-    setGeneratedQuestions((prev) => prev.filter((q) => q.id !== id));
-    deleteBankQuestion(id);
-    showToast('Removed question from preview and Question Bank.');
+  const handleDeleteGeneratedQuestion = async (id: string) => {
+    if (!window.confirm('Delete this saved question from the bank? Questions used in assessments cannot be deleted.')) return;
+    try {
+      await deleteBankQuestion(id);
+      setGeneratedQuestions((prev) => prev.filter((q) => q.id !== id));
+      setBankRefresh(value => value + 1);
+      showToast('Removed question from preview and Question Bank.');
+    } catch (error) { setStudioError(error instanceof Error ? error.message : 'Question deletion failed.'); }
   };
 
   const handleAssignStudioAssignment = async () => {
@@ -570,7 +595,7 @@ export const AssessmentBuilder: React.FC = () => {
                     {!targets?.length && <option value="">{targets || targetError ? 'No classes available' : 'Loading classes…'}</option>}
                     {targets?.map((targetClass) => (
                       <option key={targetClass.id} value={targetClass.id}>
-                        {targetClass.name}
+                        {targetClass.name}{targetClass.school_name ? ' ? ' + targetClass.school_name : ''}
                       </option>
                     ))}
                   </select>
@@ -740,6 +765,13 @@ export const AssessmentBuilder: React.FC = () => {
                 </div>
               </div>
 
+              <fieldset className="border rounded-xl p-3 space-y-2">
+                <legend className="font-semibold">Question Competency Distribution</legend>
+                <p>Total questions: {mcqCount + theoryCount}. Counts must match the MCQ and theory total.</p>
+                <div className="grid grid-cols-4 gap-2">{COMPETENCIES.map(code => <label key={code}>{code}<input aria-label={`${code} question count`} type="number" min={0} max={25} step={1} value={competencyCounts[code]} className="block border rounded p-2 w-full" onChange={event => setCompetencyCounts(counts => ({...counts,[code]:Number(event.target.value)}))}/></label>)}</div>
+                <Button variant="secondary" onClick={() => {if (Number.isInteger(mcqCount + theoryCount) && mcqCount + theoryCount > 0) setCompetencyCounts(distributeQuestions(mcqCount + theoryCount, COMPETENCIES));}}>Allocate evenly</Button>
+                {countError && <p role="status">{countError}</p>}
+              </fieldset>
               {/* Bloom's Taxonomy Difficulty Slider */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
@@ -846,13 +878,20 @@ export const AssessmentBuilder: React.FC = () => {
                 )}
               </div>
 
+              {targetSubject && <details className="border rounded-xl p-3"><summary>Create Question Manually</summary><ManualQuestionForm key={genSubjectId} subjectId={genSubjectId} onBusy={setManualBusy} onSaved={question => {setGeneratedQuestions(current => [...current, question]);addQuestionsToBank([question]);setBankRefresh(value => value + 1);showToast('Saved manual question.');}}/></details>}
+              {targetSubject && <details className="border rounded-xl p-3"><summary>Add saved question</summary>
+                {bankError && <p role="alert">{bankError}</p>}
+                {!savedBank && !bankError && <p role="status">Loading saved questions?</p>}
+                {savedBank?.length === 0 && <p>No saved questions for this subject.</p>}
+                {savedBank?.map(question => <div key={question.id} className="border-b py-2"><MathText text={question.text}/><Button variant="secondary" disabled={manualBusy || generatedQuestions.some(q => q.id === question.id)} onClick={() => setGeneratedQuestions(current => [...current, question])}>Add saved question</Button></div>)}
+              </details>}
               {/* Primary Generate Questions Button */}
               <Button
                 type="button"
                 variant="teal"
                 size="lg"
                 className="relative z-10 w-full"
-                disabled={!targetSubject || isGenerating || isUploadingStudioPdf || isAssigning || !hasStudioSource || !!invalidStudioLink || studioLinks.length > 3}
+                disabled={!targetSubject || isGenerating || isUploadingStudioPdf || isAssigning || !hasStudioSource || !!invalidStudioLink || studioLinks.length > 3 || !!countError}
                 onClick={handleGenerateQuestions}
                 icon={<Sparkles className="w-4 h-4" />}
               >

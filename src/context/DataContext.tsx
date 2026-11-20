@@ -177,8 +177,8 @@ interface DataContextType {
   addSourceDocuments: (docs: SourceDocument[]) => void;
   removeSourceDocument: (id: string) => void;
   addQuestionsToBank: (questions: Question[]) => void;
-  updateBankQuestion: (id: string, updates: Partial<Question>) => void;
-  deleteBankQuestion: (id: string) => void;
+  updateBankQuestion: (id: string, updates: Partial<Question>) => Promise<void>;
+  deleteBankQuestion: (id: string) => Promise<void>;
   attachQuestionsToAssessment: (assessmentId: string, questions: Question[]) => void;
   resetDemoData: () => void;
 }
@@ -735,26 +735,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateBankQuestion = (id: string, updates: Partial<Question>) => {
-    setQuestionBank((prev) => prev.map((q) => (q.id === id ? { ...q, ...updates } : q)));
-    setAssessments((prev) =>
-      prev.map((asm) => ({
-        ...asm,
-        questions: asm.questions.map((q) => (q.id === id ? { ...q, ...updates } : q)),
-      }))
-    );
-    apiClient.assessments.updateQuestion(id, updates).catch(() => {});
+  const updateBankQuestion = async (id: string, updates: Partial<Question>) => {
+    const saved = await apiClient.assessments.updateQuestion(id, updates);
+    setQuestionBank((prev) => prev.map((q) => q.id === id ? saved : q));
   };
 
-  const deleteBankQuestion = (id: string) => {
+  const deleteBankQuestion = async (id: string) => {
+    await apiClient.assessments.deleteQuestion(id);
     setQuestionBank((prev) => prev.filter((q) => q.id !== id));
-    setAssessments((prev) =>
-      prev.map((asm) => ({
-        ...asm,
-        questions: asm.questions.filter((q) => q.id !== id),
-      }))
-    );
-    apiClient.assessments.deleteQuestion(id).catch(() => {});
   };
 
   const attachQuestionsToAssessment = (assessmentId: string, questions: Question[]) => {

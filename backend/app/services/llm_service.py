@@ -1,3 +1,5 @@
+from backend.app.lib.question_content import option_identity
+from backend.app.lib.question_distribution import ORDER
 import asyncio
 import json
 import logging
@@ -302,7 +304,7 @@ def parse_studio_questions(raw: str, mcq_count: int, theory_count: int) -> List[
             options = normalize_mcq_options(options)
             if len(options) != 4 or any(not option for option in options):
                 raise ValueError("Qwen returned an MCQ without four options.")
-            if len({option.casefold() for option in options}) != 4:
+            if len({option_identity(option) for option in options}) != 4:
                 raise ValueError("Qwen returned an MCQ without four distinct options.")
             answer, options = coerce_mcq_answer_and_options(answer, options)
         elif question_type not in {"short", "descriptive", "practical"}:
@@ -370,11 +372,12 @@ def build_studio_prompt(
     focus_topic: Optional[str],
     context: str,
     start_slot: int = 0,
+    competency: Optional[str] = None,
 ) -> str:
     assignments = []
     slot = start_slot
     for number in range(1, mcq_count + 1):
-        code = competency_for_slot(slot)
+        code = competency or competency_for_slot(slot)
         slot += 1
         assignments.append(
             f"MCQ {number} must test {code}: {COMPETENCY_DEFINITIONS[code]} "
@@ -382,7 +385,7 @@ def build_studio_prompt(
             "In marking_rubric, explain why that option demonstrates this competency and why the other options do not."
         )
     for number in range(1, theory_count + 1):
-        code = competency_for_slot(slot)
+        code = competency or competency_for_slot(slot)
         slot += 1
         assignments.append(
             f"Theory {number} must test {code}: {COMPETENCY_DEFINITIONS[code]} "
@@ -1036,11 +1039,22 @@ class QwenQuestionStudioService:
         mark = await self._assessment_draft(
             "Provisionally mark only the actual written response against this question's expected answer and rubric. "
             "Award integer marks from zero to the supplied maximum. Do not invent missing reasoning. "
+            "Use semantic meaning and equivalent explanations, not exact keyword overlap. "
+            "Identify demonstrated_concepts, partial_concepts and missing_concepts supported by the actual answer and rubric. "
+            "If evidence or rubric is insufficient to grade reliably, set insufficient_evidence=true, score=null and correct=null; request clarification rather than guessing. "
             "correct is true only for a fully correct response; partial credit has correct=false. "
             "explanation is teacher-only scoring reasoning. feedback is a student-friendly description of the demonstrated "
             "skill and gap, without reproducing the expected answer or answer key. These are AI suggestions, not verified grades.",
             {"question": {k:question.get(k) for k in ("text","marks","correct_answer","marking_rubric","competency")},
              "actual_response": response}, WrittenMark)
+        if mark.insufficient_evidence:
+            mark.score = mark.correct = None
+            mark.partial_concepts = []
+            mark.missing_concepts = []
+        if mark.score is None:
+            if mark.correct is not None:
+                raise QwenQuestionStudioInferenceError("Unknown marks cannot assert correctness.")
+            return mark
         if mark.score > question["marks"] or mark.correct != (mark.score == question["marks"]):
             raise QwenQuestionStudioInferenceError("Written score and correctness are inconsistent with the original maximum.")
         return mark
@@ -1218,6 +1232,7 @@ class QwenQuestionStudioService:
         bloom_level: str,
         focus_topic: Optional[str] = None,
         web_sources: Optional[List[WebSource]] = None,
+        competency_distribution: Optional[Dict[str, int]] = None,
     ) -> List[Dict[str, Any]]:
         return await asyncio.to_thread(
             self._generate_sync,
@@ -1231,6 +1246,7 @@ class QwenQuestionStudioService:
             bloom_level,
             focus_topic,
             web_sources or [],
+            *([competency_distribution] if competency_distribution is not None else []),
         )
 
     def _generate_text(
@@ -1304,6 +1320,7 @@ class QwenQuestionStudioService:
         bloom_level: str,
         focus_topic: Optional[str],
         web_sources: List[WebSource],
+        competency_distribution: Optional[Dict[str, int]] = None,
     ) -> List[Dict[str, Any]]:
         # ponytail: serialize chapter jobs so they do not compete for the shared model
         with self._inference_lock:
@@ -1336,10 +1353,15 @@ class QwenQuestionStudioService:
             questions: List[Dict[str, Any]] = []
             self._used_facts = set()
             total = mcq_count + theory_count
+            slots = None
+            if competency_distribution is not None:
+                if set(competency_distribution) != set(ORDER) or any(type(n) is not int or n < 0 for n in competency_distribution.values()) or sum(competency_distribution.values()) != total:
+                    raise QwenQuestionStudioInputError("Competency counts must equal the requested question total.")
+                slots = [c for c in ORDER for _ in range(competency_distribution[c])]
             for index in range(mcq_count):
                 report_progress("write", f"Writing MCQ {index + 1} of {mcq_count}", index, total)
                 questions.extend(self._generate_checked(
-                    subject_name, 1, 0, bloom_level, focus_topic, context, index, questions))
+                    subject_name, 1, 0, bloom_level, focus_topic, context, index, questions, **({"competency": slots[index]} if slots is not None else {})))
             for index in range(theory_count):
                 report_progress(
                     "write",
@@ -1348,7 +1370,9 @@ class QwenQuestionStudioService:
                     total,
                 )
                 questions.extend(self._generate_checked(
-                    subject_name, 0, 1, bloom_level, focus_topic, context, mcq_count + index, questions))
+                    subject_name, 0, 1, bloom_level, focus_topic, context, mcq_count + index, questions, **({"competency": slots[mcq_count + index]} if slots is not None else {})))
+            if slots is not None and [q["competency"] for q in questions] != slots:
+                raise QwenQuestionStudioInferenceError("Generated questions do not match the requested competency counts; no questions were saved.")
             report_progress(
                 "prepare",
                 f"Prepared {len(questions)} questions",
@@ -1409,6 +1433,7 @@ class QwenQuestionStudioService:
     def _generate_checked(
         self, subject_name: str, mcq_count: int, theory_count: int, bloom_level: str,
         focus_topic: Optional[str], context: str, slot: int, existing: List[Dict[str, Any]],
+        competency: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """One question that is not a near-copy of an earlier one and, for an MCQ, whose answer key an
         independent re-read of the source agrees with. Small models repeat themselves and sometimes key
@@ -1426,7 +1451,7 @@ class QwenQuestionStudioService:
             try:
                 batch = self._generate_question_batch(
                     subject_name, mcq_count, theory_count, bloom_level, focus_topic, context,
-                    start_slot=slot, focus_fact=fact)
+                    start_slot=slot, focus_fact=fact, **({"competency": competency} if competency else {}))
             except ValueError as exc:
                 # Malformed output (e.g. an MCQ without four options): try the next part of the source.
                 last_error = exc
@@ -1490,6 +1515,7 @@ class QwenQuestionStudioService:
         context: str,
         start_slot: int = 0,
         focus_fact: Optional[str] = None,
+        competency: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         prompt = build_studio_prompt(
             subject_name,
@@ -1499,8 +1525,17 @@ class QwenQuestionStudioService:
             focus_topic,
             context,
             start_slot=start_slot,
+            competency=competency,
         )
         output_schema = self._studio_output_schema(mcq_count, theory_count)
+        if competency:
+            for section in output_schema["properties"].values():
+                section["items"]["properties"]["competency"] = {"enum": [competency]}
+        def parse_requested(raw):
+            questions = parse_studio_questions(raw, mcq_count, theory_count)
+            if competency and any(q["competency"] != competency for q in questions):
+                raise ValueError("The question must test the requested primary competency " + competency)
+            return questions
         example = (
             '{"mcqs":[{"type":"mcq","text":"Which organ pumps blood?",'
             '"options":["Brain","Heart","Lung","Kidney"],"correct_answer":"Heart",'
@@ -1523,7 +1558,7 @@ class QwenQuestionStudioService:
             prompt, max_new_tokens=1536, output_schema=output_schema, report_step="write"
         )
         try:
-            return parse_studio_questions(raw, mcq_count, theory_count)
+            return parse_requested(raw)
         except ValueError:
             repair_prompt = (
                 f"{prompt}\n\nThe previous JSON was invalid for the schema:\n{raw}\n\n"
@@ -1539,11 +1574,11 @@ class QwenQuestionStudioService:
                 report_step="write",
             )
             try:
-                return parse_studio_questions(raw, mcq_count, theory_count)
+                return parse_requested(raw)
             except ValueError:
                 if mcq_count == 1 and theory_count == 0:
                     filled = self._fill_missing_mcq_options(raw, context)
-                    if filled is not None:
+                    if filled is not None and (not competency or all(q["competency"] == competency for q in filled)):
                         return filled
                 raise
 

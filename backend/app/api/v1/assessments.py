@@ -1,3 +1,4 @@
+from backend.app.lib.question_content import option_identity
 import uuid
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +10,8 @@ from backend.app.db.session import get_db
 from backend.app.core.config import settings
 from backend.app.models.entities import (
     Assessment,
+    School,
+    TeacherAssignment,
     AssignmentOcrUpload,
     ClassSection,
     AssessmentSubmission,
@@ -128,9 +131,15 @@ async def get_assignment_targets(
     educator: User = Depends(require_roles("admin", "principal", "teacher")),
     school_id: str = Depends(get_current_school_context),
 ):
-    sections = (await db.scalars(
-        select(ClassSection).where(ClassSection.school_id == school_id).order_by(ClassSection.name)
-    )).all()
+    school = await db.get(School, school_id)
+    query = select(ClassSection).where(ClassSection.school_id == school_id)
+    taught = None
+    if educator.role == "teacher":
+        taught = {(row.class_id, row.subject_id) for row in (await db.scalars(select(TeacherAssignment).where(
+            TeacherAssignment.teacher_id == educator.id, TeacherAssignment.school_id == school_id))).all()}
+        query = query.where(or_(ClassSection.class_teacher_id == educator.id,
+                               ClassSection.id.in_([class_id for class_id, _ in taught])))
+    sections = (await db.scalars(query.order_by(ClassSection.name, ClassSection.id))).all()
     subject_ids = {subject_id for section in sections for subject_id in section.subject_ids_json}
     subjects = {
         subject.id: subject.name
@@ -140,9 +149,11 @@ async def get_assignment_targets(
         {
             "id": section.id,
             "name": section.name,
+            "school_id": section.school_id,
+            "school_name": school.name if school else section.school_id,
             "subjects": [
                 {"id": subject_id, "name": subjects[subject_id]}
-                for subject_id in section.subject_ids_json if subject_id in subjects
+                for subject_id in section.subject_ids_json if subject_id in subjects and (taught is None or section.class_teacher_id == educator.id or (section.id, subject_id) in taught)
             ],
         }
         for section in sections
@@ -187,6 +198,12 @@ async def create_assessment(
     if "class_id" in req.model_fields_set and req.class_id != class_id:
         raise HTTPException(status_code=422, detail="Request class must match the target class.")
     section = await validate_assignment_target(db, school_id, class_id, req.subject_id)
+    if educator.role == "teacher" and section.class_teacher_id != educator.id:
+        allocation = await db.scalar(select(TeacherAssignment.id).where(
+            TeacherAssignment.teacher_id == educator.id, TeacherAssignment.school_id == school_id,
+            TeacherAssignment.class_id == class_id, TeacherAssignment.subject_id == req.subject_id))
+        if allocation is None:
+            raise HTTPException(404, "Class and subject unavailable in your teaching scope.")
     asm = Assessment(
         school_id=section.school_id,
         class_id=class_id,
@@ -256,26 +273,7 @@ async def get_question_bank(
     if items:
         return [_serialize_qb_item(it) for it in items]
 
-    # Preserve the legacy demo item only in its original school/subject context.
-    if not settings.DEMO_MODE or school_id != "school-1" or subject_id not in (None, "sub-math"):
-        return []
-    return [
-        {
-            "id": "q-1",
-            "subject_id": "sub-math",
-            "text": "A water tank is in the shape of a cuboid with length 4m, breadth 3m, and depth 2m. If water is poured at the rate of 60 liters per minute, how many hours will it take to fill the tank completely? (1 m3 = 1000 liters)",
-            "type": "practical",
-            "options": [],
-            "marks": 4,
-            "competency": "AU",
-            "bloom_level": "Apply",
-            "correct_answer": "Volume = 24 m3 = 24,000 Liters. Time = 24000/60 = 400 mins = 6 hours and 40 minutes.",
-            "marking_rubric": "1m for cuboid volume; 1m for Liter conversion; 1m for division; 1m for hours/mins.",
-            "source_document_ids": ["doc-src-math-1"],
-            "source_document_names": ["NCERT_Grade8_Maths_Ch11_Mensuration_&_Volumes.pdf"],
-            "is_ai_generated": False,
-        }
-    ]
+    return []
 
 
 def _clean_topic(value: Optional[str]) -> Optional[str]:
@@ -342,7 +340,7 @@ def _validate_bank_question(
     cleaned = [option.strip() for option in options if isinstance(option, str) and option.strip()]
     if not 2 <= len(cleaned) <= 6:
         raise HTTPException(status_code=422, detail="A multiple-choice question needs 2 to 6 options.")
-    if len({option.casefold() for option in cleaned}) != len(cleaned):
+    if len({option_identity(option) for option in cleaned}) != len(cleaned):
         raise HTTPException(status_code=422, detail="Multiple-choice options must be different from each other.")
     if (correct_answer or "").strip() not in cleaned:
         raise HTTPException(status_code=422, detail="Mark exactly one option as the correct answer.")
@@ -617,6 +615,7 @@ async def generate_questions_beta(
             bloom_level=req.bloom_level,
             focus_topic=req.focus_topic,
             web_sources=web_sources,
+            **({"competency_distribution": req.competency_distribution.model_dump()} if req.competency_distribution is not None else {}),
         )
     except QwenQuestionStudioInputError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -807,9 +806,15 @@ async def delete_question_endpoint(
     res = await db.execute(select(QuestionBankItem).filter(
         QuestionBankItem.id == question_id, QuestionBankItem.school_id == school_id))
     item = res.scalars().first()
-    if item:
-        await db.delete(item)
-        await db.commit()
+    if item is None:
+        raise HTTPException(404, "Question not found in your school.")
+    # Frozen assessment references live in JSON and are not protected by foreign keys.
+    snapshots = (await db.scalars(select(Assessment.questions_json))).all()
+    if any(isinstance(q, dict) and (q.get("id") == question_id or q.get("source_question_id") == question_id)
+           for snapshot in snapshots for q in (snapshot or [])):
+        raise HTTPException(409, "This question is used in an assessment and cannot be deleted.")
+    await db.delete(item)
+    await db.commit()
     return {"status": "deleted", "id": question_id}
 
 

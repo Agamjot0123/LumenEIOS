@@ -71,6 +71,8 @@ async def question_guidance(db,user,student_id,assessment_id):
     outcomes=review["outcomes"] if review else automatic_outcomes(record)
     evaluation=reviewed_stage_view(record)
     evaluation=evaluation or provisional_view(record)
+    from backend.app.modules.learnsphere.automation import current_competencies
+    competencies = {m["position"]: m for m in current_competencies(record)}
     items=[]
     seen=set()
     for q in record.questions_json:
@@ -83,13 +85,35 @@ async def question_guidance(db,user,student_id,assessment_id):
         advice=guidance_for_role(guidance.get(position),user.role,seen)
         status="Unassessed" if o.get("score") is None else "Correct" if o["score"]==o["maximum"] else "Incorrect" if o["score"]==0 else "Partially correct"
         stages=[s["stage"] for s in evaluation["stages"] if any(c["position"]==position for c in s["contributions"])]
+        mapping = competencies[position]
+        if not educator:
+            mapping = {k:v for k,v in mapping.items() if k in {"position","label","confidence","status"}}
+            mapping["reason"] = ("The teacher reviewed this question's competency." if mapping["status"].startswith("teacher_")
+                else "Competency analysis is provisional; uncertain mappings need teacher review.")
         items.append({"position":position,"text":q["text"],"answer":actual,"score":o.get("score"),"maximum":o["maximum"],
-            "status":status,"competency":q["competency"],"stages":stages,
+            "status":status,"competency":competencies[position]["label"] or "Unmapped","stages":stages,
+            "competency_mapping":mapping, "stored_competency":q["competency"] if educator else None,
+            "concept_evidence":o.get("concept_evidence") if educator else None,
             "correct_answer":q.get("correct_answer") if educator or (review and o.get("key_verified")) else None,
             "feedback":o.get("feedback") if review or educator else None,"guidance":advice,
             "missing_information":None if advice else "Guidance is being generated automatically. Temporary failures are retried; saved responses and reviewed marks remain unchanged."})
+    concept_stages = []
+    for score in evaluation["stages"]:
+        groups = {"demonstrated": [], "partial": [], "missing": []}
+        for contribution in score["contributions"]:
+            position = contribution["position"]
+            if not contribution["eligible"]:
+                continue
+            concept = guidance.get(position, {}).get("expected_concept")
+            if not concept:
+                continue
+            state = "demonstrated" if contribution["score"] == contribution["maximum"] else "missing" if contribution["score"] == 0 else "partial"
+            groups[state].append({"position": position, "concept": concept,
+                "marks_status": "teacher_confirmed" if evaluation.get("teacher_verified") else "provisional",
+                "description_status": "provisional_ai"})
+        concept_stages.append({"stage": score["stage"], **groups})
     subject=await db.get(Subject,record.subject_id)
-    return {"assessment_id":assessment.id,"result_id":record.id,"student_id":student_id,"name":assessment.title,
+    return {"automation_version":len((record.panchapadi_json or {}).get("competency_reviews", [])), "concept_stages":concept_stages, "assessment_id":assessment.id,"result_id":record.id,"student_id":student_id,"name":assessment.title,
         "subject":subject.name if subject else record.subject_id,"date":assessment.date,
         "evaluation_status":"teacher_reviewed" if review else "provisional","guidance_status":"provisional" if len(guidance)==len(record.questions_json) else "running" if last.get("status")=="running" else "pending",
         "questions":items,"performance":{"result_id":record.id,"assessment_id":assessment.id,"assessment_name":assessment.title,

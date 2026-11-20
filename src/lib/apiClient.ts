@@ -4,7 +4,7 @@
  * Provides resilient fallback handling for local offline demonstration environments.
  */
 
-import type { Role, Student, User } from '../types';
+import type { Role, Student, User, CompetencyKey } from '../types';
 import { DEMO_MODE, clearTeachingCache, apiErrorMessage } from './runtime';
 
 // Prefer VITE_API_URL. Local default is same-origin /api/v1 (Vite proxies to FastAPI).
@@ -41,7 +41,7 @@ export type ProcessStep = {
   total: number;
 };
 
-export type AssignmentTarget = { id: string; name: string; subjects: { id: string; name: string }[] };
+export type AssignmentTarget = { id: string; name: string; school_id?: string; school_name?: string; subjects: { id: string; name: string }[] };
 
 export type DemoWalkthrough = {
   student_name: string;
@@ -910,6 +910,7 @@ export const apiClient = {
       sourceUrls?: string[];
       mcqCount: number;
       theoryCount: number;
+      competencyDistribution?: Record<CompetencyKey, number>;
       bloomLevel: string;
       topicHint?: string;
       bankTopic?: string;
@@ -922,6 +923,7 @@ export const apiClient = {
         source_urls: data.sourceUrls || [],
         mcq_count: data.mcqCount,
         theory_count: data.theoryCount,
+        competency_distribution: data.competencyDistribution,
         bloom_level: data.bloomLevel,
         focus_topic: data.topicHint || undefined,
         bank_topic: data.bankTopic || undefined,

@@ -168,6 +168,13 @@ def isolate_automatic_stage_inference(monkeypatch):
     from backend.app.services.llm_service import qwen_question_studio
     import backend.app.services.panchapadi as stage_worker
     monkeypatch.setattr(stage_worker,"GUIDANCE_RETRY_DELAYS",(0,0))
+    from backend.app.modules.learnsphere import automation
+    async def isolated_competencies(questions, subject, topics):
+        return [{"position":q["position"],"label":q.get("competency") if q.get("competency") in automation.CODES else None,
+            "suggested_label":q.get("competency"),"confidence":0.95,"status":"provisional",
+            "reason":"Synthetic test mapping for this question.","question_fingerprint":automation.question_fingerprint(q)}
+            for q in questions]
+    monkeypatch.setattr(automation,"classify_competencies",isolated_competencies)
     from backend.app.schemas.panchapadi import StageClassification
     async def no_unmeasured_stages(questions, answers, outcomes):
         return StageClassification(questions=[{"position": q["position"], "mappings": []} for q in questions])

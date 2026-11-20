@@ -35,7 +35,13 @@ async def assign_automatic_learning(db, result, completion):
         topic=await db.get(LearningTopic,next(iter(topic_ids))) if len(topic_ids)==1 else None
         if topic and (topic.school_id,topic.class_id,topic.subject_id)!=(result.school_id,result.class_id,result.subject_id):
             topic=None
-        competency=next(o["competency"] for o in completion["outcomes"] if o["position"]==draft["positions"][0])
+        analysed = {m["position"]:m.get("label") for m in completion.get("competency_mappings", [])}
+        if analysed:
+            competency = next((analysed[p] for p in draft["positions"] if analysed.get(p)), None)
+            if competency is None:
+                continue
+        else:
+            competency=next(o["competency"] for o in completion["outcomes"] if o["position"]==draft["positions"][0])
         instructions="\n\n".join((draft["scenario"],draft["instructions"],"Submit: "+draft["expected_submission"],"Learning objective: "+draft["objective"]))
         activity=LearningActivity(id=str(uuid.uuid5(uuid.NAMESPACE_URL,"activity:"+signature)),
             topic_id=topic.id if topic else None,kind=draft["kind"],title=draft["title"],instructions=instructions,

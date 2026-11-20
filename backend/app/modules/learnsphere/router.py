@@ -1,7 +1,7 @@
 import hashlib
 import json
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -111,6 +111,20 @@ async def assessments_for_support(student_id:str,db=Depends(get_db),user=Depends
 async def assessment_support_guidance(student_id:str,assessment_id:str,db=Depends(get_db),user=Depends(actor)):
     from backend.app.services.assessment_guidance import question_guidance
     return await question_guidance(db,user,student_id,assessment_id)
+
+
+from .automation import CompetencyReview
+
+
+@router.post("/students/{student_id}/assessments/{assessment_id}/competencies")
+async def confirm_question_competencies(student_id: str, assessment_id: str, body: CompetencyReview,
+        background_tasks: BackgroundTasks, db=Depends(get_db), user=Depends(educator)):
+    from .automation import review_competencies
+    from backend.app.services.panchapadi import evaluate_with_guidance_retry
+    from backend.app.services.assessment_guidance import question_guidance
+    record = await review_competencies(db, user, student_id, assessment_id, body)
+    background_tasks.add_task(evaluate_with_guidance_retry, record.id, True)
+    return await question_guidance(db, user, student_id, assessment_id)
 
 
 @router.get("/students/{student_id}/journey", response_model=output.JourneyOut)

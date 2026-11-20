@@ -144,4 +144,4 @@ async def test_empty_live_bank_has_no_bundled_demo_answer(monkeypatch, demo):
         async def execute(self, query): return EmptyResult()
     monkeypatch.setattr(settings,'DEMO_MODE',demo)
     rows=await get_question_bank(subject_id='sub-math',db=EmptyDatabase(),educator=None,school_id='school-1')
-    assert bool(rows) == demo
+    assert rows == []  # Empty banks stay empty in both modes; do not invent a saved item.

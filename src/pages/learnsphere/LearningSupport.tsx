@@ -1,4 +1,3 @@
-import { AssessmentResultsReview } from '../../components/common/AssessmentResultsReview';
 import React, { useEffect, useState } from 'react';
 import { useLearning } from './LearnSphereLayout';
 import { learnsphere } from '../../lib/learnsphere';
@@ -7,7 +6,7 @@ import { Card, CardBody } from '../../components/common/Card';
 import { ActivityWorkspace } from './ActivityWorkspace';
 import {AssessmentQuestionSupport} from '../../components/learnsphere/AssessmentQuestionSupport';
 export function LearningSupport() {
-  const { studentId, educator } = useLearning();
+  const { studentId } = useLearning();
   const [data, setData] = useState<Support>();
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -19,7 +18,6 @@ export function LearningSupport() {
   }, [studentId, revision]);
   return <div className="space-y-4"><h2 className="text-xl font-semibold">Learning Support</h2>
     <AssessmentQuestionSupport key={studentId}/>
-    {educator && <section id="assessment-review"><AssessmentResultsReview /></section>}
     <details><summary>General activity-based learning support</summary>
     {error && <p role="alert">{error}</p>}
     {!studentId ? <p>Select a student to view support.</p> : !data && !error ? <p role="status">Loading evidence…</p> : null}

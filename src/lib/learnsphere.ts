@@ -7,6 +7,9 @@ export const learnsphere = {
   panchapadi: (id:string) => request<PanchapadiHistory>(`${base}/students/${encodeURIComponent(id)}/panchapadi?include_provisional=true`),
   assessmentOptions: (id:string) => request<import('../types/assessmentGuidance').AssessmentOption[]>(`${base}/students/${encodeURIComponent(id)}/assessments`),
   assessmentGuidance: (id:string,assessment:string) => request<import('../types/assessmentGuidance').AssessmentGuidance>(`${base}/students/${encodeURIComponent(id)}/assessments/${encodeURIComponent(assessment)}/guidance`),
+  assessmentResult: (id:string) => request<import('../types/assessmentResults').AssessmentResult>('/assessments/results/'+encodeURIComponent(id)),
+  reviewCompetencies: (studentId:string,assessmentId:string,body:unknown) =>
+    post<import('../types/assessmentGuidance').AssessmentGuidance>('/students/'+encodeURIComponent(studentId)+'/assessments/'+encodeURIComponent(assessmentId)+'/competencies',body),
   scope: () => request<Scope>(base + '/scope'),
   summary: () => request<{students: number; assignments: number; completed_assignments: number}>(base + '/summary'),
   support: (id: string) => request<Support>(`${base}/students/${encodeURIComponent(id)}/support`),

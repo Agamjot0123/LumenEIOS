@@ -5,7 +5,8 @@ import pytest
 from PIL import Image
 
 from backend.app.core.security import create_access_token
-from backend.app.models.entities import Assessment, Subject
+from backend.app.models.entities import Assessment, Subject, TeacherAssignment
+from sqlalchemy import select
 from types import SimpleNamespace
 
 from backend.app.api.v1 import ocr as ocr_api
@@ -90,6 +91,15 @@ async def test_assignment_audience_and_ocr_upload(client, db_session, monkeypatc
     async def create(class_id, **updates):
         return await client.post(f"{base}/classes/{class_id}/assessments", headers=teacher, json=body | updates)
 
+    # Cross-class authoring requires an explicit subject allocation, not merely a shared school.
+    for class_id in ("class-8a", "class-8b", "class-9b"):
+        allocation = await db_session.scalar(select(TeacherAssignment.id).where(
+            TeacherAssignment.teacher_id == "user-teacher-1", TeacherAssignment.class_id == class_id,
+            TeacherAssignment.subject_id == "sub-math"))
+        if allocation is None:
+            db_session.add(TeacherAssignment(teacher_id="user-teacher-1", school_id="school-1",
+                                            class_id=class_id, subject_id="sub-math"))
+    await db_session.commit()
     targets = (await client.get(f"{base}/assessments/targets", headers=teacher)).json()
     assert {item["id"] for item in targets} >= {"class-8a", "class-9b"}
     assert "class-pragati-8" not in {item["id"] for item in targets}
