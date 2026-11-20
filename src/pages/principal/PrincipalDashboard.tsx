@@ -13,7 +13,9 @@ import { CompetencyBarChart } from '../../components/charts/CompetencyBarChart';
 import { ApiError, apiClient } from '../../lib/apiClient';
 import { CLASS_NAME_HELP } from '../../lib/className';
 import { SchoolOverview } from '../../components/school/SchoolOverview';
+import { AnnouncementComposer } from '../../features/announcements/AnnouncementComposer';
 import { CalendarOverview } from '../../features/calendar/CalendarOverview';
+import { AnnouncementsOverview } from '../../features/announcements/AnnouncementsOverview';
 import {
   School,
   Users,
@@ -34,7 +36,7 @@ export const PrincipalDashboard: React.FC = () => {
   const navigate = useNavigate();
 
   const [isAnnounceModalOpen, setIsAnnounceModalOpen] = useState(false);
-  const [announceText, setAnnounceText] = useState('');
+  const [announceTick, setAnnounceTick] = useState(0);
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [className, setClassName] = useState('');
   const [classError, setClassError] = useState<string | null>(null);
@@ -42,20 +44,6 @@ export const PrincipalDashboard: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
 
   const activeSchool = schools.find((s) => s.id === currentSchoolId) || schools[0];
-
-  const handleSendAnnouncement = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!announceText.trim()) return;
-    try {
-      await apiClient.announcements.create({ title: 'Message from the Principal', content: announceText.trim(), target_role: 'teacher' });
-      setToast('Announcement sent to all teachers.');
-    } catch (err) {
-      setToast(err instanceof Error ? err.message : 'Could not send the announcement.');
-    }
-    setIsAnnounceModalOpen(false);
-    setAnnounceText('');
-    setTimeout(() => setToast(null), 4000);
-  };
 
   const handleAddClass = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -126,7 +114,7 @@ export const PrincipalDashboard: React.FC = () => {
             onClick={() => setIsAnnounceModalOpen(true)}
             icon={<Send className="w-4 h-4" />}
           >
-            Broadcast to Faculty
+            Broadcast announcement
           </Button>
           <Button
             variant="outline"
@@ -186,7 +174,7 @@ export const PrincipalDashboard: React.FC = () => {
           </p>
         </div>
       </div>
-      <CalendarOverview />
+      <div className="space-y-4"><AnnouncementsOverview key={announceTick} /><CalendarOverview /></div>
       </div>
 
       <Modal
@@ -226,38 +214,16 @@ export const PrincipalDashboard: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Broadcast Announcement Modal */}
-      <Modal
+      <AnnouncementComposer
         isOpen={isAnnounceModalOpen}
         onClose={() => setIsAnnounceModalOpen(false)}
-        title="Broadcast Announcement to Campus Faculty"
-        subtitle={`Send a message to every teacher at ${activeSchool.name}`}
-        maxWidth="md"
-        footer={
-          <div className="flex items-center justify-end gap-2.5 w-full">
-            <Button variant="secondary" size="md" onClick={() => setIsAnnounceModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="teal" size="md" onClick={handleSendAnnouncement}>
-              Send Announcement
-            </Button>
-          </div>
-        }
-      >
-        <form onSubmit={handleSendAnnouncement} className="space-y-4 text-xs">
-          <div>
-            <label className="block font-semibold text-content-primary mb-1">Message Content</label>
-            <textarea
-              rows={4}
-              required
-              value={announceText}
-              onChange={(e) => setAnnounceText(e.target.value)}
-              placeholder="e.g. Please review the 60/40 compacting proposals for Mathematics and Science ahead of tomorrow's faculty meeting..."
-              className="w-full px-3 py-2 bg-white border border-surface-border rounded-lg text-xs"
-            />
-          </div>
-        </form>
-      </Modal>
+        onSent={(message) => {
+          setIsAnnounceModalOpen(false);
+          setAnnounceTick((n) => n + 1);
+          setToast(message);
+          setTimeout(() => setToast(null), 4000);
+        }}
+      />
     </div>
   );
 };

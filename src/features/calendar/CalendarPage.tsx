@@ -127,7 +127,7 @@ export const CalendarPage: React.FC = () => {
         <div className="flex items-start gap-3">
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-teal-600 text-white"><CalendarDays className="h-6 w-6" /></span>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-navy-900">Calendar</h1>
+            <h2 className="text-xl font-bold tracking-tight text-navy-900">Calendar</h2>
             <p className="mt-0.5 text-xs text-content-secondary">
               Holidays, exams, deadlines and your own tasks{feed?.meta.year ? ` · Session ${feed.meta.year}` : ''}{schools ? ` · ${schools}` : ''}
             </p>
@@ -280,7 +280,7 @@ export const CalendarPage: React.FC = () => {
                         <p className={cn('break-words text-sm font-semibold text-navy-900', e.done && 'line-through opacity-60')}>{e.title}</p>
                         <p className="text-xs text-content-secondary">
                           {e.category === 'personal' ? (e.personal_kind === 'DEADLINE' ? 'My deadline' : 'My task') : CATEGORY_META[e.category].label}
-                          {' · '}{rangeLabel(e)}
+                          {' · '}{rangeLabel(e)}{e.sender_name ? ` · from ${e.sender_name}` : ''}
                         </p>
                         {e.detail && <p className="mt-0.5 break-words text-xs text-content-muted">{e.detail}</p>}
                         {e.editable && (

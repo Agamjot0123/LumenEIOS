@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { SchoolOverview } from '../../components/school/SchoolOverview';
 import { CalendarOverview } from '../../features/calendar/CalendarOverview';
+import { AnnouncementsOverview } from '../../features/announcements/AnnouncementsOverview';
 import { averageScores } from '../../lib/dashboard';
 
 export const AdminDashboard: React.FC = () => {
@@ -84,7 +85,7 @@ export const AdminDashboard: React.FC = () => {
           ))}
         </CardBody>
       </Card>
-      <CalendarOverview />
+      <div className="space-y-4"><AnnouncementsOverview /><CalendarOverview /></div>
       </div>
     </div>
   );

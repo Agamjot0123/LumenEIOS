@@ -11,6 +11,7 @@ import { ClassHeatmap } from '../../components/charts/ClassHeatmap';
 import { DIM_LABEL, averageScores, examName, formatDay, summariseExams } from '../../lib/dashboard';
 import { teacherClassIds } from '../../lib/workspace';
 import { CalendarOverview } from '../../features/calendar/CalendarOverview';
+import { AnnouncementsOverview } from '../../features/announcements/AnnouncementsOverview';
 import {
   Users, BookOpen, Sparkles, ScanLine, ArrowRight, TrendingUp, FileCheck, Clock, AlertTriangle, ClipboardList,
 } from 'lucide-react';
@@ -116,7 +117,7 @@ export const TeacherDashboard: React.FC = () => {
           </CardBody>
         </Card>
 
-        <CalendarOverview />
+        <div className="space-y-4"><AnnouncementsOverview /><CalendarOverview /></div>
 
         <div className="lg:col-span-2 lg:row-span-2 space-y-6">
           <Card>

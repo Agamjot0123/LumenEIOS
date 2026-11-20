@@ -42,6 +42,11 @@ async def test_assistant_scopes_parent_records_and_navigation(client, parent_tok
     assert set(payload["records"]["calendar"]) == {"today", "highlights", "upcoming"}  # role-scoped calendar items
     assert payload["records"]["student_count"] == 2
     assert payload["records"]["classes"] == []
+    # The assistant can read the same role-scoped calendar as the Calendar page (read-only).
+    assert "today" in payload["records"]["calendar"]
+    assert isinstance(payload["records"]["calendar"]["upcoming"], list)
+    assert "next_7_days" in payload["records"]["calendar"]["highlights"]
+    assert any("Calendar:" in step for step in payload["how_to"])
 
 
 @pytest.mark.asyncio
@@ -54,7 +59,21 @@ async def test_assistant_denies_unauthenticated_requests_and_unassigned_schools(
 
 @pytest.mark.asyncio
 async def test_teacher_context_excludes_other_teachers_classes(db_session):
-    from backend.app.models.entities import User
+    from sqlalchemy import select
+    from backend.app.models.entities import TeacherAssignment, User
+
+    # Teacher 1 has an explicit Mathematics allocation in class 8-B, in addition to
+    # being the class teacher for 8-A and 9-B. Set it up here so this test is order independent.
+    allocation = await db_session.scalar(select(TeacherAssignment.id).where(
+        TeacherAssignment.teacher_id == "user-teacher-1",
+        TeacherAssignment.class_id == "class-8b",
+        TeacherAssignment.subject_id == "sub-math",
+    ))
+    if allocation is None:
+        db_session.add(TeacherAssignment(
+            teacher_id="user-teacher-1", school_id="school-1", class_id="class-8b", subject_id="sub-math",
+        ))
+        await db_session.commit()
 
     teacher = await db_session.get(User, "user-teacher-1")
     context = await assistant.assistant_context(db_session, teacher, "school-1")
@@ -62,9 +81,10 @@ async def test_teacher_context_excludes_other_teachers_classes(db_session):
     other_teacher = await db_session.get(User, "user-teacher-2")
     other = await assistant.assistant_context(db_session, other_teacher, "school-1")
     assert other["classes"]
-    assert {item["name"] for item in context["classes"]}.isdisjoint(
-        item["name"] for item in other["classes"]
-    )
+    # Class 8-B is deliberately shared: teacher 1 has an explicit Mathematics allocation there.
+    # Each teacher must still exclude the other teacher's unallocated class sections.
+    assert {item["name"] for item in context["classes"]} == {"Class 8-A", "Class 8-B", "Class 9-B"}
+    assert {item["name"] for item in other["classes"]} == {"Class 7-A", "Class 8-B"}
 
 
 @pytest.mark.asyncio

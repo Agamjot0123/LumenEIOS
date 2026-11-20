@@ -50,7 +50,7 @@ import { DifferentiatedHomeworkPage } from './pages/homework/DifferentiatedHomew
 import { CurriculumModule, CatalogueDashboard, CatalogueCombinationPage } from './features/curriculum/CurriculumModule';
 import { CoverageOversight } from './pages/principal/CoverageOversight';
 import { PlanLogs } from './pages/shared/PlanLogs';
-import { CalendarPage } from './features/calendar/CalendarPage';
+import { AnnouncementsCalendarPage } from './features/announcements/AnnouncementsCalendarPage';
 import {
   EducatorProgressOverviewPage,
   ParentProgressOverviewPage,
@@ -211,7 +211,8 @@ const MainApp: React.FC = () => (
 
       <Route path="/homework" element={<DifferentiatedHomeworkPage />} />
 
-      <Route path="/calendar" element={<CalendarPage />} />
+      <Route path="/calendar" element={<AnnouncementsCalendarPage />} />
+      <Route path="/announcements" element={<AnnouncementsCalendarPage />} />
 
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route path="*" element={<NotFoundPage />} />

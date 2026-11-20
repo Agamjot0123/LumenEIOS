@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiRequest } from '../../lib/apiClient';
 import { useAuth } from '../../context/AuthContext';
 
-export type CalendarCategory = 'holiday' | 'vacation' | 'exam' | 'event' | 'session' | 'deadline' | 'lost' | 'personal';
+export type CalendarCategory = 'holiday' | 'vacation' | 'exam' | 'event' | 'session' | 'deadline' | 'lost' | 'personal' | 'announcement';
 
 export interface CalendarEvent {
   id: string;
@@ -11,7 +11,9 @@ export interface CalendarEvent {
   /** ISO dates (YYYY-MM-DD), inclusive. */
   start: string;
   end: string;
-  source: 'school' | 'assessment' | 'homework' | 'personal';
+  source: 'school' | 'assessment' | 'homework' | 'personal' | 'announcement';
+  announcement_id?: string;
+  sender_name?: string;
   detail: string;
   editable: boolean;
   personal_id?: string;
@@ -58,8 +60,10 @@ export const CATEGORY_META: Record<CalendarCategory, { label: string; color: str
   session: { label: 'Session', color: '#0F766E', hint: 'Academic session start and end' },
   lost: { label: 'Lost teaching day', color: '#475569', hint: 'Teaching disrupted' },
   personal: { label: 'My tasks', color: '#047857', hint: 'Your own tasks and deadlines' },
+  // Fixed on purpose: announcements always use this colour (magenta/fuchsia is used by no other kind) and it is not user-configurable.
+  announcement: { label: 'Announcement event', color: '#A21CAF', hint: 'An event announced by the principal or a teacher' },
 };
-export const CATEGORY_ORDER: CalendarCategory[] = ['holiday', 'vacation', 'exam', 'deadline', 'event', 'session', 'lost', 'personal'];
+export const CATEGORY_ORDER: CalendarCategory[] = ['holiday', 'vacation', 'exam', 'deadline', 'event', 'announcement', 'session', 'lost', 'personal'];
 
 // ---- dates (always local calendar days; never parsed through UTC) ---------------------------------------------------
 export function toIso(d: Date): string {
@@ -92,7 +96,7 @@ export function eventsOn(events: CalendarEvent[], iso: string): CalendarEvent[] 
   return events.filter((e) => e.start <= iso && e.end >= iso);
 }
 
-const PRIORITY: Record<CalendarCategory, number> = { exam: 0, deadline: 1, holiday: 2, vacation: 3, event: 4, personal: 5, session: 6, lost: 7 };
+const PRIORITY: Record<CalendarCategory, number> = { exam: 0, deadline: 1, announcement: 2, holiday: 3, vacation: 4, event: 5, personal: 6, session: 7, lost: 8 };
 export function sortForDay(events: CalendarEvent[]): CalendarEvent[] {
   return [...events].sort((a, b) => PRIORITY[a.category] - PRIORITY[b.category] || a.title.localeCompare(b.title));
 }

@@ -369,7 +369,7 @@ export interface NotificationItem {
   userId: string;
   title: string;
   message: string;
-  type: 'info' | 'warning' | 'success' | 'alert';
+  type: 'info' | 'warning' | 'success' | 'alert' | 'announcement';
   read: boolean;
   createdAt: string;
   link?: string;

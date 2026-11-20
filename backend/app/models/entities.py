@@ -444,8 +444,14 @@ class Announcement(Base):
     sender_name = Column(String(255), nullable=False)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
-    target_role = Column(String(50), default="teacher", nullable=False)
+    target_role = Column(String(50), default="teacher", nullable=False)  # legacy single-role target ("all" = everyone)
     created_at = Column(DateTime, default=utc_now, nullable=False)
+    # Broadcast fields (all optional, so older rows keep working):
+    sender_role = Column(String(50), nullable=True)
+    audience_json = Column(JSON, nullable=True)  # roles reached: any of teacher, student, parent, principal
+    class_ids_json = Column(JSON, nullable=True)  # limits students/parents to these classes; null = every class the sender may reach
+    event_start = Column(String(10), nullable=True)  # ISO date; set when the announcement is marked on the calendar
+    event_end = Column(String(10), nullable=True)
 
 
 class AuditEvent(Base):

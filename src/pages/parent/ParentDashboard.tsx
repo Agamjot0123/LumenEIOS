@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { LearnerOverview } from '../../components/learner/LearnerOverview';
 import { CalendarOverview } from '../../features/calendar/CalendarOverview';
+import { AnnouncementsOverview } from '../../features/announcements/AnnouncementsOverview';
 import { DIM_LABEL } from '../../lib/dashboard';
 
 // Everyday, low-cost activities families can do at home, by the competency that needs the most support.
@@ -91,7 +92,7 @@ export const ParentDashboard: React.FC = () => {
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
         <LearnerOverview studentId={child.id} audience="parent" />
-        <div className="xl:sticky xl:top-4"><CalendarOverview /></div>
+        <div className="space-y-4"><AnnouncementsOverview /><CalendarOverview /></div>
       </div>
 
       <Card>

@@ -11,6 +11,7 @@ import { Badge } from '../../components/common/Badge';
 import { LearnerOverview } from '../../components/learner/LearnerOverview';
 import { KnowledgeComponentGraph } from './KnowledgeComponentGraph';
 import { CalendarOverview } from '../../features/calendar/CalendarOverview';
+import { AnnouncementsOverview } from '../../features/announcements/AnnouncementsOverview';
 
 export const StudentDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -83,7 +84,7 @@ function StudentDashboardContent({ student }: { student: Student }) {
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_330px]">
         {live ? <LearnerOverview studentId={student.id} audience="student" /> : <p role="status" className="text-sm text-content-secondary">Loading your results…</p>}
-        <div className="xl:sticky xl:top-4"><CalendarOverview /></div>
+        <div className="space-y-4"><AnnouncementsOverview /><CalendarOverview /></div>
       </div>
 
       <details className="rounded-2xl border border-surface-border bg-white p-4 shadow-subtle">

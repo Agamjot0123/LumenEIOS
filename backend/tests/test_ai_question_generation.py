@@ -191,6 +191,38 @@ async def test_provider_requests_json_and_maps_failures():
     assert "secret detail" not in str(info.value)
 
 
+@pytest.mark.asyncio
+async def test_provider_retries_only_transient_api_errors(monkeypatch):
+    from google.genai import errors
+    from backend.app.services.ai_question_service import _WireResponse
+
+    monkeypatch.setattr(ai_gateway.GeminiProvider, "_RETRY_DELAYS", (0.0, 0.0))
+    calls = {"n": 0}
+
+    def provider(codes):
+        async def fn(model, contents, config):
+            i = calls["n"]; calls["n"] += 1
+            if i < len(codes):
+                raise errors.APIError(codes[i], {"error": {"message": "secret detail", "status": "X"}})
+            return pytypes.SimpleNamespace(text='{"questions": []}')
+        return ai_gateway.GeminiProvider("k", "m1", 5, client=pytypes.SimpleNamespace(
+            aio=pytypes.SimpleNamespace(models=pytypes.SimpleNamespace(generate_content=fn))))
+
+    # one 503 then success -> succeeds on the 2nd attempt
+    assert await provider([503]).generate_json(system="s", prompt="p", schema=_WireResponse) == '{"questions": []}'
+    assert calls["n"] == 2
+    # persistent 503 -> gives up after 3 attempts with the generic error
+    calls["n"] = 0
+    with pytest.raises(ai_gateway.AIProviderError) as info:
+        await provider([503, 503, 503, 503]).generate_json(system="s", prompt="p", schema=_WireResponse)
+    assert calls["n"] == 3 and "secret detail" not in str(info.value)
+    # a non-transient error (400) is not retried
+    calls["n"] = 0
+    with pytest.raises(ai_gateway.AIProviderError):
+        await provider([400, 400]).generate_json(system="s", prompt="p", schema=_WireResponse)
+    assert calls["n"] == 1
+
+
 # --- preview endpoint: new questions only, never the bank --------------------------------------
 
 @pytest.mark.asyncio

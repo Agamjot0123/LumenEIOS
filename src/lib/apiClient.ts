@@ -1344,6 +1344,9 @@ export const apiClient = {
     async getAll() {
       return request<any[]>('/notifications');
     },
+    markRead(id: string) {
+      return request<any>(`/notifications/${id}/read`, { method: 'POST' });
+    },
   },
   users: {
     list(params: { role?: string; school_id?: string; search?: string } = {}) {

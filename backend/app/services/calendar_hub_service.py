@@ -5,6 +5,7 @@ Sources (nothing is copied, so Academic Config stays the single source of truth)
   * lost teaching days: dates with lost periods recorded in the Time-Aware Engine
   * assessments (class tests / exams) for the classes the user teaches, attends or is the parent of
   * differentiated-homework deadlines (due_at)
+  * announcements the user was sent that carry an event date (read-only; never written into Academic Config)
   * the user's own tasks and deadlines (the only table this feature owns)
 
 Visibility is scoped by role on the server; the browser never decides what a user may see.
@@ -18,6 +19,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import user_school_ids
+from backend.app.services import announcement_service as announcements
 from backend.app.models.calendar_events import PersonalCalendarEvent
 from backend.app.models.entities import (
     Assessment, ClassSection, ParentStudentLink, School, Student, Subject, TeacherAssignment, User,
@@ -27,7 +29,7 @@ from backend.app.modules.differentiated_homework.models import HomeworkAssignmen
 from backend.app.modules.differentiated_homework.student_access import resolve_linked_student
 
 MAX_RANGE_DAYS = 400
-CATEGORIES = ("holiday", "vacation", "exam", "event", "session", "deadline", "lost", "personal")
+CATEGORIES = ("holiday", "vacation", "exam", "event", "session", "deadline", "lost", "personal", "announcement")
 _ENTRY_CATEGORY = {"HOLIDAY": "holiday", "VACATION": "vacation", "EXAM": "exam", "EVENT": "event"}
 
 
@@ -235,6 +237,18 @@ async def _personal_events(db: AsyncSession, user: User, lo: date, hi: date) -> 
     return out
 
 
+async def _announcement_events(db: AsyncSession, user: User, scope: Scope, lo: date, hi: date) -> List[Dict[str, Any]]:
+    if not scope.school_ids:
+        return []
+    rows = await announcements.visible_announcements(db, user, set(scope.school_ids), only_events=True)
+    out = []
+    for ann in rows:
+        start, end = parse_day(ann.event_start), parse_day(ann.event_end or ann.event_start)
+        if start and end and _overlaps(start, end, lo, hi):
+            out.append(announcements.calendar_event(ann))
+    return out
+
+
 async def collect_events(db: AsyncSession, user: User, school_id: Optional[str], lo: date, hi: date) -> Dict[str, Any]:
     if hi < lo:
         raise ValueError("The end date is before the start date.")
@@ -243,7 +257,8 @@ async def collect_events(db: AsyncSession, user: User, school_id: Optional[str],
     scope = await resolve_scope(db, user, school_id)
     school_events, meta = await _school_calendar_events(db, scope, lo, hi)
     events = (school_events + await _disruption_events(db, user, scope, lo, hi) + await _assessment_events(db, user, scope, lo, hi)
-              + await _homework_events(db, user, scope, lo, hi) + await _personal_events(db, user, lo, hi))
+              + await _homework_events(db, user, scope, lo, hi) + await _announcement_events(db, user, scope, lo, hi)
+              + await _personal_events(db, user, lo, hi))
     events.sort(key=lambda e: (e["start"], e["end"], e["category"], e["title"]))
     return {"start": lo.isoformat(), "end": hi.isoformat(), "events": events, "meta": meta}
 
@@ -260,7 +275,7 @@ async def upcoming_for_assistant(db: AsyncSession, user: User, school_id: Option
 
 
 _HIGHLIGHT_LABELS = {"exam": "next_exam_or_test", "deadline": "next_homework_deadline", "holiday": "next_holiday",
-                     "vacation": "next_vacation", "event": "next_school_event", "personal": "next_personal_task"}
+                     "vacation": "next_vacation", "event": "next_school_event", "announcement": "next_announced_event", "personal": "next_personal_task"}
 
 
 def assistant_highlights(items: List[Dict[str, Any]], today: date) -> Dict[str, Any]:

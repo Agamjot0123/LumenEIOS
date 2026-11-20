@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { apiClient } from '../../lib/apiClient';
-import type { School } from '../../types';
+import type { NotificationItem, School } from '../../types';
+import { ANNOUNCEMENT_COLOR } from '../../features/announcements/announcementsModel';
 import {
   Bell,
+  Megaphone,
   Search,
   Building2,
   ChevronDown,
@@ -49,9 +51,40 @@ export const Topbar: React.FC = () => {
     }).catch(() => {});
     return () => { active = false; };
   }, [currentSchoolId, localSchool]);
-  const userNotifications = notifications.filter(
-    (n) => !currentUser || n.userId === currentUser.id || n.userId === 'user-active'
-  );
+  // Announcement notifications come from the server (the rest of the bell is the offline demo's local list).
+  const [remote, setRemote] = useState<NotificationItem[]>([]);
+  useEffect(() => {
+    if (!currentUser) return;
+    let active = true;
+    const load = () => apiClient.notifications.getAll().then((rows: any[]) => {
+      if (!active) return;
+      setRemote(rows.filter((r) => r.type === 'announcement').map((r) => ({
+        id: r.id, userId: r.user_id, title: r.title, message: r.message, type: 'announcement' as const, read: !!r.is_read,
+        createdAt: r.created_at ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(r.created_at) ? r.created_at : `${r.created_at}Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '',
+        link: r.link || undefined,
+      })));
+    }).catch(() => undefined);
+    load();
+    const timer = window.setInterval(load, 60000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [currentUser?.id]);
+  const remoteIds = new Set(remote.map((n) => n.id));
+  const userNotifications = [
+    ...remote,
+    ...notifications.filter((n) => !currentUser || n.userId === currentUser.id || n.userId === 'user-active'),
+  ];
+  const openNotification = (notif: NotificationItem) => {
+    if (remoteIds.has(notif.id)) {
+      setRemote((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+      apiClient.notifications.markRead(notif.id).catch(() => undefined);
+    } else {
+      markNotificationAsRead(notif.id);
+    }
+    if (notif.link) {
+      navigate(notif.link);
+      setShowNotifMenu(false);
+    }
+  };
   const unreadCount = userNotifications.filter((n) => !n.read).length;
 
   const handleResetData = () => {
@@ -185,19 +218,17 @@ export const Topbar: React.FC = () => {
                   userNotifications.map((notif) => (
                     <div
                       key={notif.id}
-                      onClick={() => {
-                        markNotificationAsRead(notif.id);
-                        if (notif.link) {
-                          navigate(notif.link);
-                          setShowNotifMenu(false);
-                        }
-                      }}
+                      onClick={() => openNotification(notif)}
                       className={`p-3 text-xs cursor-pointer hover:bg-surface-bg transition-colors ${
                         !notif.read ? 'bg-teal-50/30' : ''
                       }`}
+                      style={notif.type === 'announcement' ? { borderLeft: `4px solid ${ANNOUNCEMENT_COLOR}` } : undefined}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="font-semibold text-content-primary">{notif.title}</span>
+                        <span className="font-semibold text-content-primary">
+                          {notif.type === 'announcement' && <Megaphone className="mr-1 inline h-3 w-3" style={{ color: ANNOUNCEMENT_COLOR }} aria-label="Announcement" />}
+                          {notif.title}
+                        </span>
                         <span className="text-[10px] text-content-muted shrink-0">{notif.createdAt}</span>
                       </div>
                       <p className="text-content-secondary mt-1 text-[11px] leading-relaxed">

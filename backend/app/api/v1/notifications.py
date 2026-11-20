@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.api.dependencies import get_current_user, require_roles, get_current_school_context
 from backend.app.db.session import get_db
 from backend.app.models.entities import Notification, Announcement, User
+from backend.app.services import announcement_service as announcements
 from backend.app.schemas.common import NotificationOut, AnnouncementCreate, AnnouncementOut
 
 router = APIRouter(tags=["Notifications & Announcements"], dependencies=[Depends(require_bearer_token)])
@@ -53,6 +54,18 @@ async def mark_all_notifications_read(
     return {"message": "All notifications marked as read."}
 
 
+@router.get("/announcements/options")
+async def announcement_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher")),
+    school_id: str = Depends(get_current_school_context),
+):
+    """What this sender may address: the three groups, and the classes whose students/parents they can reach."""
+    classes = await announcements.sendable_classes(db, current_user, school_id)
+    return {"audiences": list(announcements.AUDIENCE_ROLES), "classes": [{"id": c.id, "name": c.name} for c in classes],
+            "scope": "classes you teach" if current_user.role == "teacher" else "whole school"}
+
+
 @router.post("/announcements", response_model=AnnouncementOut)
 async def create_announcement(
     req: AnnouncementCreate,
@@ -60,18 +73,11 @@ async def create_announcement(
     current_user: User = Depends(require_roles("admin", "principal", "teacher")),
     school_id: str = Depends(get_current_school_context)
 ):
-    ann = Announcement(
-        school_id=school_id,
-        sender_id=current_user.id,
-        sender_name=current_user.name,
-        title=req.title,
-        content=req.content,
-        target_role=req.target_role
-    )
-    db.add(ann)
-    await db.commit()
-    await db.refresh(ann)
-    return ann
+    audience = req.audience if req.audience is not None else announcements.legacy_audience(req.target_role or "teacher")
+    ann, count = await announcements.create_announcement(
+        db, current_user, school_id, title=req.title, content=req.content, audience=audience,
+        class_ids=req.class_ids, event_start=req.event_start, event_end=req.event_end)
+    return announcements.to_out(ann, current_user, await announcements.class_names(db, [ann]), recipients=count)
 
 
 @router.get("/announcements", response_model=List[AnnouncementOut])
@@ -80,6 +86,16 @@ async def list_announcements(
     current_user: User = Depends(get_current_user),
     school_id: str = Depends(get_current_school_context)
 ):
-    res = await db.execute(select(Announcement).where(Announcement.school_id == school_id, Announcement.target_role.in_(["all",current_user.role])).order_by(Announcement.created_at.desc()))
-    return res.scalars().all()
+    scope = None if current_user.role in announcements.LEARNER_ROLES else {school_id}
+    rows = await announcements.visible_announcements(db, current_user, scope)
+    names = await announcements.class_names(db, rows)
+    return [announcements.to_out(a, current_user, names) for a in rows]
 
+
+@router.delete("/announcements/{announcement_id}", status_code=204)
+async def delete_announcement(
+    announcement_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "principal", "teacher")),
+):
+    await announcements.delete_announcement(db, current_user, announcement_id)

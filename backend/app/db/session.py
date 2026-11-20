@@ -66,6 +66,8 @@ async def init_db():
             "question_bank_items": {"topic": "VARCHAR(255)", "grade": "INTEGER"},
             "users": {"username": "VARCHAR(100)"},
             "students": {"admission_no": "VARCHAR(32)", "date_of_birth": "VARCHAR(10)"},
+            "announcements": {"sender_role": "VARCHAR(50)", "audience_json": "JSON", "class_ids_json": "JSON",
+                              "event_start": "VARCHAR(10)", "event_end": "VARCHAR(10)"},
         }
         for table, columns in additive.items():
             if not await conn.run_sync(lambda sync, t=table: inspect(sync).has_table(t)):

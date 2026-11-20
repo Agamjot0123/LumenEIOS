@@ -199,9 +199,9 @@ export const Sidebar: React.FC<{ mobile?: boolean }> = ({ mobile = false }) => {
     }
   };
 
-  // Everyone with a school login gets the same calendar, right after their dashboard.
+  // Everyone with a school login gets announcements and the same calendar, right after their dashboard.
   const baseItems = getNavItems();
-  if (role !== 'developer' && baseItems.length) baseItems.splice(1, 0, { label: 'Calendar', path: '/calendar', icon: <CalendarDays className="w-4 h-4" /> });
+  if (role !== 'developer' && baseItems.length) baseItems.splice(1, 0, { label: 'Announcements & Calendar', path: '/calendar', icon: <CalendarDays className="w-4 h-4" /> });
   const navItems = baseItems.concat({ label: 'LearnSphere', path: '/learnsphere', icon: <BookOpen className="w-4 h-4" /> }).filter((item) => {
     if (item.path === '/teacher/assessments' && !flags.questionStudio) return false;
     if (item.path === '/upload' && !flags.uploadBeta) return false;
