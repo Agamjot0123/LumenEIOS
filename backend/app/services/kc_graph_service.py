@@ -17,6 +17,7 @@ import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Iterable, Optional
 
 from pydantic import BaseModel, Field
@@ -658,6 +659,7 @@ async def apply_reliable_evaluation(
     source_key: str,
     result: EvaluationResult,
     mappings: dict[str, list[tuple[str, float]]],
+    assessed_at: Optional[datetime] = None,
 ) -> None:
     previous = await db.execute(
         select(StudentKcAttempt.kc_id).where(
@@ -672,7 +674,7 @@ async def apply_reliable_evaluation(
             StudentKcAttempt.source_key == source_key,
         )
     )
-    assessed_at = utc_now()
+    assessed_at = assessed_at or utc_now()
     for item in result.question_evaluations:
         for kc_id, relevance in mappings.get(item.question_id, []):
             affected.add(kc_id)
@@ -692,6 +694,54 @@ async def apply_reliable_evaluation(
             ))
     await db.flush()
     await _recompute_mastery(db, student_id, affected)
+
+
+async def record_teacher_confirmed_marks(
+    db: AsyncSession,
+    *,
+    assessment,
+    student_id: str,
+    source_key: str,
+    marks: dict[int, float],
+    assessed_at: Optional[datetime] = None,
+) -> int:
+    """Teacher-confirmed marks (a published handwritten grade or a reviewed online quiz) update the concept graph.
+
+    Only concept links the paper already has are used (frozen `kc_mappings` on the question, or links stored for
+    the same question text); no model is asked. `marks` maps the 1-based question number to the awarded marks.
+    The same `source_key` replaces earlier rows, so a corrected grade never counts twice. Returns how many
+    questions reached the graph."""
+    allowed = {item.id for item in await _catalogue(db, assessment.subject_id)}
+    if not allowed:
+        return 0
+    evaluations, mappings = [], {}
+    for index, question in enumerate(assessment.questions_json or [], start=1):
+        if not isinstance(question, dict) or index not in marks or question.get("competency") not in DIMENSIONS:
+            continue
+        maximum = float(question.get("marks") or 0)
+        if maximum <= 0 or marks[index] is None:
+            continue
+        question_id = str(index)
+        links = published_links(question, allowed)
+        if links is None:
+            digest = question_text_hash(question.get("text") or "")
+            links = [(row.kc_id, float(row.relevance)) for row in await _stored_mappings(db, assessment.id, question_id)
+                     if row.kc_id in allowed and row.question_text_hash == digest]
+        if not links:
+            continue
+        awarded = max(0.0, min(maximum, float(marks[index])))
+        mappings[question_id] = links
+        evaluations.append(SimpleNamespace(
+            question_id=question_id, competency=question["competency"], status="attempted",
+            competency_score=round(100 * awarded / maximum, 1), awarded_marks=awarded, max_marks=maximum,
+        ))
+    if not evaluations:
+        return 0
+    await apply_reliable_evaluation(
+        db, student_id=student_id, assessment_id=assessment.id, source_key=source_key,
+        result=SimpleNamespace(question_evaluations=evaluations), mappings=mappings, assessed_at=assessed_at,
+    )
+    return len(evaluations)
 
 
 async def record_knowledge_graph(db: AsyncSession, context: dict, result: EvaluationResult) -> None:

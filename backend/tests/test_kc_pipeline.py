@@ -220,6 +220,9 @@ async def test_published_mapping_is_what_ocr_updates(client, db_session, monkeyp
     provider = FakeProvider()
     monkeypatch.setattr(ocr_api, "get_ai_provider", lambda: provider)
     monkeypatch.setattr(kc_graph_service, "get_ai_provider", lambda: provider)
+    # Evaluation defaults to the local Qwen provider; keep this test offline and deterministic.
+    monkeypatch.setattr(ocr_api, "QwenTextProvider", lambda: provider)
+    monkeypatch.setattr(kc_graph_service, "QwenTextProvider", lambda: provider)
 
     async def evaluate(text, history_id=None):
         body = {"assessment_id": assessment_id, "extracted_text": text}

@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # SecretStr so it never appears in settings reprs, logs or errors. Empty = AI disabled.
     GEMINI_API_KEY: SecretStr = SecretStr("")
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    # Text-only LearnSphere / Question Studio steps (Teach-Back feedback, written marking, Panchapadi, competency
+    # analysis, guidance): "qwen" (local GPU, default) or "gemini" (cloud, faster). Images always use Qwen.
+    LEARNSPHERE_TEXT_PROVIDER: str = "qwen"
     AI_REQUEST_TIMEOUT_SECONDS: float = 60.0
 
     # Local Qwen model for Question Studio Beta and the assistant.

@@ -178,3 +178,27 @@ async def test_publication_with_foreign_key_enforcement(client,learning,db_sessi
         await db_session.close()
         from backend.app.db.session import engine
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_teacher_review_nudges_live_parameters_once_instead_of_overwriting(client,learning,db_session):
+    l=learning;a=await assessment(client,l)
+    before=await db_session.get(Student,l.student)
+    start={c:getattr(before,c) for c in ('lu_score','cu_score','au_score','ct_score')}
+    result=(await client.post(f"/api/v1/assessments/{a['id']}/answers",headers=l.headers['student'],json=answers())).json()
+    path=f"/api/v1/assessments/results/{result['id']}/review"
+    first=await client.post(path,headers=l.headers['teacher'],json=review(result))  # CU 2/2 = 100, LU 0/2 = 0
+    assert first.status_code==200,first.text
+    weight=round(0.1+0.3*4/25,3)
+    db_session.expire_all()
+    after=await db_session.get(Student,l.student)
+    assert after.cu_score==round(start['cu_score']+weight*(100-start['cu_score']))
+    assert after.lu_score==round(start['lu_score']+weight*(0-start['lu_score']))
+    assert after.cu_score<100 and after.lu_score>0  # one quiz never replaces the whole profile
+    assert (after.au_score,after.ct_score)==(start['au_score'],start['ct_score'])  # untested dimensions stay
+    moved={c:getattr(after,c) for c in ('lu_score','cu_score')}
+    body=review(first.json());body['questions'][0]['score']=1
+    assert (await client.post(path,headers=l.headers['teacher'],json=body)).status_code==200
+    db_session.expire_all()
+    again=await db_session.get(Student,l.student)
+    assert {c:getattr(again,c) for c in ('lu_score','cu_score')}==moved  # a corrected review does not move them twice

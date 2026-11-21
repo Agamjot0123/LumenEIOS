@@ -995,6 +995,32 @@ def build_source_passages(pdf_pages: List[str], web_sources: List[WebSource]) ->
     return passages
 
 
+def _text_provider() -> str:
+    from backend.app.core.config import settings
+    return (getattr(settings, "LEARNSPHERE_TEXT_PROVIDER", "qwen") or "qwen").strip().lower()
+
+
+def _gemini_text(prompt: str, *, json_output: bool) -> str:
+    """Send one text-only prompt to the configured Gemini model (LEARNSPHERE_TEXT_PROVIDER=gemini)."""
+    from google.genai import types
+    from backend.app.services.ai_gateway import AIGatewayError, get_ai_provider
+
+    try:
+        provider = get_ai_provider()
+        config = types.GenerateContentConfig(response_mime_type="application/json" if json_output else "text/plain")
+        call = lambda: asyncio.run(provider._generate(prompt, config))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return call()
+        # Called from inside an event loop: run the request on a short-lived worker thread instead.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(call).result()
+    except AIGatewayError as exc:
+        raise QwenQuestionStudioInferenceError(f"Gemini: {exc}") from exc
+
+
 class QwenQuestionStudioService:
     async def assessment_question_guidance(self, question, response, outcome, stages):
         from backend.app.schemas.assessment_learning import QuestionGuidance
@@ -1260,6 +1286,13 @@ class QwenQuestionStudioService:
         if image is not None:
             with Image.open(BytesIO(image)) as page:
                 content.insert(0, {"type": "image", "image": page.convert("RGB")})
+        if image is None and _text_provider() == "gemini":
+            if report_step:
+                report_progress(report_step, "Gemini is generating the questions", 0, 0)
+            text = _gemini_text(prompt, json_output=output_schema is not None)
+            if report_step:
+                report_progress(report_step, "Gemini finished generating the questions", len(text), 0)
+            return text
         if report_step:
             report_progress(report_step, "Qwen is generating the questions", 0, 0)
         try:

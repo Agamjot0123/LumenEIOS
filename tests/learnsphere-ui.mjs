@@ -63,7 +63,7 @@ try {
   await fill('Your explanation or findings','Evaporation is liquid changing to vapour.');await click('Save explanation and evaluate');
   await waitFor(`document.body.textContent.includes('Ollama unavailable')`);
   assert.equal(assignments[0].attempts.length,1,'AI failure retains one response');
-  aiUnavailable=false;await click('Evaluate with Qwen');await waitFor(`document.body.textContent.includes('Explain energy transfer.')`);
+  aiUnavailable=false;await click('Evaluate with AI');await waitFor(`document.body.textContent.includes('Explain energy transfer.')`);
   assert.equal(assignments[0].attempts.length,1,'retry does not duplicate attempts');
   console.log('PASS student response persistence, visible AI failure, retry and structured feedback');
   role='teacher';await navigate('/learnsphere/teach-back');
@@ -73,7 +73,7 @@ try {
   await waitFor(`document.body.textContent.includes('Teacher-verified feedback')`);
   assert.equal(assignments[0].attempts[0].completed,true);
   role='parent';await navigate('/learnsphere/teach-back');
-  assert.equal(await evaluate(`!!${button('Evaluate with Qwen')}`),false,'parent has read-only feedback');
+  assert.equal(await evaluate(`!!${button('Evaluate with AI')}`),false,'parent has read-only feedback');
   assert.equal(await evaluate(`!!${control('Your explanation or findings')}`),false,'parent cannot submit');
   await navigate('/learnsphere/missions');await waitFor(`document.body.textContent.includes('No activities of this type have been assigned yet.')`);
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true},session);

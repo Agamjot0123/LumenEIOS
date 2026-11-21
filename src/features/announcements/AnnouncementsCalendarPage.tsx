@@ -23,6 +23,8 @@ export const AnnouncementsCalendarPage: React.FC = () => {
   const [toast, setToast] = useState('');
   const [confirming, setConfirming] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  // Bumped when an announcement is sent or removed, so the calendar below reloads its events too.
+  const [calendarVersion, setCalendarVersion] = useState(0);
   const canSend = !!currentUser && SENDER_ROLES.includes(currentUser.role);
 
   // Arriving from a notification: bring that announcement into view.
@@ -37,6 +39,7 @@ export const AnnouncementsCalendarPage: React.FC = () => {
       await announcementsApi.remove(a.id);
       setConfirming(null);
       reload();
+      setCalendarVersion((v) => v + 1);
     } catch (err: any) {
       setActionError(err?.message || 'Could not remove this announcement.');
     }
@@ -111,12 +114,12 @@ export const AnnouncementsCalendarPage: React.FC = () => {
         )}
       </section>
 
-      <CalendarPage />
+      <CalendarPage key={calendarVersion} />
 
       <AnnouncementComposer
         isOpen={composing}
         onClose={() => setComposing(false)}
-        onSent={(message) => { setComposing(false); setToast(message); reload(); setTimeout(() => setToast(''), 6000); }}
+        onSent={(message) => { setComposing(false); setToast(message); reload(); setCalendarVersion((v) => v + 1); setTimeout(() => setToast(''), 6000); }}
       />
     </div>
   );

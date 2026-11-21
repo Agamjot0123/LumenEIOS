@@ -24,6 +24,7 @@ from backend.app.models.entities import (
     Assessment, AssessmentSubmission, AssignmentOcrUpload, AuditEvent, ClassSection, Notification,
     ParentStudentLink, Student, StudentOcrHistory, Subject, User, utc_now,
 )
+from backend.app.services.kc_graph_service import record_teacher_confirmed_marks
 from backend.app.services.competency_update import (
     DIMENSIONS, apply_observation, clamp, dimension_scores_from_questions, snapshot,
 )
@@ -180,6 +181,12 @@ async def publish_grade(
                         assessment_id=assessment_id, submission_id=submission.id,
                         notes=f"Graded: {assessment.title} ({obtained}/{total})"))
 
+    # Teacher-confirmed marks also reach the concept graph through the paper's confirmed concept links.
+    await record_teacher_confirmed_marks(
+        db, assessment=assessment, student_id=student.id,
+        source_key=req.history_id or f"submission:{submission.id}",
+        marks={item.question_index: item.awarded_marks for item in req.items},
+    )
     subject = await db.get(Subject, assessment.subject_id)
     message = (f"{student.name} scored {obtained}/{total} ({pct}%) in {assessment.title}."
                + (f" Teacher's note: {req.overall_feedback}" if req.overall_feedback else ""))

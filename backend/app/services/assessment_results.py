@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from backend.app.models.entities import Assessment, AssessmentSubmission, Student, ClassSection, StudentCompetencySnapshot, utc_now
+from backend.app.services.competency_update import apply_observation
 from backend.app.modules.learnsphere.access import require_class, require_student
 from backend.app.modules.learnsphere.models import LearningTopic
 from backend.app.modules.learnsphere.assessment_models import AssessmentResultRecord
@@ -134,12 +135,13 @@ async def publish(db, result, assessment, student, outcomes, verified):
     # remain compatibility placeholders; the adapter exclusively reads question outcomes.
     for c in CODES:
         setattr(submission, c.lower()+"_score", scores.get(c, 0))
-        if verified and c in scores:
-            setattr(student, c.lower()+"_score", scores[c])
     submission.overall_score = round(sum(scores.values()) / len(scores))
     submission.feedback = result.reviews_json[-1]["feedback"] if verified else "Automatically scored against stored MCQ keys; not teacher verified."
-    if verified:
-        student.overall_score = submission.overall_score
+    if verified and len(result.reviews_json) == 1:
+        # Like every other graded work, the first teacher-verified result nudges the live parameters
+        # (weighted by how much evidence it carries) instead of overwriting them. Later review
+        # revisions correct the marks only; the parameters already moved once for this work.
+        apply_observation(student, scores, weight=round(0.1 + 0.3 * min(1.0, maximum / 25), 3))
     try:
         # The submission relationship orders parent/child writes for PostgreSQL
         # and SQLite connections that enable foreign-key enforcement.
@@ -236,6 +238,13 @@ async def review_result(db, user, record_id, body):
             "stages": calculate_stages(result.questions_json, outcomes, mapping, verified=True)}
     result.reviews_json = [*result.reviews_json, revision]
     await publish(db, result, assessment, student, outcomes, verified=True)
+    # The teacher-reviewed marks also reach the concept graph (only through the paper's confirmed concept links).
+    from backend.app.services.kc_graph_service import record_teacher_confirmed_marks
+    await record_teacher_confirmed_marks(
+        db, assessment=assessment, student_id=student.id, source_key=f"assessment-result:{result.id}",
+        marks={o["position"] + 1: o["score"] for o in outcomes if o["score"] is not None},
+        assessed_at=result.submitted_at,
+    )
     await commit(db)
     return result_out(result, assessment, educator=True)
 

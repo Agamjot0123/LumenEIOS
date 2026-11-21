@@ -1,6 +1,7 @@
 """Catalogue maintenance for teachers, and the signed-in student's own graph."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.dependencies import require_roles
@@ -112,7 +113,7 @@ async def preview_demo_walkthrough(
     teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
     try:
-        return await kc_demo_walkthrough.prepare_demo(db, teacher, subject_id)
+        return await _retry_once_if_raced(db, lambda: kc_demo_walkthrough.prepare_demo(db, teacher, subject_id))
     except LookupError as exc:
         raise _demo_error(exc) from None
 
@@ -124,9 +125,19 @@ async def run_demo_walkthrough(
     teacher: User = Depends(require_roles("admin", "principal", "teacher", authenticated=True)),
 ):
     try:
-        return await kc_demo_walkthrough.evaluate_demo(db, teacher, subject_id)
+        return await _retry_once_if_raced(db, lambda: kc_demo_walkthrough.evaluate_demo(db, teacher, subject_id))
     except LookupError as exc:
         raise _demo_error(exc) from None
+
+
+async def _retry_once_if_raced(db: AsyncSession, run):
+    """The walkthrough creates its sample rows on first use. Two requests for the same subject at once (for example
+    React's development double render) can both try to insert them; the loser retries once and finds the rows."""
+    try:
+        return await run()
+    except (IntegrityError, OperationalError):
+        await db.rollback()
+        return await run()
 
 
 def _demo_error(exc: LookupError) -> HTTPException:

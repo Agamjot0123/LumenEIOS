@@ -196,7 +196,7 @@ async def test_provider_retries_only_transient_api_errors(monkeypatch):
     from google.genai import errors
     from backend.app.services.ai_question_service import _WireResponse
 
-    monkeypatch.setattr(ai_gateway.GeminiProvider, "_RETRY_DELAYS", (0.0, 0.0))
+    monkeypatch.setattr(ai_gateway.GeminiProvider, "RETRY_DELAYS", (0.0, 0.0))
     calls = {"n": 0}
 
     def provider(codes):
@@ -211,9 +211,9 @@ async def test_provider_retries_only_transient_api_errors(monkeypatch):
     # one 503 then success -> succeeds on the 2nd attempt
     assert await provider([503]).generate_json(system="s", prompt="p", schema=_WireResponse) == '{"questions": []}'
     assert calls["n"] == 2
-    # persistent 503 -> gives up after 3 attempts with the generic error
+    # persistent 503 -> gives up after 3 attempts with a clear overload error
     calls["n"] = 0
-    with pytest.raises(ai_gateway.AIProviderError) as info:
+    with pytest.raises(ai_gateway.AIProviderBusy) as info:
         await provider([503, 503, 503, 503]).generate_json(system="s", prompt="p", schema=_WireResponse)
     assert calls["n"] == 3 and "secret detail" not in str(info.value)
     # a non-transient error (400) is not retried
