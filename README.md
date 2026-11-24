@@ -3,7 +3,7 @@
 **Current integration:** the default frontend is the live, authenticated homework workspace.
 The historical multi-role dashboards described below are available only with explicit
 `VITE_DEMO_MODE=true` and are offline demonstrations. They cannot write to the live backend.
-See [deployment readiness](../../docs/deployment-readiness.md) for production configuration,
+See [deployment readiness](docs/deployment.md) for production configuration,
 security boundaries, provisioning/migration gates and verification limitations.
 
 

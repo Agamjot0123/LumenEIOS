@@ -1,6 +1,6 @@
 # LumenEIOS — Final acceptance report
 
-> **Superseded:** this report describes an earlier acceptance run, not the current isolated takeover demo. See [`docs/FINAL_ACCEPTANCE_REPORT.md`](../../../docs/FINAL_ACCEPTANCE_REPORT.md) for current tests, hashes, browser evidence, and limitations.
+> **Superseded:** this report describes an earlier acceptance run, not the current isolated takeover demo. See [`docs/FINAL_ACCEPTANCE_REPORT.md`](project/FINAL_ACCEPTANCE_REPORT.md) for current tests, hashes, browser evidence, and limitations.
 
 Two parts. **Part A** covers the Curriculum Catalogue (syllabus and coverage) and Time-Aware Engine assignment: one catalogue, one syllabus source of truth, one coverage state. **Part B** is the platform acceptance (authentication, planning workspace security, calendar, recovery, approval) re-run on the final code. Neither part claims the underlying syllabus is complete or verified; it is demonstration data.
 

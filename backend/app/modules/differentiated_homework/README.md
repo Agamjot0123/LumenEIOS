@@ -643,7 +643,7 @@ All paths are under `/api/v1`.
 
 ## Integration with other modules
 
-See [the API contract](../../../../../../docs/api-contracts/differentiated-homework.md). **Those interfaces are proposed and haven't been agreed with the owning teammates.**
+See [the API contract](../../../../docs/project/api-contracts/differentiated-homework.md). **Those interfaces are proposed and haven't been agreed with the owning teammates.**
 
 
 ## Reliability audit and deployment limitations
@@ -738,7 +738,7 @@ The default frontend now uses the real authenticated homework API, explicit iden
 versioned saves and released results. Student/parent demo identities are never used by the
 live workspace. The offline demonstration is opt-in, isolated from backend writes, and uses
 separate browser storage. The live bank no longer falls back to cached/bundled teaching keys.
-See [deployment readiness](../../../../../../docs/deployment-readiness.md) for the complete
+See [deployment readiness](../../../../docs/deployment.md) for the complete
 assessment security matrix, frontend compatibility, environment checklist, migration gates,
 remaining platform risks and required team decisions. Earlier caller/cache observations above
 describe the pre-integration audit; this section and the deployment checklist describe current behavior.
@@ -750,7 +750,7 @@ now real-login educator-only and school/class scoped; their existing authorized 
 is preserved. No new grading algorithm is used in either frontend or homework services.
 
 
-The full platform stabilization audit is recorded in [release readiness](../../../../../../docs/release-readiness.md).
+The full platform stabilization audit is recorded in [final acceptance report](../../../../docs/project/FINAL_ACCEPTANCE_REPORT.md).
 All protected API operations require a real bearer token, and non-finite JSON is rejected by the
 shared API dependency. Database faults return a redacted 500 without exposing SQL parameters;
 rollback/audit assertions remain tested. No homework academic rules or snapshots changed.

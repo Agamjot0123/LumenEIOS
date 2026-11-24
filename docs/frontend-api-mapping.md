@@ -3,7 +3,7 @@
 **Current live integration:** `src/pages/homework/LiveApp.tsx` uses authenticated homework and
 question-bank contracts through `src/lib/apiClient.ts`. The legacy screens mapped below are
 an opt-in offline demonstration and cannot call the live backend. See
-[release readiness](../../../docs/release-readiness.md) for verified live workflows, browser tests
+[final acceptance report](project/FINAL_ACCEPTANCE_REPORT.md) for verified live workflows, browser tests
 and security/error contracts. Parent lookup currently uses school-supplied student/assignment IDs;
 there is no authorized parent homework-discovery API or automatic token-refresh endpoint.
 
